@@ -848,6 +848,10 @@ class ComicLibrary {
     return this.progress.merge(input);
   }
 
+  async applyProgressBatch(input) {
+    return this.progress.applyBatch(input);
+  }
+
   async scan(input = {}) {
     if (this.scanState.running) {
       throw jsonError("A library scan is already running.", "SCAN_RUNNING");

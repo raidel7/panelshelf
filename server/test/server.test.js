@@ -273,6 +273,39 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   assert.equal(merged.status, 200);
   assert.equal((await merged.json())[comicId].pageIndex, 4);
 
+  // The stored record now carries a far-future stamp, which merge would prefer
+  // over any real client's. A batch is a deliberate write: it wins regardless.
+  const batched = await fetch(`${progressBase}/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      records: {
+        [comicId]: {
+          pageIndex: 1,
+          pageCount: 5,
+          completed: true,
+          lastReadAt: "2000-01-01T00:00:00.000Z"
+        }
+      },
+      deleted: ["f".repeat(24)]
+    })
+  });
+  assert.equal(batched.status, 200);
+  const batchedRecords = await batched.json();
+  assert.equal(batchedRecords[comicId].pageIndex, 1);
+  assert.equal(batchedRecords[comicId].completed, true);
+  assert.ok(
+    Date.parse(batchedRecords[comicId].lastReadAt) < Date.parse("2099-01-01T00:00:00.000Z"),
+    "the server restamps a batched record with its own clock"
+  );
+
+  const badBatch = await fetch(`${progressBase}/batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deleted: "nope" })
+  });
+  assert.equal(badBatch.status, 400);
+
   const removed = await fetch(`${progressBase}/${comicId}`, { method: "DELETE" });
   assert.equal(removed.status, 200);
   assert.deepEqual(await removed.json(), { deleted: true, id: comicId });

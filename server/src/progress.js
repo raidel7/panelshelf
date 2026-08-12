@@ -172,6 +172,40 @@ class ProgressStore {
     await this.persist();
   }
 
+  // A deliberate, user-initiated bulk write: unlike merge, every supplied
+  // record is stamped with server time and applied unconditionally, so a
+  // client with a skewed clock cannot have its own action discarded. The whole
+  // batch is validated before anything is applied, and lands in one write.
+  async applyBatch(input) {
+    if (!plainObject(input)) {
+      throw jsonError("Batch must be an object.", "INVALID_PROGRESS");
+    }
+    const { records = {}, deleted = [] } = input;
+    if (!plainObject(records)) {
+      throw jsonError("Batch records must be an object.", "INVALID_PROGRESS");
+    }
+    if (!Array.isArray(deleted)) {
+      throw jsonError("Batch deletions must be an array.", "INVALID_PROGRESS");
+    }
+    const lastReadAt = new Date().toISOString();
+    const staged = {};
+    for (const [comicId, candidate] of Object.entries(records)) {
+      if (!COMIC_ID.test(comicId)) {
+        throw jsonError("Comic not found.", "NOT_FOUND");
+      }
+      staged[comicId] = { ...normalizeRecord(candidate), lastReadAt };
+    }
+    for (const comicId of deleted) {
+      if (typeof comicId !== "string" || !COMIC_ID.test(comicId)) {
+        throw jsonError("Comic not found.", "NOT_FOUND");
+      }
+    }
+    Object.assign(this.records, staged);
+    for (const comicId of deleted) delete this.records[comicId];
+    await this.persist();
+    return this.exportData();
+  }
+
   async merge(input) {
     this.records = mergeRecords(this.records, input);
     await this.persist();

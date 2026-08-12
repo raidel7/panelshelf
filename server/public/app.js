@@ -1590,6 +1590,13 @@ function progressPercent(comic) {
 
 const progressPushTimers = new Map();
 
+// Comics sent in a batch since the current read started. A batch is dispatched
+// immediately rather than debounced, so it leaves no timer behind for
+// loadProgressFromServer's reconciliation to notice; without this, a batch that
+// raced an in-flight GET would be overwritten by the server's older records and
+// the user's change would silently revert until the next refresh.
+const batchedComicIds = new Set();
+
 function readProgressMigrated() {
   try {
     return localStorage.getItem(PROGRESS_MIGRATED_KEY) === "1";
@@ -1658,49 +1665,39 @@ function pushProgress(comicId) {
 
 // A whole-collection change would otherwise schedule one request per comic;
 // on a tab close those all fire at once and browsers silently drop keepalive
-// bodies past a 64KB total. One merge carries every surviving record instead.
-// Removals still need their own requests, since merge cannot delete.
+// bodies past a 64KB total. One batch carries every record and every removal
+// instead. It posts to /api/progress/batch rather than /api/progress/merge
+// because this is a deliberate user action: the server stamps and applies it
+// unconditionally, where merge would compare this browser's clock against the
+// stored record and could silently discard the change.
 function pushProgressBatch(comicIds, keepalive = false) {
   const records = {};
-  const removed = [];
+  const deleted = [];
   for (const comicId of comicIds) {
     clearTimeout(progressPushTimers.get(comicId));
     progressPushTimers.delete(comicId);
+    batchedComicIds.add(comicId);
     const record = state.progress[comicId];
     if (record) records[comicId] = record;
-    else removed.push(comicId);
+    else deleted.push(comicId);
   }
-  const sends = [];
-  if (Object.keys(records).length > 0) {
-    sends.push(
-      fetch("/api/progress/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ records }),
-        keepalive
-      }).catch(() => {})
-    );
+  if (Object.keys(records).length === 0 && deleted.length === 0) {
+    return Promise.resolve();
   }
-  for (const comicId of removed) {
-    sends.push(
-      fetch(`/api/progress/${comicId}`, { method: "DELETE", keepalive }).catch(
-        () => {}
-      )
-    );
-  }
-  return Promise.all(sends);
+  return fetch("/api/progress/batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ records, deleted }),
+    keepalive
+  }).catch(() => {
+    // The local copy is authoritative until the server is reachable again.
+  });
 }
 
 // A tab closed inside the debounce window would otherwise drop its last write,
 // and a read that overtook a pending write would push the stale value back.
 function flushPendingProgress() {
-  const sends = [];
-  for (const [comicId, timer] of progressPushTimers) {
-    clearTimeout(timer);
-    sends.push(sendProgress(comicId, true));
-  }
-  progressPushTimers.clear();
-  return Promise.all(sends);
+  return pushProgressBatch([...progressPushTimers.keys()], true);
 }
 
 async function loadProgressFromServer() {
@@ -1718,13 +1715,17 @@ async function loadProgressFromServer() {
       if (!response.ok) throw new Error("Progress migration failed.");
       markProgressMigrated();
     }
+    // Cleared here so that anything batched from now on is known to have raced
+    // this read, and is reconciled below alongside the debounced writes.
+    batchedComicIds.clear();
     const response = await fetch("/api/progress");
     if (!response.ok) throw new Error("Progress is unavailable.");
     const remote = await response.json();
-    // A page turn during the in-flight request is still only queued locally.
-    // Replacing it with the server's older record would lose the turn, and the
-    // pending push would then send that older record back with a fresh stamp.
-    for (const comicId of progressPushTimers.keys()) {
+    // A page turn or a collection change during the in-flight request has not
+    // reached this response. Replacing it with the server's older record would
+    // lose the change, and a pending push would then send that older record
+    // back with a fresh stamp.
+    for (const comicId of [...progressPushTimers.keys(), ...batchedComicIds]) {
       if (local[comicId]) remote[comicId] = local[comicId];
       else delete remote[comicId];
     }

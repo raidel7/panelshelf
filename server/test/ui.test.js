@@ -153,24 +153,41 @@ const progressSource = (async () => {
     start > 0 && end > start,
     "app.js must keep the progress block between its usual anchors"
   );
-  return `${constants[0]}\n${source.slice(start, end)}`;
+  // The flush wiring lives with the other listeners at the bottom of the file,
+  // so it is spliced in separately rather than being restated here.
+  const wiring = source.match(
+    /^document\.addEventListener\("visibilitychange",[\s\S]*?^window\.addEventListener\("pagehide", flushPendingProgress\);$/m
+  );
+  assert.ok(wiring, "app.js must flush pending progress on hide and unload");
+  return `${constants[0]}\n${source.slice(start, end)}\n${wiring[0]}`;
 })();
 
 function progressSandbox(options = {}) {
   const calls = [];
   const timers = new Map();
   const storage = new Map();
+  const listeners = new Map();
   let nextTimer = 1;
   if (options.migrated) storage.set("panelshelf.progress.migrated.v1", "1");
 
   const context = {
     state: { progress: { ...(options.progress || {}) } },
     localStorage: {
-      getItem: (key) => (storage.has(key) ? storage.get(key) : null),
+      getItem: (key) => {
+        if (options.storageUnreadable) throw new Error("SecurityError");
+        return storage.has(key) ? storage.get(key) : null;
+      },
       setItem: (key, value) => {
         if (options.storageFails) throw new Error("QuotaExceededError");
         storage.set(key, value);
       }
+    },
+    document: {
+      visibilityState: "visible",
+      addEventListener: (type, handler) => listeners.set(type, handler)
+    },
+    window: {
+      addEventListener: (type, handler) => listeners.set(type, handler)
     },
     setTimeout: (fn) => {
       const id = nextTimer++;
@@ -182,7 +199,8 @@ function progressSandbox(options = {}) {
       calls.push({
         url,
         method: init.method || "GET",
-        body: init.body ? JSON.parse(init.body) : null
+        body: init.body ? JSON.parse(init.body) : null,
+        keepalive: Boolean(init.keepalive)
       });
       if (options.fetchFails) return Promise.reject(new Error("offline"));
       if (url === "/api/progress") {
@@ -213,7 +231,18 @@ function progressSandbox(options = {}) {
       timers.clear();
       for (const fn of pending) fn();
     },
-    pendingTimers: () => timers.size
+    pendingTimers: () => timers.size,
+    fire: (type) => {
+      const handler = listeners.get(type);
+      assert.ok(handler, `app.js must register a ${type} listener`);
+      return handler();
+    },
+    hide: () => {
+      context.document.visibilityState = "hidden";
+      const handler = listeners.get("visibilitychange");
+      assert.ok(handler, "app.js must register a visibilitychange listener");
+      return handler();
+    }
   };
 }
 
@@ -232,7 +261,8 @@ test("repeated writes to one comic coalesce into a single PUT", async () => {
   assert.deepEqual(sandbox.calls[0], {
     url: `/api/progress/${COMIC_A}`,
     method: "PUT",
-    body: { pageIndex: 2, pageCount: 9 }
+    body: { pageIndex: 2, pageCount: 9 },
+    keepalive: false
   });
   assert.equal(
     JSON.parse(sandbox.storage.get("panelshelf.progress.v1"))[COMIC_A].pageIndex,
@@ -252,11 +282,11 @@ test("clearing a comic's progress sends a DELETE", async () => {
   sandbox.fireTimers();
 
   assert.deepEqual(sandbox.calls, [
-    { url: `/api/progress/${COMIC_A}`, method: "DELETE", body: null }
+    { url: `/api/progress/${COMIC_A}`, method: "DELETE", body: null, keepalive: false }
   ]);
 });
 
-test("a whole-collection change sends one merge plus deletes, not one request per comic", async () => {
+test("a whole-collection change sends one batch, not one request per comic", async () => {
   const sandbox = progressSandbox({
     migrated: true,
     progress: {
@@ -271,17 +301,17 @@ test("a whole-collection change sends one merge plus deletes, not one request pe
   );
 
   assert.equal(sandbox.pendingTimers(), 0, "a batch is sent without debouncing");
-  assert.equal(sandbox.calls.length, 2);
-  assert.deepEqual(sandbox.calls[0], {
-    url: "/api/progress/merge",
-    method: "POST",
-    body: { records: { [COMIC_A]: { pageIndex: 8, completed: true } } }
-  });
-  assert.deepEqual(sandbox.calls[1], {
-    url: `/api/progress/${COMIC_B}`,
-    method: "DELETE",
-    body: null
-  });
+  assert.deepEqual(sandbox.calls, [
+    {
+      url: "/api/progress/batch",
+      method: "POST",
+      body: {
+        records: { [COMIC_A]: { pageIndex: 8, completed: true } },
+        deleted: [COMIC_B]
+      },
+      keepalive: false
+    }
+  ]);
 });
 
 test("local progress migrates once, in order, and marks the browser migrated", async () => {
@@ -375,9 +405,10 @@ test("a page turn during the read survives instead of being overwritten", async 
     {
       url: `/api/progress/${COMIC_A}`,
       method: "PUT",
-      body: { pageIndex: 4 }
+      body: { pageIndex: 4 },
+      keepalive: false
     },
-    { url: `/api/progress/${COMIC_B}`, method: "DELETE", body: null }
+    { url: `/api/progress/${COMIC_B}`, method: "DELETE", body: null, keepalive: false }
   ]);
 });
 
@@ -399,5 +430,79 @@ test("an unreachable server leaves the cached progress alone", async () => {
   assert.equal(
     JSON.parse(sandbox.storage.get("panelshelf.progress.v1"))[COMIC_A].pageIndex,
     7
+  );
+});
+
+test("a collection change made during the read is not reverted by the server", async () => {
+  const sandbox = progressSandbox({
+    migrated: true,
+    progress: {
+      [COMIC_A]: { pageIndex: 3 },
+      [COMIC_B]: { pageIndex: 7 }
+    },
+    remote: { [COMIC_A]: { pageIndex: 3 }, [COMIC_B]: { pageIndex: 7 } },
+    duringRead: (context) => {
+      // "Mark collection completed" fires a batch while the GET is in flight.
+      vm.runInContext(
+        `state.progress["${COMIC_A}"] = { pageIndex: 9, completed: true };` +
+          `delete state.progress["${COMIC_B}"];` +
+          `persistProgress(["${COMIC_A}", "${COMIC_B}"]);`,
+        context
+      );
+    }
+  });
+  await sandbox.ready;
+
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.deepEqual(sandbox.progress(), {
+    [COMIC_A]: { pageIndex: 9, completed: true }
+  });
+});
+
+test("flushing pending writes on hide sends one keepalive batch", async () => {
+  const sandbox = progressSandbox({
+    migrated: true,
+    progress: { [COMIC_A]: { pageIndex: 2 }, [COMIC_B]: { pageIndex: 5 } }
+  });
+  await sandbox.ready;
+
+  sandbox.run(`persistProgress("${COMIC_A}")`);
+  sandbox.run(`delete state.progress["${COMIC_B}"]; persistProgress("${COMIC_B}")`);
+  assert.equal(sandbox.pendingTimers(), 2, "both writes are still debounced");
+
+  await sandbox.hide();
+
+  assert.deepEqual(sandbox.calls, [
+    {
+      url: "/api/progress/batch",
+      method: "POST",
+      body: { records: { [COMIC_A]: { pageIndex: 2 } }, deleted: [COMIC_B] },
+      keepalive: true
+    }
+  ]);
+  assert.equal(sandbox.pendingTimers(), 0, "the debounce timers are cancelled");
+
+  // Nothing pending: unloading must not fire an empty request.
+  await sandbox.fire("pagehide");
+  assert.equal(sandbox.calls.length, 1);
+});
+
+test("an unreadable storage still migrates local progress once", async () => {
+  const sandbox = progressSandbox({
+    migrated: true,
+    storageUnreadable: true,
+    progress: { [COMIC_A]: { pageIndex: 5 } },
+    remote: { [COMIC_A]: { pageIndex: 5 } }
+  });
+  await sandbox.ready;
+
+  await sandbox.run("loadProgressFromServer()");
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.equal(
+    sandbox.calls.filter((call) => call.url === "/api/progress/merge").length,
+    1,
+    "the migrated flag could not be read, so the first load migrates"
   );
 });

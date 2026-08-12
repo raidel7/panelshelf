@@ -282,3 +282,69 @@ test(
     assert.equal(reopened.get(COMIC_B).pageIndex, 2, "the later write should have reached disk");
   }
 );
+
+test("applyBatch stamps server time and applies over a newer stored record", async () => {
+  const { directory, store } = await temporaryStore();
+  await store.save(COMIC_A, { pageIndex: 3, pageCount: 30 });
+  await store.save(COMIC_B, { pageIndex: 4, pageCount: 30 });
+
+  // A client whose clock runs slow: the incoming stamp is older than the one
+  // already stored, which merge would reject. A deliberate write must not care.
+  const applied = await store.applyBatch({
+    records: {
+      [COMIC_A]: {
+        pageIndex: 29,
+        pageCount: 30,
+        completed: true,
+        lastReadAt: "2000-01-01T00:00:00.000Z"
+      }
+    },
+    deleted: [COMIC_B]
+  });
+
+  assert.equal(applied[COMIC_A].pageIndex, 29);
+  assert.equal(applied[COMIC_A].completed, true);
+  assert.ok(
+    Date.parse(applied[COMIC_A].lastReadAt) > Date.parse("2020-01-01T00:00:00.000Z"),
+    "the client's stale timestamp is replaced with the server's"
+  );
+  assert.equal(applied[COMIC_B], undefined);
+
+  const reopened = new ProgressStore(directory);
+  await reopened.initialize();
+  assert.equal(reopened.get(COMIC_A).pageIndex, 29);
+  assert.equal(reopened.get(COMIC_B), null);
+});
+
+test("applyBatch tolerates missing halves and an empty batch", async () => {
+  const { store } = await temporaryStore();
+  await store.save(COMIC_A, { pageIndex: 3 });
+
+  assert.deepEqual(await store.applyBatch({}), store.exportData());
+  await store.applyBatch({ deleted: [COMIC_A] });
+  assert.equal(store.get(COMIC_A), null);
+  await store.applyBatch({ records: { [COMIC_B]: { pageIndex: 1 } } });
+  assert.equal(store.get(COMIC_B).pageIndex, 1);
+});
+
+test("applyBatch rejects a bad batch without applying any of it", async () => {
+  const { store } = await temporaryStore();
+  await store.save(COMIC_A, { pageIndex: 3 });
+
+  await assert.rejects(
+    () => store.applyBatch({ records: { nope: { pageIndex: 1 } }, deleted: [COMIC_A] }),
+    { code: "NOT_FOUND" }
+  );
+  await assert.rejects(() => store.applyBatch({ deleted: [COMIC_A, "nope"] }), {
+    code: "NOT_FOUND"
+  });
+  await assert.rejects(() => store.applyBatch({ records: [] }), {
+    code: "INVALID_PROGRESS"
+  });
+  await assert.rejects(() => store.applyBatch({ deleted: {} }), {
+    code: "INVALID_PROGRESS"
+  });
+  await assert.rejects(() => store.applyBatch("nope"), { code: "INVALID_PROGRESS" });
+
+  assert.equal(store.get(COMIC_A).pageIndex, 3, "a rejected batch changes nothing");
+});

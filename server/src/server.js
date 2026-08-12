@@ -392,6 +392,16 @@ async function startServer() {
         return sendJson(response, 200, library.listProgress());
       }
 
+      // Deliberate bulk write, as opposed to /merge's reconciliation: the
+      // server stamps every record and applies it without consulting the
+      // client's clock. Registered before the :comicId routes so "batch" is
+      // never treated as a comic id.
+      if (request.method === "POST" && pathname === "/api/progress/batch") {
+        const body = await readJsonBody(request, MAX_BACKUP_BODY);
+        await library.applyProgressBatch(body);
+        return sendJson(response, 200, library.listProgress());
+      }
+
       const progressMatch = pathname.match(/^\/api\/progress\/([a-f0-9]{24})$/);
       if (progressMatch) {
         const comicId = progressMatch[1];
