@@ -331,12 +331,18 @@ test("applyBatch rejects a bad batch without applying any of it", async () => {
   const { store } = await temporaryStore();
   await store.save(COMIC_A, { pageIndex: 3 });
 
+  // A syntactically invalid id is a bad request, not a missing comic, and
+  // unlike save()'s guard this one is reachable over HTTP: the batch route has
+  // no id regex to pre-filter it.
   await assert.rejects(
     () => store.applyBatch({ records: { nope: { pageIndex: 1 } }, deleted: [COMIC_A] }),
-    { code: "NOT_FOUND" }
+    { code: "INVALID_PROGRESS" }
   );
   await assert.rejects(() => store.applyBatch({ deleted: [COMIC_A, "nope"] }), {
-    code: "NOT_FOUND"
+    code: "INVALID_PROGRESS"
+  });
+  await assert.rejects(() => store.applyBatch({ deleted: [COMIC_A, 7] }), {
+    code: "INVALID_PROGRESS"
   });
   await assert.rejects(() => store.applyBatch({ records: [] }), {
     code: "INVALID_PROGRESS"
@@ -347,4 +353,37 @@ test("applyBatch rejects a bad batch without applying any of it", async () => {
   await assert.rejects(() => store.applyBatch("nope"), { code: "INVALID_PROGRESS" });
 
   assert.equal(store.get(COMIC_A).pageIndex, 3, "a rejected batch changes nothing");
+});
+
+test("applyBatch stages the whole batch before applying any of it", async () => {
+  const { directory, store } = await temporaryStore();
+  await store.save(COMIC_A, { pageIndex: 3 });
+  await store.save(COMIC_B, { pageIndex: 4 });
+
+  // The valid record comes first, so a store that assigned as it walked the
+  // batch would already have applied it by the time the bad key threw.
+  await assert.rejects(
+    () =>
+      store.applyBatch({
+        records: { [COMIC_A]: { pageIndex: 20 }, nope: { pageIndex: 1 } }
+      }),
+    { code: "INVALID_PROGRESS" }
+  );
+  assert.equal(store.get(COMIC_A).pageIndex, 3, "the earlier record is untouched");
+
+  // Same again, but the throw comes from normalizeRecord partway through a
+  // batch whose ids are all well formed.
+  await assert.rejects(
+    () =>
+      store.applyBatch({
+        records: { [COMIC_A]: { pageIndex: 20 }, [COMIC_B]: "not an object" }
+      }),
+    { code: "INVALID_PROGRESS" }
+  );
+  assert.equal(store.get(COMIC_A).pageIndex, 3, "the earlier record is untouched");
+  assert.equal(store.get(COMIC_B).pageIndex, 4);
+
+  const reopened = new ProgressStore(directory);
+  await reopened.initialize();
+  assert.equal(reopened.get(COMIC_A).pageIndex, 3, "and nothing reached disk");
 });

@@ -1590,12 +1590,35 @@ function progressPercent(comic) {
 
 const progressPushTimers = new Map();
 
-// Comics sent in a batch since the current read started. A batch is dispatched
-// immediately rather than debounced, so it leaves no timer behind for
-// loadProgressFromServer's reconciliation to notice; without this, a batch that
-// raced an in-flight GET would be overwritten by the server's older records and
-// the user's change would silently revert until the next refresh.
-const batchedComicIds = new Set();
+// A batch is dispatched immediately rather than debounced, so it leaves no
+// timer behind for loadProgressFromServer's reconciliation to notice. Without
+// the two guards below, a batch racing a read would be overwritten by the
+// server's older records and the user's change would silently revert until the
+// next refresh. Two independent requests have no ordering guarantee, so both
+// guards are needed:
+//   - a batch whose request has not settled may not be in the server's answer
+//     yet, however early it was sent;
+//   - a batch that settles mid-read may still have been applied after the
+//     server built that read's response.
+// Comic id -> number of unsettled batches carrying it.
+const inFlightBatchComics = new Map();
+// One set per read in progress, collecting every id batched while it runs.
+const progressReadGuards = new Set();
+
+function trackBatchedComics(comicIds) {
+  for (const comicId of comicIds) {
+    inFlightBatchComics.set(comicId, (inFlightBatchComics.get(comicId) || 0) + 1);
+    for (const guard of progressReadGuards) guard.add(comicId);
+  }
+}
+
+function releaseBatchedComics(comicIds) {
+  for (const comicId of comicIds) {
+    const remaining = (inFlightBatchComics.get(comicId) || 0) - 1;
+    if (remaining > 0) inFlightBatchComics.set(comicId, remaining);
+    else inFlightBatchComics.delete(comicId);
+  }
+}
 
 function readProgressMigrated() {
   try {
@@ -1664,20 +1687,24 @@ function pushProgress(comicId) {
   );
 }
 
-// A whole-collection change would otherwise schedule one request per comic;
-// on a tab close those all fire at once and browsers silently drop keepalive
-// bodies past a 64KB total. One batch carries every record and every removal
-// instead. It posts to /api/progress/batch rather than /api/progress/merge
-// because this is a deliberate user action: the server stamps and applies it
+// A whole-collection change would otherwise schedule one request per comic; on
+// a tab close those all fire at once and browsers cap the total size of
+// in-flight keepalive bodies at 64KB, silently dropping the overflow. One
+// batch spends that budget once instead of once per comic, which is not a
+// guarantee: a single batch body over 64KB (roughly 430 records) is still
+// dropped whole.
+// It posts to /api/progress/batch rather than /api/progress/merge because this
+// is a deliberate user action: the server stamps and applies it
 // unconditionally, where merge would compare this browser's clock against the
 // stored record and could silently discard the change.
 function pushProgressBatch(comicIds, keepalive = false) {
   const records = {};
   const deleted = [];
+  const batched = [];
   for (const comicId of comicIds) {
     clearTimeout(progressPushTimers.get(comicId));
     progressPushTimers.delete(comicId);
-    batchedComicIds.add(comicId);
+    batched.push(comicId);
     const record = state.progress[comicId];
     if (record) records[comicId] = record;
     else deleted.push(comicId);
@@ -1685,14 +1712,17 @@ function pushProgressBatch(comicIds, keepalive = false) {
   if (Object.keys(records).length === 0 && deleted.length === 0) {
     return Promise.resolve();
   }
+  trackBatchedComics(batched);
   return fetch("/api/progress/batch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ records, deleted }),
     keepalive
-  }).catch(() => {
-    // The local copy is authoritative until the server is reachable again.
-  });
+  })
+    .catch(() => {
+      // The local copy is authoritative until the server is reachable again.
+    })
+    .finally(() => releaseBatchedComics(batched));
 }
 
 // A tab closed inside the debounce window would otherwise drop its last write,
@@ -1702,11 +1732,17 @@ function flushPendingProgress() {
 }
 
 async function loadProgressFromServer() {
-  // Pending writes must land before the read, or this would overwrite them in
-  // state.progress and then push the server's own value back over the change.
-  await flushPendingProgress();
-  const local = state.progress;
+  // Registered before the first await: a batch sent while the flush or the
+  // migration below is still running raced this read too, and the server may
+  // answer the read before it applies that batch.
+  const guard = new Set();
+  progressReadGuards.add(guard);
   try {
+    // Pending writes must land before the read, or this would overwrite them
+    // in state.progress and then push the server's own value back over the
+    // change.
+    await flushPendingProgress();
+    const local = state.progress;
     if (!progressMigrated && Object.keys(local).length > 0) {
       const response = await fetch("/api/progress/merge", {
         method: "POST",
@@ -1716,9 +1752,6 @@ async function loadProgressFromServer() {
       if (!response.ok) throw new Error("Progress migration failed.");
       markProgressMigrated();
     }
-    // Cleared here so that anything batched from now on is known to have raced
-    // this read, and is reconciled below alongside the debounced writes.
-    batchedComicIds.clear();
     const response = await fetch("/api/progress");
     if (!response.ok) throw new Error("Progress is unavailable.");
     const remote = await response.json();
@@ -1726,7 +1759,11 @@ async function loadProgressFromServer() {
     // reached this response. Replacing it with the server's older record would
     // lose the change, and a pending push would then send that older record
     // back with a fresh stamp.
-    for (const comicId of [...progressPushTimers.keys(), ...batchedComicIds]) {
+    for (const comicId of [
+      ...progressPushTimers.keys(),
+      ...inFlightBatchComics.keys(),
+      ...guard
+    ]) {
       if (local[comicId]) remote[comicId] = local[comicId];
       else delete remote[comicId];
     }
@@ -1738,6 +1775,8 @@ async function loadProgressFromServer() {
     markProgressMigrated();
   } catch {
     // Keep the cached copy; the next successful write reconciles it.
+  } finally {
+    progressReadGuards.delete(guard);
   }
 }
 

@@ -154,12 +154,19 @@ const progressSource = (async () => {
     "app.js must keep the progress block between its usual anchors"
   );
   // The flush wiring lives with the other listeners at the bottom of the file,
-  // so it is spliced in separately rather than being restated here.
-  const wiring = source.match(
-    /^document\.addEventListener\("visibilitychange",[\s\S]*?^window\.addEventListener\("pagehide", flushPendingProgress\);$/m
+  // so it is spliced in separately rather than being restated here. The two
+  // listeners are matched exactly and independently: a span between loose
+  // anchors would quietly swallow unrelated code into the sandbox and fail as
+  // an evaluation error rather than as a missing-listener assertion.
+  const onHide = source.match(
+    /^document\.addEventListener\("visibilitychange", \(\) => \{\n  if \(document\.visibilityState === "hidden"\) flushPendingProgress\(\);\n\}\);$/m
   );
-  assert.ok(wiring, "app.js must flush pending progress on hide and unload");
-  return `${constants[0]}\n${source.slice(start, end)}\n${wiring[0]}`;
+  const onUnload = source.match(
+    /^window\.addEventListener\("pagehide", flushPendingProgress\);$/m
+  );
+  assert.ok(onHide, "app.js must flush pending progress when the tab is hidden");
+  assert.ok(onUnload, "app.js must flush pending progress on unload");
+  return `${constants[0]}\n${source.slice(start, end)}\n${onHide[0]}\n${onUnload[0]}`;
 })();
 
 function progressSandbox(options = {}) {
@@ -168,6 +175,7 @@ function progressSandbox(options = {}) {
   const storage = new Map();
   const listeners = new Map();
   let nextTimer = 1;
+  let batchCalls = 0;
   if (options.migrated) storage.set("panelshelf.progress.migrated.v1", "1");
 
   const context = {
@@ -196,13 +204,23 @@ function progressSandbox(options = {}) {
     },
     clearTimeout: (id) => timers.delete(id),
     fetch: (url, init = {}) => {
-      calls.push({
+      const call = {
         url,
         method: init.method || "GET",
         body: init.body ? JSON.parse(init.body) : null,
         keepalive: Boolean(init.keepalive)
-      });
+      };
+      calls.push(call);
+      if (options.onRequest) options.onRequest(context, call);
       if (options.fetchFails) return Promise.reject(new Error("offline"));
+      // A batch the server has accepted but not yet applied, or one still on
+      // the wire: its request has simply not settled.
+      if (url === "/api/progress/batch") {
+        batchCalls += 1;
+        if (options.hangBatch === true || options.hangBatch === batchCalls) {
+          return new Promise(() => {});
+        }
+      }
       if (url === "/api/progress") {
         return Promise.resolve({
           ok: true,
@@ -505,4 +523,83 @@ test("an unreadable storage still migrates local progress once", async () => {
     1,
     "the migrated flag could not be read, so the first load migrates"
   );
+});
+
+test("a collection change made before the read's GET is not reverted", async () => {
+  let acted = false;
+  const sandbox = progressSandbox({
+    migrated: true,
+    progress: { [COMIC_A]: { pageIndex: 1 }, [COMIC_B]: { pageIndex: 7 } },
+    remote: { [COMIC_A]: { pageIndex: 1 }, [COMIC_B]: { pageIndex: 7 } },
+    onRequest: (context, call) => {
+      // The read's opening flush is in flight and the GET has not been issued
+      // yet. The user marks the collection completed right now; the server may
+      // still answer the GET before it applies this batch.
+      if (acted || call.url !== "/api/progress/batch") return;
+      acted = true;
+      vm.runInContext(
+        `state.progress["${COMIC_A}"] = { pageIndex: 9, completed: true };` +
+          `delete state.progress["${COMIC_B}"];` +
+          `persistProgress(["${COMIC_A}", "${COMIC_B}"]);`,
+        context
+      );
+    }
+  });
+  await sandbox.ready;
+
+  // A queued write, so the read's flush actually issues a request to race.
+  sandbox.run(`persistProgress("${COMIC_A}")`);
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.ok(acted, "the flush must issue a batch for this test to mean anything");
+  assert.deepEqual(sandbox.progress(), {
+    [COMIC_A]: { pageIndex: 9, completed: true }
+  });
+});
+
+test("a batch still in flight when a read starts is not reverted", async () => {
+  const sandbox = progressSandbox({
+    migrated: true,
+    hangBatch: true,
+    progress: { [COMIC_A]: { pageIndex: 3 }, [COMIC_B]: { pageIndex: 7 } },
+    remote: { [COMIC_A]: { pageIndex: 3 }, [COMIC_B]: { pageIndex: 7 } }
+  });
+  await sandbox.ready;
+
+  sandbox.run(
+    `state.progress["${COMIC_A}"] = { pageIndex: 9, completed: true };` +
+      `delete state.progress["${COMIC_B}"];` +
+      `persistProgress(["${COMIC_A}", "${COMIC_B}"]);`
+  );
+  // The batch was sent before this read began and has not settled, so the
+  // read cannot assume the server's records include it.
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.deepEqual(sandbox.progress(), {
+    [COMIC_A]: { pageIndex: 9, completed: true }
+  });
+});
+
+test("one batch settling does not unguard a comic another batch still carries", async () => {
+  const sandbox = progressSandbox({
+    migrated: true,
+    hangBatch: 1,
+    progress: { [COMIC_A]: { pageIndex: 3 }, [COMIC_B]: { pageIndex: 7 } },
+    remote: { [COMIC_A]: { pageIndex: 3 }, [COMIC_B]: { pageIndex: 7 } }
+  });
+  await sandbox.ready;
+
+  // Two overlapping batches over the same comics; only the second settles.
+  sandbox.run(
+    `state.progress["${COMIC_A}"] = { pageIndex: 9 }; persistProgress(["${COMIC_A}", "${COMIC_B}"]);`
+  );
+  sandbox.run(
+    `state.progress["${COMIC_A}"] = { pageIndex: 10 }; persistProgress(["${COMIC_A}", "${COMIC_B}"]);`
+  );
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.deepEqual(sandbox.progress(), {
+    [COMIC_A]: { pageIndex: 10 },
+    [COMIC_B]: { pageIndex: 7 }
+  });
 });

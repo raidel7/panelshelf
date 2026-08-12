@@ -189,15 +189,18 @@ class ProgressStore {
     }
     const lastReadAt = new Date().toISOString();
     const staged = {};
+    // A malformed id is a bad request rather than a missing comic: unlike
+    // save()'s guard, this one is reachable over HTTP, since the batch route
+    // carries its ids in the body where no path regex pre-filters them.
     for (const [comicId, candidate] of Object.entries(records)) {
       if (!COMIC_ID.test(comicId)) {
-        throw jsonError("Comic not found.", "NOT_FOUND");
+        throw jsonError("Progress ids must be comic ids.", "INVALID_PROGRESS");
       }
       staged[comicId] = { ...normalizeRecord(candidate), lastReadAt };
     }
     for (const comicId of deleted) {
       if (typeof comicId !== "string" || !COMIC_ID.test(comicId)) {
-        throw jsonError("Comic not found.", "NOT_FOUND");
+        throw jsonError("Progress ids must be comic ids.", "INVALID_PROGRESS");
       }
     }
     Object.assign(this.records, staged);
