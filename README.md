@@ -87,7 +87,8 @@ allow packages from any publisher.
 - Read-only OPDS 1.2 catalogs for compatible reader apps, including All
   comics, Publishers, Sources and folders, search, and Reading orders
 - Portable backup and restore for source settings, manual reading orders,
-  confirmed metadata matches, and browser-local reading/chronology state
+  confirmed metadata matches, server-side reading progress, and browser-local
+  chronology/reader preferences
 - Persistent configuration and library index
 
 ## Install on the DS1825+
@@ -230,6 +231,19 @@ clock cannot lose its own write.
 that are not currently in the library — for example a disconnected USB
 source — are retained in the store but omitted from this response.
 
+**The three endpoints deliberately disagree about unknown ids.** Only the list
+filters against the current library. `PUT /api/progress/<well-formed id not in
+the library>` returns `200` and stores the record, `GET
+/api/progress/<same id>` returns it, and `GET /api/progress` omits it. This is
+what lets a disconnected USB source keep its reading positions: unplug the
+drive and the positions survive; plug it back in and they reappear in the list
+untouched. `PUT` therefore does **not** 404 for an id the library does not
+currently know, and should not be changed to — the drive being unplugged is
+precisely when the write has to succeed. A client that reconciles its local
+state against `GET /api/progress` alone will see records it just wrote go
+missing; treat that list as "progress for comics you can open right now", not
+as the full contents of the store.
+
 **Choose the right write.** `PUT` and `POST /api/progress/batch` are deliberate
 writes: the record supplied is applied unconditionally. `POST
 /api/progress/merge` is reconciliation, not a user action — the server compares
@@ -326,9 +340,13 @@ comics, and one-source scans never remove comics from another source.
 Reading progress is stored on the server, so the page and the active reading
 order follow you between browsers, browser profiles, and computers. A browser
 holding progress from an earlier build imports it into the server once, on
-first load. Each browser also keeps a local copy so reading continues while the
-server is briefly unreachable. Progress is shared by everyone using the server;
-there are no separate per-user shelves yet.
+first load. Each browser also keeps a local copy, so reading continues if the
+server goes away mid-session and nothing is lost from the page you are on.
+Saving is best-effort rather than offline-capable: a save that fails is not
+retried on its own. The position converges on the next successful save, or on
+the next load, which keeps whichever copy has the newer timestamp. Progress is
+shared by everyone using the server; there are no separate per-user shelves
+yet.
 
 Use the `•••` menu on a comic card to set its shelf status directly. Choosing
 **Unread** clears that comic's saved progress, **In progress** returns it to

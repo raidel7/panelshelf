@@ -716,7 +716,9 @@ and Franco-Belgian publishers.
 
 Build 1008 implements this scope. Automatic orders are derived records;
 manual orders are persisted in `reading-orders.json` inside PanelShelf's
-private package data directory. Progress remains browser-local by design.
+private package data directory. Reading progress now lives on the server in
+`progress.json`, shared by every browser; it was browser-local through build
+1008.
 
 **Release gate**
 

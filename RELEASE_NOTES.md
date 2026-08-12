@@ -9,8 +9,10 @@ matching.
   by every browser, browser profile, and computer using the library.
 - Progress already stored in a browser is imported into the server once, on
   first load; a second reload does not re-import it.
-- Each browser keeps a local copy, so reading continues if the server is
-  briefly unreachable and reconciles on the next successful write.
+- Each browser keeps a local copy, so reading continues if the server goes away
+  mid-session. Saving is best-effort, not offline reading: a save that fails is
+  not retried on its own, and the position converges on the next successful
+  save or on the next load, which keeps whichever copy is newer.
 - Unread/in-progress/completed/skipped changes, including whole-branch actions,
   are sent as one deliberate write that the server timestamps and applies.
 - Backup and restore are unchanged for users; a backup now takes progress from
