@@ -1,6 +1,7 @@
 "use strict";
 
 const PROGRESS_STORAGE_KEY = "panelshelf.progress.v1";
+const PROGRESS_MIGRATED_KEY = "panelshelf.progress.migrated.v1";
 const READER_STORAGE_KEY = "panelshelf.reader.v1";
 const LIBRARY_VIEW_STORAGE_KEY = "panelshelf.libraryView.v1";
 const CHRONOLOGY_PREFERENCES_STORAGE_KEY =
@@ -1587,11 +1588,78 @@ function progressPercent(comic) {
   return Math.min(99, Math.max(1, Math.round(((Number(progress.pageIndex) + 1) / pageCount) * 100)));
 }
 
-function persistProgress() {
+const progressPushTimers = new Map();
+
+// changedComicIds is a single comic id or an array of them; the local cache is
+// always written, and every changed comic is pushed to the server.
+function persistProgress(changedComicIds) {
   try {
     localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(state.progress));
   } catch {
     // Private browsing or a full browser quota should not block reading.
+  }
+  const ids = Array.isArray(changedComicIds)
+    ? changedComicIds
+    : changedComicIds
+      ? [changedComicIds]
+      : [];
+  for (const comicId of ids) pushProgress(comicId);
+}
+
+function sendProgress(comicId, keepalive = false) {
+  const record = state.progress[comicId];
+  const request = record
+    ? fetch(`/api/progress/${comicId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record),
+        keepalive
+      })
+    : fetch(`/api/progress/${comicId}`, { method: "DELETE", keepalive });
+  request.catch(() => {
+    // The local copy is authoritative until the server is reachable again.
+  });
+}
+
+function pushProgress(comicId) {
+  clearTimeout(progressPushTimers.get(comicId));
+  progressPushTimers.set(
+    comicId,
+    setTimeout(() => {
+      progressPushTimers.delete(comicId);
+      sendProgress(comicId);
+    }, 1000)
+  );
+}
+
+// A tab closed inside the debounce window would otherwise drop its last write.
+function flushPendingProgress() {
+  for (const [comicId, timer] of progressPushTimers) {
+    clearTimeout(timer);
+    sendProgress(comicId, true);
+  }
+  progressPushTimers.clear();
+}
+
+async function loadProgressFromServer() {
+  const local = state.progress;
+  const migrated = localStorage.getItem(PROGRESS_MIGRATED_KEY) === "1";
+  try {
+    if (!migrated && Object.keys(local).length > 0) {
+      const response = await fetch("/api/progress/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ records: local })
+      });
+      if (!response.ok) throw new Error("Progress migration failed.");
+      localStorage.setItem(PROGRESS_MIGRATED_KEY, "1");
+    }
+    const response = await fetch("/api/progress");
+    if (!response.ok) throw new Error("Progress is unavailable.");
+    state.progress = await response.json();
+    localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(state.progress));
+  } catch {
+    // Keep the cached copy; the next successful write reconciles it.
   }
 }
 
@@ -1620,7 +1688,7 @@ function setComicProgress(comic, pageIndex, pageCount, options = {}) {
     lastReadAt: new Date().toISOString(),
     orderId: options.orderId || state.reader.orderId || previous.orderId || null
   };
-  persistProgress();
+  persistProgress(comic.id);
   updateVisibleComicStatuses();
   if (previousStatus !== readingStatus(comic)) renderContinueReading();
 }
@@ -1637,7 +1705,7 @@ function markComicCompleted(comic, completed = true) {
     lastReadAt: new Date().toISOString(),
     orderId: state.reader.orderId || previous.orderId || null
   };
-  persistProgress();
+  persistProgress(comic.id);
   renderContinueReading();
 }
 
@@ -1686,7 +1754,7 @@ function setComicShelfStatus(comic, status) {
     };
   }
 
-  persistProgress();
+  persistProgress(comic.id);
   closeComicStatusMenu();
   renderContinueReading();
   if (state.statusFilter === "all") updateVisibleComicStatuses();
@@ -2387,7 +2455,7 @@ function setCollectionShelfStatus(comics, status, title) {
       };
     }
   }
-  persistProgress();
+  persistProgress(available.map((comic) => comic.id));
   closeComicStatusMenu();
   renderContinueReading();
   renderComics();
@@ -4284,6 +4352,7 @@ async function refresh() {
   state.scanState = scanState;
   state.metadataSettings = metadataSettings;
   state.bulkMetadata = bulkMetadata;
+  await loadProgressFromServer();
   state.scanIssues = [
     ...(scanState.errors || []),
     ...(scanState.warnings || [])
@@ -4372,7 +4441,7 @@ function openSettings() {
 
 function browserBackupState() {
   return {
-    progress: state.progress,
+    // Progress is not sent: the server exports it from its own store.
     libraryView: state.libraryView,
     chronologyPreferences: {
       skippedNodeIds: [...state.skippedChronologyNodeIds],
@@ -5657,6 +5726,11 @@ document.addEventListener("click", (event) => {
     closeComicStatusMenu();
   }
 });
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushPendingProgress();
+});
+window.addEventListener("pagehide", flushPendingProgress);
 
 refresh().catch((error) => {
   elements.librarySummary.textContent = "PanelShelf could not load the library.";

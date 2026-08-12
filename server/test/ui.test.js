@@ -130,3 +130,18 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(styles, /\.reader-back-button/);
   assert.match(styles, /\.collection-status-control/);
 });
+
+test("the web viewer syncs progress with the server", async () => {
+  const source = await fsp.readFile(
+    path.join(publicDirectory, "app.js"),
+    "utf8"
+  );
+
+  assert.doesNotThrow(() => new vm.Script(source, { filename: "app.js" }));
+
+  assert.match(source, /PROGRESS_MIGRATED_KEY\s*=\s*"panelshelf\.progress\.migrated\.v1"/);
+  assert.match(source, /fetch\("\/api\/progress"\)/);
+  assert.match(source, /\/api\/progress\/merge/);
+  assert.match(source, /function pushProgress\(/);
+  assert.doesNotMatch(source, /function persistProgress\(\)/);
+});
