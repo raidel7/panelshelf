@@ -1616,7 +1616,7 @@ function sendProgress(comicId, keepalive = false) {
         keepalive
       })
     : fetch(`/api/progress/${comicId}`, { method: "DELETE", keepalive });
-  request.catch(() => {
+  return request.catch(() => {
     // The local copy is authoritative until the server is reachable again.
   });
 }
@@ -1632,16 +1632,22 @@ function pushProgress(comicId) {
   );
 }
 
-// A tab closed inside the debounce window would otherwise drop its last write.
+// A tab closed inside the debounce window would otherwise drop its last write,
+// and a read that overtook a pending write would push the stale value back.
 function flushPendingProgress() {
+  const sends = [];
   for (const [comicId, timer] of progressPushTimers) {
     clearTimeout(timer);
-    sendProgress(comicId, true);
+    sends.push(sendProgress(comicId, true));
   }
   progressPushTimers.clear();
+  return Promise.all(sends);
 }
 
 async function loadProgressFromServer() {
+  // Pending writes must land before the read, or this would overwrite them in
+  // state.progress and then push the server's own value back over the change.
+  await flushPendingProgress();
   const local = state.progress;
   const migrated = localStorage.getItem(PROGRESS_MIGRATED_KEY) === "1";
   try {
@@ -1658,6 +1664,10 @@ async function loadProgressFromServer() {
     if (!response.ok) throw new Error("Progress is unavailable.");
     state.progress = await response.json();
     localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(state.progress));
+    // Set unconditionally: without this a browser that started with no local
+    // progress would cache the server's records and merge them back forever,
+    // resurrecting comics another device had deleted.
+    localStorage.setItem(PROGRESS_MIGRATED_KEY, "1");
   } catch {
     // Keep the cached copy; the next successful write reconciles it.
   }

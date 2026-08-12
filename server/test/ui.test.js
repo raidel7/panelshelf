@@ -144,4 +144,16 @@ test("the web viewer syncs progress with the server", async () => {
   assert.match(source, /\/api\/progress\/merge/);
   assert.match(source, /function pushProgress\(/);
   assert.doesNotMatch(source, /function persistProgress\(\)/);
+
+  // The migration flag is set on the plain read path too, not only inside the
+  // merge branch, so a browser that started empty never re-merges its cache.
+  assert.match(
+    source,
+    /state\.progress = await response\.json\(\);[\s\S]{0,400}?PROGRESS_MIGRATED_KEY,\s*"1"\s*\)/
+  );
+  // Pending debounced writes are flushed before the read replaces state.
+  assert.match(
+    source,
+    /async function loadProgressFromServer\(\)\s*\{[\s\S]{0,300}?await flushPendingProgress\(\);/
+  );
 });
