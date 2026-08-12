@@ -1,3 +1,20 @@
+# PanelShelf 0.4.5-1026
+
+Diagnostics for service discovery.
+
+## Discovery status endpoint
+
+- `GET /api/discovery` reports what the mDNS advertisement actually did: the
+  address, host, and port it advertised, whether the socket bound and joined
+  the multicast group, how many datagrams and matching queries it saw, how many
+  responses it sent, and the last error from each path.
+- The same status is written to the package log once at startup.
+- Nothing about advertising changed. This build exists to explain why a client
+  browsing the network does not see the server, on a NAS where no shell is
+  available.
+- Reading progress, the library, and every other endpoint are unchanged from
+  0.4.4.
+
 # PanelShelf 0.4.4-1025
 
 Server-side reading progress shared by every browser, and service discovery on
