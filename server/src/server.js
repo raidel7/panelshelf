@@ -7,6 +7,7 @@ const path = require("node:path");
 const { URL } = require("node:url");
 const { ComicLibrary, browseFolders } = require("./library");
 const { comicMime, createOpdsCatalog } = require("./opds");
+const { jsonError } = require("./util");
 
 const VERSION = "0.4.3";
 const HOST = process.env.PANELSHELF_HOST || "0.0.0.0";
@@ -58,6 +59,7 @@ function sendError(response, error) {
     INVALID_METADATA_OVERRIDE: 400,
     INVALID_PROVIDER: 400,
     INVALID_PROVIDER_RECORD: 400,
+    INVALID_PROGRESS: 400,
     INVALID_BACKUP: 400,
     METADATA_NOT_CONFIGURED: 400,
     PROVIDER_INVALID_REQUEST: 400,
@@ -378,6 +380,36 @@ async function startServer() {
 
       if (request.method === "GET" && pathname === "/api/scan") {
         return sendJson(response, 200, library.getScanState());
+      }
+
+      if (request.method === "GET" && pathname === "/api/progress") {
+        return sendJson(response, 200, library.listProgress());
+      }
+
+      if (request.method === "POST" && pathname === "/api/progress/merge") {
+        const body = await readJsonBody(request, MAX_BACKUP_BODY);
+        await library.mergeProgress(body.records || body);
+        return sendJson(response, 200, library.listProgress());
+      }
+
+      const progressMatch = pathname.match(/^\/api\/progress\/([a-f0-9]{24})$/);
+      if (progressMatch) {
+        const comicId = progressMatch[1];
+        if (request.method === "GET") {
+          const record = library.getProgress(comicId);
+          if (!record) {
+            return sendError(response, jsonError("Progress not found.", "NOT_FOUND"));
+          }
+          return sendJson(response, 200, record);
+        }
+        if (request.method === "PUT") {
+          const body = await readJsonBody(request);
+          return sendJson(response, 200, await library.saveProgress(comicId, body));
+        }
+        if (request.method === "DELETE") {
+          await library.removeProgress(comicId);
+          return sendJson(response, 200, { removed: true });
+        }
       }
 
       if (request.method === "GET" && pathname === "/api/comics") {

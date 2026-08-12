@@ -236,6 +236,55 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   const manualOrder = await response.json();
   assert.equal(manualOrder.comicIds[0], comics[0].id);
 
+  const comicId = comics[0].id;
+  const progressBase = `${base}/api/progress`;
+
+  const emptyProgress = await (await fetch(progressBase)).json();
+  assert.deepEqual(emptyProgress, {});
+
+  const written = await fetch(`${progressBase}/${comicId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pageIndex: 2, pageCount: 5 })
+  });
+  assert.equal(written.status, 200);
+  const writtenRecord = await written.json();
+  assert.equal(writtenRecord.pageIndex, 2);
+  assert.ok(Date.parse(writtenRecord.lastReadAt) > 0);
+
+  const listed = await (await fetch(progressBase)).json();
+  assert.equal(listed[comicId].pageCount, 5);
+
+  const single = await (await fetch(`${progressBase}/${comicId}`)).json();
+  assert.equal(single.pageIndex, 2);
+
+  const missing = await fetch(`${progressBase}/${"f".repeat(24)}`);
+  assert.equal(missing.status, 404);
+
+  const merged = await fetch(`${progressBase}/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      records: {
+        [comicId]: { pageIndex: 4, pageCount: 5, lastReadAt: "2099-01-01T00:00:00.000Z" }
+      }
+    })
+  });
+  assert.equal(merged.status, 200);
+  assert.equal((await merged.json())[comicId].pageIndex, 4);
+
+  const removed = await fetch(`${progressBase}/${comicId}`, { method: "DELETE" });
+  assert.equal(removed.status, 200);
+  assert.deepEqual(await (await fetch(progressBase)).json(), {});
+
+  // Leave one record in place: the backup assertions later in this test count
+  // progress records, and after Task 6 that count comes from the store.
+  await fetch(`${progressBase}/${comicId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pageIndex: 0, pageCount: 1, completed: true })
+  });
+
   response = await fetch(`${base}/api/metadata/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
