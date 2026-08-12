@@ -1734,6 +1734,17 @@ function flushPendingProgress() {
   return pushProgressBatch([...progressPushTimers.keys()], true);
 }
 
+// Strictly newer wins, matching the server's own tie-break: a record with no
+// usable timestamp always loses to one that has it, and the server wins ties,
+// so a read is never able to flip a record back and forth.
+function localRecordIsNewer(localRecord, remoteRecord) {
+  const localAt = Date.parse(localRecord?.lastReadAt || "");
+  if (!Number.isFinite(localAt)) return false;
+  const remoteAt = Date.parse(remoteRecord?.lastReadAt || "");
+  if (!Number.isFinite(remoteAt)) return true;
+  return localAt > remoteAt;
+}
+
 async function loadProgressFromServer() {
   // Seeded and registered before the first await: a batch already in flight,
   // or one sent while the flush or the migration below is still running, raced
@@ -1770,8 +1781,25 @@ async function loadProgressFromServer() {
       if (local[comicId]) remote[comicId] = local[comicId];
       else delete remote[comicId];
     }
+    // A push that failed is deliberately dropped rather than retried, but the
+    // local record is still the newer one. Without this, the next read would
+    // replace it with the server's older record and cache that over the local
+    // copy, turning a dropped push into permanent data loss.
+    // Only where both sides hold a record: keeping one the server lacks would
+    // resurrect a record another device deleted, which is exactly what the
+    // migration flag exists to prevent.
+    const behindOnServer = [];
+    for (const [comicId, record] of Object.entries(local)) {
+      if (!remote[comicId] || remote[comicId] === record) continue;
+      if (!localRecordIsNewer(record, remote[comicId])) continue;
+      remote[comicId] = record;
+      behindOnServer.push(comicId);
+    }
     state.progress = remote;
     cacheProgressLocally();
+    // Re-pushed so the server converges instead of disagreeing until the next
+    // page turn.
+    if (behindOnServer.length > 0) persistProgress(behindOnServer);
     // Marked unconditionally: without this a browser that started with no local
     // progress would cache the server's records and merge them back forever,
     // resurrecting comics another device had deleted.

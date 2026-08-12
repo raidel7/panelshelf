@@ -619,6 +619,75 @@ test("one batch settling does not unguard a comic another batch still carries", 
   });
 });
 
+test("a read keeps local progress the server has an older record for", async () => {
+  const sandbox = progressSandbox({
+    migrated: true,
+    // The server was asleep while the reader worked through the issue, so each
+    // debounced push failed and was dropped. Nothing is pending or in flight by
+    // the time the server comes back and a read runs.
+    progress: {
+      [COMIC_A]: { pageIndex: 30, lastReadAt: "2026-08-12T10:00:00.000Z" },
+      [COMIC_B]: { pageIndex: 2, lastReadAt: "2026-08-12T08:00:00.000Z" }
+    },
+    remote: {
+      [COMIC_A]: { pageIndex: 5, lastReadAt: "2026-08-12T09:00:00.000Z" },
+      [COMIC_B]: { pageIndex: 4, lastReadAt: "2026-08-12T09:30:00.000Z" }
+    }
+  });
+  await sandbox.ready;
+
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.deepEqual(
+    sandbox.progress(),
+    {
+      [COMIC_A]: { pageIndex: 30, lastReadAt: "2026-08-12T10:00:00.000Z" },
+      // Older locally than on the server: the server's record wins as usual.
+      [COMIC_B]: { pageIndex: 4, lastReadAt: "2026-08-12T09:30:00.000Z" }
+    },
+    "the newer local record survives the read"
+  );
+
+  // Keeping it is only half the fix; the server has to converge too.
+  sandbox.fireTimers();
+  const pushes = sandbox.calls.filter((call) => call.method !== "GET");
+  assert.deepEqual(pushes, [
+    {
+      url: `/api/progress/${COMIC_A}`,
+      method: "PUT",
+      body: { pageIndex: 30, lastReadAt: "2026-08-12T10:00:00.000Z" },
+      keepalive: false
+    }
+  ]);
+});
+
+test("a read still drops a local record the server does not have", async () => {
+  const sandbox = progressSandbox({
+    migrated: true,
+    // COMIC_B was deleted on another device, so the server's list omits it. Its
+    // local copy is newer than anything the server holds, and must still lose:
+    // keeping it would resurrect the deletion this browser already migrated.
+    progress: {
+      [COMIC_A]: { pageIndex: 30, lastReadAt: "2026-08-12T10:00:00.000Z" },
+      [COMIC_B]: { pageIndex: 7, lastReadAt: "2026-08-12T11:00:00.000Z" }
+    },
+    remote: { [COMIC_A]: { pageIndex: 5, lastReadAt: "2026-08-12T09:00:00.000Z" } }
+  });
+  await sandbox.ready;
+
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.deepEqual(sandbox.progress(), {
+    [COMIC_A]: { pageIndex: 30, lastReadAt: "2026-08-12T10:00:00.000Z" }
+  });
+  sandbox.fireTimers();
+  assert.equal(
+    sandbox.calls.filter((call) => call.url === `/api/progress/${COMIC_B}`).length,
+    0,
+    "the dropped record must not be pushed back at the server"
+  );
+});
+
 test("a batch in flight when the read starts survives settling mid-read", async () => {
   let settled = false;
   const sandbox = progressSandbox({
