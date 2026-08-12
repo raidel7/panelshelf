@@ -1592,17 +1592,20 @@ const progressPushTimers = new Map();
 
 // A batch is dispatched immediately rather than debounced, so it leaves no
 // timer behind for loadProgressFromServer's reconciliation to notice. Without
-// the two guards below, a batch racing a read would be overwritten by the
-// server's older records and the user's change would silently revert until the
-// next refresh. Two independent requests have no ordering guarantee, so both
-// guards are needed:
-//   - a batch whose request has not settled may not be in the server's answer
-//     yet, however early it was sent;
-//   - a batch that settles mid-read may still have been applied after the
-//     server built that read's response.
-// Comic id -> number of unsettled batches carrying it.
+// the guard below, a batch racing a read would be overwritten by the server's
+// older records and the user's change would silently revert until the next
+// refresh.
+//
+// Comic id -> number of unsettled batches carrying it. Its one job is to seed
+// a starting read's guard. The count matters because overlapping batches can
+// carry the same comic, and the id must stay listed until the last of them
+// settles or the seed would miss it.
 const inFlightBatchComics = new Map();
-// One set per read in progress, collecting every id batched while it runs.
+// One set per read in progress. A read's guard is seeded with whatever is in
+// flight when it starts and collects every id batched while it runs, so an id
+// stays guarded for the whole read however its request settles: two
+// independent requests have no ordering guarantee, and a batch that settles
+// mid-read may still be applied after the server built that read's response.
 const progressReadGuards = new Set();
 
 function trackBatchedComics(comicIds) {
@@ -1732,10 +1735,11 @@ function flushPendingProgress() {
 }
 
 async function loadProgressFromServer() {
-  // Registered before the first await: a batch sent while the flush or the
-  // migration below is still running raced this read too, and the server may
-  // answer the read before it applies that batch.
-  const guard = new Set();
+  // Seeded and registered before the first await: a batch already in flight,
+  // or one sent while the flush or the migration below is still running, raced
+  // this read too, and the server may answer the read before it applies that
+  // batch.
+  const guard = new Set(inFlightBatchComics.keys());
   progressReadGuards.add(guard);
   try {
     // Pending writes must land before the read, or this would overwrite them
@@ -1759,11 +1763,10 @@ async function loadProgressFromServer() {
     // reached this response. Replacing it with the server's older record would
     // lose the change, and a pending push would then send that older record
     // back with a fresh stamp.
-    for (const comicId of [
-      ...progressPushTimers.keys(),
-      ...inFlightBatchComics.keys(),
-      ...guard
-    ]) {
+    // An id is guarded for this read if a debounce timer is still pending for
+    // it, or if a batch carrying it was in flight at any point between this
+    // read's start and now.
+    for (const comicId of [...progressPushTimers.keys(), ...guard]) {
       if (local[comicId]) remote[comicId] = local[comicId];
       else delete remote[comicId];
     }

@@ -176,6 +176,7 @@ function progressSandbox(options = {}) {
   const listeners = new Map();
   let nextTimer = 1;
   let batchCalls = 0;
+  const deferredBatches = [];
   if (options.migrated) storage.set("panelshelf.progress.migrated.v1", "1");
 
   const context = {
@@ -220,12 +221,19 @@ function progressSandbox(options = {}) {
         if (options.hangBatch === true || options.hangBatch === batchCalls) {
           return new Promise(() => {});
         }
+        if (options.deferBatch) {
+          return new Promise((resolve) => {
+            deferredBatches.push(() => resolve({ ok: true, json: async () => ({}) }));
+          });
+        }
       }
       if (url === "/api/progress") {
         return Promise.resolve({
           ok: true,
           json: async () => {
-            if (options.duringRead) options.duringRead(context);
+            // Awaited so a hook can settle a request and let its continuations
+            // run before this response is reconciled.
+            if (options.duringRead) await options.duringRead(context);
             return { ...(options.remote || {}) };
           }
         });
@@ -250,6 +258,9 @@ function progressSandbox(options = {}) {
       for (const fn of pending) fn();
     },
     pendingTimers: () => timers.size,
+    settleBatches: () => {
+      for (const resolve of deferredBatches.splice(0)) resolve();
+    },
     fire: (type) => {
       const handler = listeners.get(type);
       assert.ok(handler, `app.js must register a ${type} listener`);
@@ -596,10 +607,46 @@ test("one batch settling does not unguard a comic another batch still carries", 
   sandbox.run(
     `state.progress["${COMIC_A}"] = { pageIndex: 10 }; persistProgress(["${COMIC_A}", "${COMIC_B}"]);`
   );
+  // Let the second batch's release run before the read seeds its guard, so
+  // the seed is only accurate if the first batch still holds these comics.
+  await Promise.resolve();
+  await Promise.resolve();
   await sandbox.run("loadProgressFromServer()");
 
   assert.deepEqual(sandbox.progress(), {
     [COMIC_A]: { pageIndex: 10 },
     [COMIC_B]: { pageIndex: 7 }
+  });
+});
+
+test("a batch in flight when the read starts survives settling mid-read", async () => {
+  let settled = false;
+  const sandbox = progressSandbox({
+    migrated: true,
+    deferBatch: true,
+    progress: { [COMIC_A]: { pageIndex: 3 }, [COMIC_B]: { pageIndex: 7 } },
+    remote: { [COMIC_A]: { pageIndex: 3 }, [COMIC_B]: { pageIndex: 7 } },
+    duringRead: async () => {
+      // The GET is out and this response was built before the batch was
+      // applied; the batch's own request settles first all the same.
+      settled = true;
+      sandbox.settleBatches();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+  });
+  await sandbox.ready;
+
+  sandbox.run(
+    `state.progress["${COMIC_A}"] = { pageIndex: 9, completed: true };` +
+      `delete state.progress["${COMIC_B}"];` +
+      `persistProgress(["${COMIC_A}", "${COMIC_B}"]);`
+  );
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.ok(settled, "the batch must have settled during the read");
+  assert.deepEqual(sandbox.progress(), {
+    [COMIC_A]: { pageIndex: 9, completed: true }
   });
 });
