@@ -275,6 +275,7 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
 
   const removed = await fetch(`${progressBase}/${comicId}`, { method: "DELETE" });
   assert.equal(removed.status, 200);
+  assert.deepEqual(await removed.json(), { deleted: true, id: comicId });
   assert.deepEqual(await (await fetch(progressBase)).json(), {});
 
   // Leave one record in place: the backup assertions later in this test count

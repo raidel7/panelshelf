@@ -398,7 +398,7 @@ async function startServer() {
         if (request.method === "GET") {
           const record = library.getProgress(comicId);
           if (!record) {
-            return sendError(response, jsonError("Progress not found.", "NOT_FOUND"));
+            throw jsonError("Progress not found.", "NOT_FOUND");
           }
           return sendJson(response, 200, record);
         }
@@ -407,8 +407,10 @@ async function startServer() {
           return sendJson(response, 200, await library.saveProgress(comicId, body));
         }
         if (request.method === "DELETE") {
+          // Idempotent: deleting an id with no record still returns 200, so an
+          // offline client replaying a queued delete never gets an error.
           await library.removeProgress(comicId);
-          return sendJson(response, 200, { removed: true });
+          return sendJson(response, 200, { deleted: true, id: comicId });
         }
       }
 
