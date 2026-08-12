@@ -58,21 +58,26 @@ function timestampValue(record) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function incomingWins(current, incoming) {
+  const currentAt = timestampValue(current);
+  const incomingAt = timestampValue(incoming);
+  if (currentAt === null) return true; // current has no usable timestamp
+  if (incomingAt === null) return false; // incoming has no usable timestamp
+  return incomingAt >= currentAt; // newer (or equal) incoming wins
+}
+
+// Tie-break rule: per comic id, the record with the newer lastReadAt wins;
+// a record with no usable timestamp always loses to one that has it, and an
+// incoming record wins ties (including when neither side has a timestamp).
 function mergeRecords(existingInput, incomingInput) {
   const existing = normalizeRecords(existingInput);
   const incoming = normalizeRecords(incomingInput);
   const merged = { ...existing };
   for (const [comicId, record] of Object.entries(incoming)) {
     const current = merged[comicId];
-    if (!current) {
+    if (!current || incomingWins(current, record)) {
       merged[comicId] = record;
-      continue;
     }
-    const currentAt = timestampValue(current);
-    const incomingAt = timestampValue(record);
-    if (currentAt !== null && incomingAt === null) continue;
-    if (currentAt !== null && incomingAt !== null && incomingAt < currentAt) continue;
-    merged[comicId] = record;
   }
   return merged;
 }

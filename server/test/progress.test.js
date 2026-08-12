@@ -130,3 +130,21 @@ test("mergeRecords adds records that only exist on one side", () => {
 
   assert.deepEqual(Object.keys(merged).sort(), [COMIC_A, COMIC_B].sort());
 });
+
+test("mergeRecords takes the incoming record when the existing one has no usable timestamp", () => {
+  const merged = mergeRecords(
+    { [COMIC_A]: { pageIndex: 9, lastReadAt: null } },
+    { [COMIC_A]: { pageIndex: 2, lastReadAt: "2026-08-11T00:00:00.000Z" } }
+  );
+
+  assert.equal(merged[COMIC_A].pageIndex, 2);
+});
+
+test("mergeRecords lets the incoming record win a timestamp tie", () => {
+  const merged = mergeRecords(
+    { [COMIC_A]: { pageIndex: 9, lastReadAt: "2026-08-11T00:00:00.000Z" } },
+    { [COMIC_A]: { pageIndex: 2, lastReadAt: "2026-08-11T00:00:00.000Z" } }
+  );
+
+  assert.equal(merged[COMIC_A].pageIndex, 2);
+});
