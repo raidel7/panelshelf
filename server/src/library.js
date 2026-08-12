@@ -816,6 +816,8 @@ class ComicLibrary {
   listProgress() {
     const known = new Set(this.comics.map((comic) => comic.id));
     const records = this.progress.exportData();
+    // A comic that is temporarily missing (e.g. a disconnected USB source)
+    // keeps its record in the store; it's just hidden from this list.
     for (const comicId of Object.keys(records)) {
       if (!known.has(comicId)) delete records[comicId];
     }
@@ -831,7 +833,7 @@ class ComicLibrary {
   }
 
   async removeProgress(comicId) {
-    await this.progress.remove(comicId);
+    return this.progress.remove(comicId);
   }
 
   async mergeProgress(input) {
