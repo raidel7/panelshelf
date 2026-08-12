@@ -536,7 +536,10 @@ class ComicLibrary {
         readingOrders: this.readingOrders.exportData(),
         metadataMatches: this.enrichment.exportMatches(),
         metadataOverrides: this.metadataOverrides.exportData(),
-        browser: normalizeBrowserState(browserState)
+        browser: normalizeBrowserState({
+          ...browserState,
+          progress: this.progress.exportData()
+        })
       }
     };
   }
@@ -570,7 +573,8 @@ class ComicLibrary {
       config: structuredClone(this.config),
       readingOrders: this.readingOrders.exportData(),
       metadataMatches: this.enrichment.exportMatches(),
-      metadataOverrides: this.metadataOverrides.exportData()
+      metadataOverrides: this.metadataOverrides.exportData(),
+      progress: this.progress.exportData()
     };
     try {
       this.config = backup.data.config;
@@ -578,12 +582,14 @@ class ComicLibrary {
       await this.readingOrders.restoreData(backup.data.readingOrders);
       await this.enrichment.restoreMatches(backup.data.metadataMatches);
       await this.metadataOverrides.restoreData(backup.data.metadataOverrides);
+      await this.progress.restoreData(backup.data.browser.progress);
     } catch (error) {
       this.config = previous.config;
       await atomicWriteJson(this.configPath, this.config).catch(() => {});
       await this.readingOrders.restoreData(previous.readingOrders).catch(() => {});
       await this.enrichment.restoreMatches(previous.metadataMatches).catch(() => {});
       await this.metadataOverrides.restoreData(previous.metadataOverrides).catch(() => {});
+      await this.progress.restoreData(previous.progress).catch(() => {});
       throw error;
     }
     return {

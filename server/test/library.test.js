@@ -743,3 +743,21 @@ test("listProgress filters to known comics but the store retains records for a d
   assert.equal(library.progress.exportData()[goneId].pageIndex, 2);
   assert.equal(library.getProgress(goneId).pageIndex, 2);
 });
+
+test("backup exports progress from the store and restores into it", async () => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-backup-progress-"));
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+
+  const comicId = "d".repeat(24);
+  await library.saveProgress(comicId, { pageIndex: 6, pageCount: 12 });
+
+  const backup = library.createBackup({}, "test");
+  assert.equal(backup.data.browser.progress[comicId].pageIndex, 6);
+
+  await library.removeProgress(comicId);
+  assert.equal(library.getProgress(comicId), null);
+
+  await library.restoreBackup(backup);
+  assert.equal(library.getProgress(comicId).pageIndex, 6);
+});
