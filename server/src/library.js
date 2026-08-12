@@ -17,6 +17,7 @@ const {
 const { BulkMetadataMatcher } = require("./bulk-metadata");
 const { parseComicInfo } = require("./metadata");
 const { MetadataOverrideStore } = require("./metadata-overrides");
+const { ProgressStore } = require("./progress");
 const {
   cleanTitle,
   comicId,
@@ -407,6 +408,7 @@ class ComicLibrary {
       fetchImpl: options.fetchImpl
     });
     this.metadataOverrides = new MetadataOverrideStore(dataDirectory);
+    this.progress = new ProgressStore(dataDirectory);
     this.bulkMetadata = new BulkMetadataMatcher(dataDirectory, {
       search: (input) => this.enrichment.search(input),
       confirm: (comicId, provider, recordId) =>
@@ -423,6 +425,7 @@ class ComicLibrary {
     await fsp.mkdir(this.tempDirectory, { recursive: true });
     await this.enrichment.initialize();
     await this.metadataOverrides.initialize();
+    await this.progress.initialize();
     const storedConfig = await readJson(this.configPath, defaultConfig());
     const migratedConfig = migrateConfig(storedConfig);
     this.config = migratedConfig.config;
@@ -808,6 +811,31 @@ class ComicLibrary {
 
   async deleteReadingOrder(id) {
     return this.readingOrders.delete(id);
+  }
+
+  listProgress() {
+    const known = new Set(this.comics.map((comic) => comic.id));
+    const records = this.progress.exportData();
+    for (const comicId of Object.keys(records)) {
+      if (!known.has(comicId)) delete records[comicId];
+    }
+    return records;
+  }
+
+  getProgress(comicId) {
+    return this.progress.get(comicId);
+  }
+
+  async saveProgress(comicId, input) {
+    return this.progress.save(comicId, input);
+  }
+
+  async removeProgress(comicId) {
+    await this.progress.remove(comicId);
+  }
+
+  async mergeProgress(input) {
+    return this.progress.merge(input);
   }
 
   async scan(input = {}) {

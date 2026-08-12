@@ -707,3 +707,39 @@ test("manual reading order survives a comic move and receives new items as Unpla
   assert.equal(orders.manual[0].unplacedComicIds.length, 1);
   assert.notEqual(orders.manual[0].unplacedComicIds[0], originalId);
 });
+
+test("library exposes progress backed by the progress store", async () => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-library-progress-"));
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+
+  const comicId = "c".repeat(24);
+  library.setComics([{ id: comicId, title: "Test Comic" }]);
+  await library.saveProgress(comicId, { pageIndex: 4, pageCount: 20 });
+
+  assert.equal(library.getProgress(comicId).pageIndex, 4);
+  assert.equal(library.listProgress()[comicId].pageIndex, 4);
+
+  await library.removeProgress(comicId);
+  assert.equal(library.getProgress(comicId), null);
+});
+
+test("listProgress filters to known comics but the store retains records for a disconnected source", async () => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-library-progress-filter-"));
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+
+  const knownId = "d".repeat(24);
+  const goneId = "e".repeat(24);
+  library.setComics([{ id: knownId, title: "Known Comic" }]);
+  await library.saveProgress(knownId, { pageIndex: 1, pageCount: 10 });
+  await library.saveProgress(goneId, { pageIndex: 2, pageCount: 10 });
+
+  const listed = library.listProgress();
+  assert.deepEqual(Object.keys(listed).sort(), [knownId]);
+
+  // The record for the disconnected comic is still in the underlying store,
+  // even though listProgress() hid it because the comic isn't known right now.
+  assert.equal(library.progress.exportData()[goneId].pageIndex, 2);
+  assert.equal(library.getProgress(goneId).pageIndex, 2);
+});
