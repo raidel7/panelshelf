@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { jsonError } = require("./util");
@@ -84,7 +85,7 @@ function mergeRecords(existingInput, incomingInput) {
 
 async function atomicWriteJson(filePath, value) {
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
-  const temporary = `${filePath}.${process.pid}.tmp`;
+  const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await fsp.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
     mode: 0o600
   });
@@ -95,25 +96,50 @@ class ProgressStore {
   constructor(dataDirectory) {
     this.filePath = path.join(dataDirectory, "progress.json");
     this.records = {};
+    // Serializes writes on this instance so overlapping save/remove/merge
+    // calls (e.g. an iPad auto-saving while a browser is also open) never
+    // race on the same file.
+    this.writeQueue = Promise.resolve();
   }
 
   async initialize() {
+    let raw;
     try {
-      this.records = normalizeRecords(
-        JSON.parse(await fsp.readFile(this.filePath, "utf8"))
-      );
+      raw = await fsp.readFile(this.filePath, "utf8");
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+      this.records = {};
+      return;
+    }
+    try {
+      this.records = normalizeRecords(JSON.parse(raw));
+    } catch {
+      // Invalid JSON should not brick the whole server over soft,
+      // re-syncable data: preserve the bad file for inspection and start
+      // empty rather than rethrowing.
+      const corruptPath = `${this.filePath}.corrupt-${Date.now()}`;
+      try {
+        await fsp.rename(this.filePath, corruptPath);
+      } catch {
+        // Best effort; fall through to starting empty regardless.
+      }
+      console.warn(
+        `Progress file ${this.filePath} is corrupt and was reset. ` +
+          `The original was preserved at ${corruptPath}.`
+      );
       this.records = {};
     }
   }
 
-  all() {
-    return structuredClone(this.records);
-  }
-
   get(comicId) {
     return this.records[comicId] ? structuredClone(this.records[comicId]) : null;
+  }
+
+  persist() {
+    this.writeQueue = this.writeQueue.then(() =>
+      atomicWriteJson(this.filePath, this.records)
+    );
+    return this.writeQueue;
   }
 
   async save(comicId, input) {
@@ -121,30 +147,32 @@ class ProgressStore {
       throw jsonError("Comic not found.", "NOT_FOUND");
     }
     const record = normalizeRecord(input);
+    // The server clock is authoritative here; a client-supplied lastReadAt
+    // is deliberately discarded and replaced with the save time.
     record.lastReadAt = new Date().toISOString();
     this.records[comicId] = record;
-    await atomicWriteJson(this.filePath, this.records);
+    await this.persist();
     return this.get(comicId);
   }
 
   async remove(comicId) {
     delete this.records[comicId];
-    await atomicWriteJson(this.filePath, this.records);
+    await this.persist();
   }
 
   async merge(input) {
     this.records = mergeRecords(this.records, input);
-    await atomicWriteJson(this.filePath, this.records);
-    return this.all();
+    await this.persist();
+    return this.exportData();
   }
 
   exportData() {
-    return this.all();
+    return structuredClone(this.records);
   }
 
   async restoreData(value) {
     this.records = normalizeRecords(value);
-    await atomicWriteJson(this.filePath, this.records);
+    await this.persist();
   }
 }
 

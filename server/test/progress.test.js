@@ -206,5 +206,50 @@ test("initialize tolerates a missing file", async () => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-progress-"));
   const store = new ProgressStore(directory);
   await store.initialize();
-  assert.deepEqual(store.all(), {});
+  assert.deepEqual(store.exportData(), {});
+});
+
+test("initialize tolerates a corrupt file, preserving it and starting empty", async () => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-progress-"));
+  const filePath = path.join(directory, "progress.json");
+  await fsp.writeFile(filePath, "{ this is not valid json");
+
+  const store = new ProgressStore(directory);
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    await store.initialize();
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.deepEqual(store.exportData(), {});
+
+  const entries = await fsp.readdir(directory);
+  assert.equal(entries.includes("progress.json"), false);
+  const corruptEntry = entries.find((name) => name.startsWith("progress.json.corrupt-"));
+  assert.ok(corruptEntry, "corrupt file should be preserved under a new name");
+
+  const preserved = await fsp.readFile(path.join(directory, corruptEntry), "utf8");
+  assert.equal(preserved, "{ this is not valid json");
+});
+
+test("save serializes concurrent writes so the persisted file is never torn", async () => {
+  const { directory, store } = await temporaryStore();
+
+  await Promise.all([
+    store.save(COMIC_A, { pageIndex: 1 }),
+    store.merge({ [COMIC_B]: { pageIndex: 2, lastReadAt: "2026-08-12T00:00:00.000Z" } }),
+    store.save(COMIC_A, { pageIndex: 3 }),
+    store.merge({ [COMIC_B]: { pageIndex: 4, lastReadAt: "2026-08-12T00:00:01.000Z" } })
+  ]);
+
+  const raw = await fsp.readFile(path.join(directory, "progress.json"), "utf8");
+  const parsed = JSON.parse(raw);
+  assert.equal(typeof parsed, "object");
+
+  const reopened = new ProgressStore(directory);
+  await reopened.initialize();
+  assert.ok(reopened.get(COMIC_A), "comic A record should have persisted");
+  assert.ok(reopened.get(COMIC_B), "comic B record should have persisted");
 });
