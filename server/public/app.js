@@ -1637,16 +1637,17 @@ function persistProgress(changedComicIds) {
   else for (const comicId of ids) pushProgress(comicId);
 }
 
-function sendProgress(comicId, keepalive = false) {
+// Single-comic writes only; the close path and whole-collection changes go
+// through pushProgressBatch, so this never needs keepalive.
+function sendProgress(comicId) {
   const record = state.progress[comicId];
   const request = record
     ? fetch(`/api/progress/${comicId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(record),
-        keepalive
+        body: JSON.stringify(record)
       })
-    : fetch(`/api/progress/${comicId}`, { method: "DELETE", keepalive });
+    : fetch(`/api/progress/${comicId}`, { method: "DELETE" });
   return request.catch(() => {
     // The local copy is authoritative until the server is reachable again.
   });
