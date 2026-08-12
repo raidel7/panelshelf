@@ -118,14 +118,19 @@ class ProgressStore {
       // re-syncable data: preserve the bad file for inspection and start
       // empty rather than rethrowing.
       const corruptPath = `${this.filePath}.corrupt-${Date.now()}`;
+      let preserved = true;
       try {
         await fsp.rename(this.filePath, corruptPath);
       } catch {
         // Best effort; fall through to starting empty regardless.
+        preserved = false;
       }
       console.warn(
-        `Progress file ${this.filePath} is corrupt and was reset. ` +
-          `The original was preserved at ${corruptPath}.`
+        preserved
+          ? `Progress file ${this.filePath} is corrupt and was reset. ` +
+              `The original was preserved at ${corruptPath}.`
+          : `Progress file ${this.filePath} is corrupt and was reset. ` +
+              `The original could not be preserved.`
       );
       this.records = {};
     }
@@ -136,10 +141,17 @@ class ProgressStore {
   }
 
   persist() {
-    this.writeQueue = this.writeQueue.then(() =>
-      atomicWriteJson(this.filePath, this.records)
-    );
-    return this.writeQueue;
+    // Chain onto the queue without ever letting the queue itself become a
+    // rejected promise — otherwise one transient write failure (ENOSPC,
+    // a permission blip) would permanently disable all future writes on
+    // this instance, since `rejectedPromise.then(cb)` propagates the
+    // rejection without calling `cb`. Each caller still observes the
+    // outcome of its own write via `next`.
+    const next = this.writeQueue
+      .catch(() => {})
+      .then(() => atomicWriteJson(this.filePath, this.records));
+    this.writeQueue = next.catch(() => {});
+    return next;
   }
 
   async save(comicId, input) {

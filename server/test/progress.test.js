@@ -253,3 +253,32 @@ test("save serializes concurrent writes so the persisted file is never torn", as
   assert.ok(reopened.get(COMIC_A), "comic A record should have persisted");
   assert.ok(reopened.get(COMIC_B), "comic B record should have persisted");
 });
+
+const canRestrictOwnWrites = typeof process.getuid === "function" && process.getuid() !== 0;
+
+test(
+  "a failed write does not poison the queue for later writes",
+  { skip: !canRestrictOwnWrites && "requires an unprivileged user for chmod to deny writes" },
+  async () => {
+    const { directory, store } = await temporaryStore();
+
+    await fsp.chmod(directory, 0o500);
+    let firstError = null;
+    try {
+      await store.save(COMIC_A, { pageIndex: 1 });
+      assert.fail("expected the write to fail while the directory is read-only");
+    } catch (error) {
+      firstError = error;
+    } finally {
+      await fsp.chmod(directory, 0o700);
+    }
+    assert.ok(firstError, "the failing save should reject with its own error");
+
+    const saved = await store.save(COMIC_B, { pageIndex: 2 });
+    assert.equal(saved.pageIndex, 2);
+
+    const reopened = new ProgressStore(directory);
+    await reopened.initialize();
+    assert.equal(reopened.get(COMIC_B).pageIndex, 2, "the later write should have reached disk");
+  }
+);
