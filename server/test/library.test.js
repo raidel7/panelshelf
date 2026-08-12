@@ -779,3 +779,24 @@ test("backup ignores caller-supplied progress in favor of the store", async () =
   assert.equal(backup.data.browser.progress[storeComicId].pageIndex, 6);
   assert.equal(backup.data.browser.progress[callerComicId], undefined);
 });
+
+// An empty progress store constructs and saves perfectly well, so dropping the
+// store's initialize() from the library's would break nothing else in the
+// suite: every reading position would simply be gone after a restart.
+test("progress survives a restart", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-progress-restart-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const dataDirectory = path.join(directory, "data");
+
+  const library = new ComicLibrary(dataDirectory);
+  await library.initialize();
+  const comicId = "f".repeat(24);
+  await library.saveProgress(comicId, { pageIndex: 30, pageCount: 42 });
+
+  const restarted = new ComicLibrary(dataDirectory);
+  await restarted.initialize();
+  const record = restarted.getProgress(comicId);
+  assert.ok(record, "the restarted library must load the stored progress");
+  assert.equal(record.pageIndex, 30);
+  assert.equal(record.pageCount, 42);
+});

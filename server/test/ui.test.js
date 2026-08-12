@@ -169,6 +169,27 @@ const progressSource = (async () => {
   return `${constants[0]}\n${source.slice(start, end)}\n${onHide[0]}\n${onUnload[0]}`;
 })();
 
+// Behavioural tests drive loadProgressFromServer directly, so deleting its one
+// call site leaves them all green while the browser silently reverts to
+// localStorage-only. Pinned exactly, the same way the flush listeners are.
+test("the library refresh loads progress from the server before rendering", async () => {
+  const source = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+  const refresh = source.match(/^async function refresh\(\) \{\n[\s\S]*?^\}$/m);
+  assert.ok(refresh, "app.js must define refresh()");
+  assert.match(
+    refresh[0],
+    /^  await loadProgressFromServer\(\);$/m,
+    "refresh() must load progress from the server"
+  );
+  const load = refresh[0].indexOf("await loadProgressFromServer();");
+  const firstRender = refresh[0].search(/^  render[A-Za-z]+\(\);$/m);
+  assert.ok(firstRender > 0, "refresh() must render");
+  assert.ok(
+    load < firstRender,
+    "progress must load before the first render, or the first paint shows stale positions"
+  );
+});
+
 function progressSandbox(options = {}) {
   const calls = [];
   const timers = new Map();
