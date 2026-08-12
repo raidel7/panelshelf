@@ -1590,20 +1590,44 @@ function progressPercent(comic) {
 
 const progressPushTimers = new Map();
 
-// changedComicIds is a single comic id or an array of them; the local cache is
-// always written, and every changed comic is pushed to the server.
-function persistProgress(changedComicIds) {
+function readProgressMigrated() {
+  try {
+    return localStorage.getItem(PROGRESS_MIGRATED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// Tracked in memory as well as in storage: a browser that cannot write to
+// localStorage must still migrate only once per session, or it would keep
+// merging server records back to the server and resurrect other devices'
+// deletions.
+let progressMigrated = readProgressMigrated();
+
+function cacheProgressLocally() {
   try {
     localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(state.progress));
   } catch {
     // Private browsing or a full browser quota should not block reading.
   }
-  const ids = Array.isArray(changedComicIds)
-    ? changedComicIds
-    : changedComicIds
-      ? [changedComicIds]
-      : [];
-  for (const comicId of ids) pushProgress(comicId);
+}
+
+function markProgressMigrated() {
+  progressMigrated = true;
+  try {
+    localStorage.setItem(PROGRESS_MIGRATED_KEY, "1");
+  } catch {
+    // The in-memory flag still holds for the rest of this session.
+  }
+}
+
+// changedComicIds is a single comic id or an array of them; the local cache is
+// always written, and every changed comic is pushed to the server.
+function persistProgress(changedComicIds) {
+  cacheProgressLocally();
+  const ids = [changedComicIds].flat().filter(Boolean);
+  if (ids.length > 1) pushProgressBatch(ids);
+  else for (const comicId of ids) pushProgress(comicId);
 }
 
 function sendProgress(comicId, keepalive = false) {
@@ -1632,6 +1656,41 @@ function pushProgress(comicId) {
   );
 }
 
+// A whole-collection change would otherwise schedule one request per comic;
+// on a tab close those all fire at once and browsers silently drop keepalive
+// bodies past a 64KB total. One merge carries every surviving record instead.
+// Removals still need their own requests, since merge cannot delete.
+function pushProgressBatch(comicIds, keepalive = false) {
+  const records = {};
+  const removed = [];
+  for (const comicId of comicIds) {
+    clearTimeout(progressPushTimers.get(comicId));
+    progressPushTimers.delete(comicId);
+    const record = state.progress[comicId];
+    if (record) records[comicId] = record;
+    else removed.push(comicId);
+  }
+  const sends = [];
+  if (Object.keys(records).length > 0) {
+    sends.push(
+      fetch("/api/progress/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ records }),
+        keepalive
+      }).catch(() => {})
+    );
+  }
+  for (const comicId of removed) {
+    sends.push(
+      fetch(`/api/progress/${comicId}`, { method: "DELETE", keepalive }).catch(
+        () => {}
+      )
+    );
+  }
+  return Promise.all(sends);
+}
+
 // A tab closed inside the debounce window would otherwise drop its last write,
 // and a read that overtook a pending write would push the stale value back.
 function flushPendingProgress() {
@@ -1649,25 +1708,32 @@ async function loadProgressFromServer() {
   // state.progress and then push the server's own value back over the change.
   await flushPendingProgress();
   const local = state.progress;
-  const migrated = localStorage.getItem(PROGRESS_MIGRATED_KEY) === "1";
   try {
-    if (!migrated && Object.keys(local).length > 0) {
+    if (!progressMigrated && Object.keys(local).length > 0) {
       const response = await fetch("/api/progress/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ records: local })
       });
       if (!response.ok) throw new Error("Progress migration failed.");
-      localStorage.setItem(PROGRESS_MIGRATED_KEY, "1");
+      markProgressMigrated();
     }
     const response = await fetch("/api/progress");
     if (!response.ok) throw new Error("Progress is unavailable.");
-    state.progress = await response.json();
-    localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(state.progress));
-    // Set unconditionally: without this a browser that started with no local
+    const remote = await response.json();
+    // A page turn during the in-flight request is still only queued locally.
+    // Replacing it with the server's older record would lose the turn, and the
+    // pending push would then send that older record back with a fresh stamp.
+    for (const comicId of progressPushTimers.keys()) {
+      if (local[comicId]) remote[comicId] = local[comicId];
+      else delete remote[comicId];
+    }
+    state.progress = remote;
+    cacheProgressLocally();
+    // Marked unconditionally: without this a browser that started with no local
     // progress would cache the server's records and merge them back forever,
     // resurrecting comics another device had deleted.
-    localStorage.setItem(PROGRESS_MIGRATED_KEY, "1");
+    markProgressMigrated();
   } catch {
     // Keep the cached copy; the next successful write reconciles it.
   }
@@ -4467,6 +4533,8 @@ function browserBackupState() {
 
 function applyRestoredBrowserState(browser) {
   const restored = browser && typeof browser === "object" ? browser : {};
+  // The restore response carries the backup's progress, which the server has
+  // already written into its own store, so this stays in step with it.
   state.progress = restored.progress || {};
   state.libraryView = LIBRARY_VIEWS.has(restored.libraryView)
     ? restored.libraryView
