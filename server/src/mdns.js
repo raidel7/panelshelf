@@ -205,8 +205,23 @@ function startAdvertisement({ port, version, instance = "PanelShelf" }) {
   const response = encodeResponse({ instance, host, address, port, version });
 
   const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+  let closed = false;
 
-  socket.on("error", () => socket.close());
+  // close() throws ERR_SOCKET_DGRAM_NOT_RUNNING once the socket is already
+  // closed. The error handler below runs inside an EventEmitter, where a throw
+  // is an uncaught exception that would take the whole comic server down, so
+  // every close goes through here. Discovery must never cost us HTTP.
+  const closeSocket = () => {
+    if (closed) return;
+    closed = true;
+    try {
+      socket.close();
+    } catch {
+      // Never bound, or already closed underneath us.
+    }
+  };
+
+  socket.on("error", closeSocket);
 
   socket.on("message", (message) => {
     const wanted = decodeQuestions(message).some(
@@ -225,15 +240,11 @@ function startAdvertisement({ port, version, instance = "PanelShelf" }) {
     }
   });
 
-  return {
-    stop() {
-      try {
-        socket.close();
-      } catch {
-        // Already closed.
-      }
-    }
-  };
+  // The caller may discard this handle: the socket keeps the event loop alive,
+  // but server.js shuts down through process.exit, so the process still exits.
+  // A future graceful shutdown that drops process.exit would need to both call
+  // stop() and unref the socket, or it will hang waiting on this socket.
+  return { stop: closeSocket };
 }
 
 module.exports = {
