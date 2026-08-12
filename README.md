@@ -189,6 +189,105 @@ PanelShelf, because generic OPDS 1.2 does not define a universal progress
 protocol. This preview is intended for a trusted LAN and does not yet protect
 the OPDS catalog with user authentication.
 
+## Reading progress API
+
+Reading progress lives on the server, so every browser — and a future iPad
+app — shares one reading position per comic.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/progress` | Every record for comics currently in the library |
+| GET | `/api/progress/:comicId` | One record, or `404 NOT_FOUND` if none is stored |
+| PUT | `/api/progress/:comicId` | Save one record; the server stamps `lastReadAt` |
+| DELETE | `/api/progress/:comicId` | Mark a comic unread; idempotent |
+| POST | `/api/progress/batch` | Save and delete many records in one request |
+| POST | `/api/progress/merge` | Reconcile client records against stored ones, newest wins |
+
+`:comicId` is a 24-character lowercase hex id; any other shape falls through to
+the generic `404`.
+
+A record is:
+
+```json
+{
+  "pageIndex": 12,
+  "pageCount": 30,
+  "completed": false,
+  "skipped": false,
+  "lastReadAt": "2026-08-12T18:04:11.902Z",
+  "orderId": "manual-chronology-id"
+}
+```
+
+`pageIndex` and `pageCount` are coerced to whole numbers (anything negative or
+unparseable becomes `0`), `completed` and `skipped` to booleans, and
+`lastReadAt` and `orderId` to trimmed strings or `null`. Unknown fields are
+dropped. A client-supplied `lastReadAt` is ignored on `PUT` and on
+`/batch`: the server clock is authoritative there, so a device with a skewed
+clock cannot lose its own write.
+
+`GET /api/progress` returns an object keyed by comic id. Records for comics
+that are not currently in the library — for example a disconnected USB
+source — are retained in the store but omitted from this response.
+
+**Choose the right write.** `PUT` and `POST /api/progress/batch` are deliberate
+writes: the record supplied is applied unconditionally. `POST
+/api/progress/merge` is reconciliation, not a user action — the server compares
+each incoming `lastReadAt` against the stored one and keeps the newer, so a
+deliberate change sent through `merge` can be silently discarded. Use `merge`
+only for the one-time import of browser-local progress and for flushing writes
+a client queued while offline; use `PUT` or `/batch` for everything a person
+just did.
+
+`POST /api/progress/batch` takes both saves and deletions and applies them in a
+single write, which is what a "mark this whole collection read" action should
+send:
+
+```json
+{
+  "records": { "0f2a…": { "pageIndex": 29, "pageCount": 30, "completed": true } },
+  "deleted": ["9c81…"]
+}
+```
+
+Both keys are optional. The whole batch is validated before anything is
+applied: a malformed comic id or record fails the request with `400
+INVALID_PROGRESS` and changes nothing.
+
+`POST /api/progress/merge` accepts either `{ "records": { … } }` or a bare map
+of records. Unusable records are skipped rather than failing the request. Per
+comic id the newer `lastReadAt` wins; a record with no usable timestamp loses to
+one that has it, and the incoming record wins ties.
+
+`POST /api/progress/batch`, `POST /api/progress/merge`, and `GET
+/api/progress` all answer with the same shape as `GET /api/progress`: the full
+current map for comics in the library. `PUT` answers with the single saved
+record, and `DELETE` with `{ "deleted": true, "id": "…" }` whether or not a
+record existed. Request bodies are capped at 256KB for `PUT` and 20MB for the
+two bulk routes.
+
+Backups continue to carry progress. `POST /api/backup/export` always reads it
+from the server store, ignoring any progress the caller sends, and restoring a
+backup replaces the server store.
+
+## Service discovery
+
+At startup the server advertises itself on the local network over mDNS as
+`_panelshelf._tcp`, answering PTR queries for that service type with SRV, TXT,
+and A records. The TXT record carries `version`, `port`, and
+`path=/api/health`.
+
+Discovery is strictly optional and best-effort. If the socket cannot bind, join
+the multicast group, or send, the server logs nothing special and continues
+serving HTTP normally; entering the NAS address by hand always works. Whether a
+given client sees the advertisement depends on its own network — some Wi-Fi
+networks and VPNs block multicast between hosts. To check from macOS on the
+same LAN:
+
+```bash
+dns-sd -B _panelshelf._tcp
+```
+
 ## Backup and restore
 
 Open **Library settings** and select **Export backup** to download a portable
@@ -197,8 +296,8 @@ PanelShelf JSON file. A backup contains:
 - source paths and organization profiles
 - manual reading orders
 - confirmed online metadata matches
-- reading progress and unread/in-progress/completed/skipped states from the
-  browser creating the backup
+- reading progress and unread/in-progress/completed/skipped states, taken from
+  the server rather than from the browser creating the backup
 - selected library view and skipped chronology folders from that browser
 - reader fit and page mode
 
@@ -224,9 +323,12 @@ comics, and one-source scans never remove comics from another source.
 
 ## Reading progress and Next Comic
 
-Reading progress is browser-local in this preview. Closing and reopening the
-same browser restores the page and the active reading order. It is not yet
-shared with another computer, browser profile, or user.
+Reading progress is stored on the server, so the page and the active reading
+order follow you between browsers, browser profiles, and computers. A browser
+holding progress from an earlier build imports it into the server once, on
+first load. Each browser also keeps a local copy so reading continues while the
+server is briefly unreachable. Progress is shared by everyone using the server;
+there are no separate per-user shelves yet.
 
 Use the `•••` menu on a comic card to set its shelf status directly. Choosing
 **Unread** clears that comic's saved progress, **In progress** returns it to

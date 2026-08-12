@@ -3,6 +3,31 @@
 Stable browsing, branch actions, and conservative library-wide metadata
 matching.
 
+## Server-side reading progress
+
+- Reading progress now lives on the server, so one position per comic is shared
+  by every browser, browser profile, and computer using the library.
+- Progress already stored in a browser is imported into the server once, on
+  first load; a second reload does not re-import it.
+- Each browser keeps a local copy, so reading continues if the server is
+  briefly unreachable and reconciles on the next successful write.
+- Unread/in-progress/completed/skipped changes, including whole-branch actions,
+  are sent as one deliberate write that the server timestamps and applies.
+- Backup and restore are unchanged for users; a backup now takes progress from
+  the server store instead of the exporting browser.
+- New `/api/progress` endpoints cover reading, saving, deleting, bulk writes,
+  and merging, and are documented in the README for future clients.
+
+## Service discovery over mDNS
+
+- The server advertises itself on the local network as `_panelshelf._tcp`,
+  publishing its host, port, and version for clients that browse for it.
+- Advertising is best-effort and optional: if it cannot start or the network
+  blocks multicast, the server serves over HTTP exactly as before.
+- Whether a client finds the server this way depends on the network; entering
+  the NAS address by hand remains the supported path.
+- No package or data migration is required.
+
 ## Build 1024 display hotfix
 
 - Fixed the entire metadata-progress dialog briefly disappearing while its
