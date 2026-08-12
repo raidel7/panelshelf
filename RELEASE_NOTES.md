@@ -1,7 +1,7 @@
-# PanelShelf 0.4.3-1024
+# PanelShelf 0.4.4-1025
 
-Stable browsing, branch actions, and conservative library-wide metadata
-matching.
+Server-side reading progress shared by every browser, and service discovery on
+the local network.
 
 ## Server-side reading progress
 
@@ -29,6 +29,11 @@ matching.
 - Whether a client finds the server this way depends on the network; entering
   the NAS address by hand remains the supported path.
 - No package or data migration is required.
+
+# PanelShelf 0.4.3-1024
+
+Stable browsing, branch actions, and conservative library-wide metadata
+matching.
 
 ## Build 1024 display hotfix
 
