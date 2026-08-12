@@ -761,3 +761,21 @@ test("backup exports progress from the store and restores into it", async () => 
   await library.restoreBackup(backup);
   assert.equal(library.getProgress(comicId).pageIndex, 6);
 });
+
+test("backup ignores caller-supplied progress in favor of the store", async () => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-backup-progress-override-"));
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+
+  const storeComicId = "d".repeat(24);
+  const callerComicId = "e".repeat(24);
+  await library.saveProgress(storeComicId, { pageIndex: 6, pageCount: 12 });
+
+  const backup = library.createBackup(
+    { progress: { [callerComicId]: { pageIndex: 9, pageCount: 10 } } },
+    "test"
+  );
+
+  assert.equal(backup.data.browser.progress[storeComicId].pageIndex, 6);
+  assert.equal(backup.data.browser.progress[callerComicId], undefined);
+});

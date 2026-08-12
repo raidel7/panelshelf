@@ -536,6 +536,8 @@ class ComicLibrary {
         readingOrders: this.readingOrders.exportData(),
         metadataMatches: this.enrichment.exportMatches(),
         metadataOverrides: this.metadataOverrides.exportData(),
+        // Progress is deliberately sourced from the server-side store, not the
+        // caller's browserState. Any progress the caller sends is ignored.
         browser: normalizeBrowserState({
           ...browserState,
           progress: this.progress.exportData()
