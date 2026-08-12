@@ -206,6 +206,14 @@ async function startServer() {
   const library = new ComicLibrary(DATA_DIRECTORY);
   await library.initialize();
 
+  // Held so /api/discovery can report what the mDNS responder actually did.
+  // Discovery runs on a NAS we cannot log into, so its own HTTP port is the
+  // only channel that can tell us whether it bound, joined the group, or ever
+  // saw a query. advertisementError records a startAdvertisement that threw,
+  // which must still be answerable rather than a 404.
+  let advertisement = null;
+  let advertisementError = null;
+
   const server = http.createServer(async (request, response) => {
     setSecurityHeaders(response);
     const requestUrl = new URL(request.url, `http://${request.headers.host || "localhost"}`);
@@ -217,6 +225,19 @@ async function startServer() {
           status: "ok",
           version: VERSION,
           uptimeSeconds: Math.round(process.uptime())
+        });
+      }
+
+      if (request.method === "GET" && pathname === "/api/discovery") {
+        if (advertisement) {
+          return sendJson(response, 200, advertisement.state());
+        }
+        return sendJson(response, 200, {
+          active: false,
+          reason: advertisementError
+            ? "the mDNS advertisement threw while starting"
+            : "the mDNS advertisement has not started yet",
+          error: advertisementError
         });
       }
 
@@ -625,10 +646,27 @@ async function startServer() {
       })
     );
     try {
-      startAdvertisement({ port: PORT, version: VERSION });
-    } catch {
+      advertisement = startAdvertisement({ port: PORT, version: VERSION });
+    } catch (error) {
       // Discovery is optional; the server still serves over HTTP.
+      advertisementError = error.message || String(error);
     }
+    // Logged once so the DSM package log carries the same picture as
+    // /api/discovery, for the case where the endpoint itself is unreachable.
+    // Deferred by a beat because the bind and the multicast join complete
+    // asynchronously: logging inline would always report "binding" and tell us
+    // nothing. Unref'd so it never holds the process open.
+    setTimeout(() => {
+      console.log(
+        JSON.stringify({
+          time: new Date().toISOString(),
+          message: "PanelShelf discovery",
+          discovery: advertisement
+            ? advertisement.state()
+            : { active: false, error: advertisementError }
+        })
+      );
+    }, 1_000).unref();
   });
 
   const shutdown = (signal) => {

@@ -6,7 +6,8 @@ const {
   SERVICE_TYPE,
   decodeQuestions,
   encodeName,
-  encodeResponse
+  encodeResponse,
+  startAdvertisement
 } = require("../src/mdns");
 
 const RESPONSE = {
@@ -239,4 +240,234 @@ test("encodeResponse rejects a TXT entry longer than 255 bytes", () => {
     () => encodeResponse({ ...RESPONSE, version: "9".repeat(256) }),
     { message: /text entry/i }
   );
+});
+
+// --- startAdvertisement, driven through the injection seam ---------------
+//
+// The socket wrapper needs a real multicast socket, which a unit test must not
+// open: binding UDP 5353 on a developer machine collides with the system's own
+// responder and makes the suite depend on the local network. startAdvertisement
+// therefore accepts a socket factory and an interface source, both defaulting to
+// dgram and os, so these tests can drive a fake.
+
+const { EventEmitter } = require("node:events");
+
+function fakeSocket() {
+  const socket = new EventEmitter();
+  socket.sent = [];
+  socket.closeCount = 0;
+  socket.membershipCalls = 0;
+  socket.bindCalls = [];
+  socket.failMembership = null;
+  socket.sendError = null;
+  socket.bind = (port, callback) => {
+    socket.bindCalls.push(port);
+    // dgram invokes the listening callback asynchronously; these tests want the
+    // post-bind state to be settled by the time startAdvertisement returns, and
+    // the wrapper must not care either way.
+    if (callback) callback();
+  };
+  socket.addMembership = () => {
+    socket.membershipCalls += 1;
+    if (socket.failMembership) throw socket.failMembership;
+  };
+  socket.setMulticastTTL = () => {};
+  socket.send = (message, port, address, callback) => {
+    socket.sent.push({ message, port, address });
+    if (callback) callback(socket.sendError);
+  };
+  socket.close = () => {
+    socket.closeCount += 1;
+  };
+  return socket;
+}
+
+const LAN_INTERFACES = {
+  lo0: [{ family: "IPv4", internal: true, address: "127.0.0.1" }],
+  eth0: [{ family: "IPv4", internal: false, address: "192.168.1.69" }]
+};
+
+function advertise(overrides = {}) {
+  const socket = fakeSocket();
+  const handle = startAdvertisement({
+    port: 8251,
+    version: "0.4.4",
+    createSocket: () => socket,
+    networkInterfaces: () => LAN_INTERFACES,
+    ...overrides
+  });
+  return { socket, handle };
+}
+
+function queryPacket(name, type = 12) {
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(1, 4);
+  const suffix = Buffer.alloc(4);
+  suffix.writeUInt16BE(type, 0);
+  suffix.writeUInt16BE(1, 2);
+  return Buffer.concat([header, encodeName(name), suffix]);
+}
+
+test("startAdvertisement answers a PTR query for our service type", () => {
+  const { socket, handle } = advertise();
+
+  socket.emit("message", queryPacket(SERVICE_TYPE));
+
+  assert.equal(socket.sent.length, 1, "one response sent");
+  assert.equal(socket.sent[0].port, 5353);
+  assert.equal(socket.sent[0].address, "224.0.0.251");
+  assert.ok(
+    socket.sent[0].message.includes(Buffer.from("_panelshelf", "utf8")),
+    "the datagram carries our service records"
+  );
+
+  const state = handle.state();
+  assert.equal(state.active, true);
+  assert.equal(state.reason, null);
+  assert.equal(state.bound, true);
+  assert.equal(state.membership, true);
+  assert.equal(state.address, "192.168.1.69");
+  assert.equal(state.port, 8251);
+  assert.equal(state.instance, "PanelShelf");
+  assert.equal(state.serviceType, SERVICE_TYPE);
+  assert.deepEqual(state.counters, {
+    datagrams: 1,
+    queries: 1,
+    responses: 1
+  });
+  handle.stop();
+});
+
+test("startAdvertisement ignores a query for someone else's service", () => {
+  const { socket, handle } = advertise();
+
+  socket.emit("message", queryPacket("_airplay._tcp.local"));
+  socket.emit("message", queryPacket(SERVICE_TYPE, 1)); // right name, A not PTR
+  socket.emit("message", Buffer.from([1, 2, 3])); // malformed
+
+  assert.equal(socket.sent.length, 0, "no response to an unrelated query");
+  assert.deepEqual(handle.state().counters, {
+    datagrams: 3,
+    queries: 0,
+    responses: 0
+  });
+  handle.stop();
+});
+
+test("startAdvertisement counts every datagram, query, and response", () => {
+  const { socket, handle } = advertise();
+
+  socket.emit("message", queryPacket(SERVICE_TYPE));
+  socket.emit("message", queryPacket("_smb._tcp.local"));
+  socket.emit("message", queryPacket(SERVICE_TYPE));
+
+  assert.deepEqual(handle.state().counters, {
+    datagrams: 3,
+    queries: 2,
+    responses: 2
+  });
+  handle.stop();
+});
+
+test("a multicast membership failure is reported in state, not thrown", () => {
+  const socket = fakeSocket();
+  socket.failMembership = new Error("EADDRNOTAVAIL: no such interface");
+
+  const handle = startAdvertisement({
+    port: 8251,
+    version: "0.4.4",
+    createSocket: () => socket,
+    networkInterfaces: () => LAN_INTERFACES
+  });
+
+  const state = handle.state();
+  assert.equal(state.bound, true, "the bind itself still succeeded");
+  assert.equal(state.membership, false);
+  assert.match(state.lastError.membership, /EADDRNOTAVAIL/);
+  handle.stop();
+});
+
+test("a socket error does not escape and is recorded in state", () => {
+  const { socket, handle } = advertise();
+
+  // An EventEmitter with no error listener rethrows; the wrapper must own it.
+  socket.emit("error", new Error("EACCES: permission denied"));
+
+  const state = handle.state();
+  assert.equal(state.active, false);
+  assert.match(state.lastError.socket, /EACCES/);
+  assert.equal(socket.closeCount, 1, "the socket is closed on error");
+  handle.stop();
+  assert.equal(socket.closeCount, 1, "stop() after an error is idempotent");
+});
+
+test("a bind failure is recorded as a bind error, not a socket error", () => {
+  const socket = fakeSocket();
+  socket.bind = (port) => {
+    socket.bindCalls.push(port);
+    socket.emit("error", new Error("EADDRINUSE: address already in use"));
+  };
+
+  const handle = startAdvertisement({
+    port: 8251,
+    version: "0.4.4",
+    createSocket: () => socket,
+    networkInterfaces: () => LAN_INTERFACES
+  });
+
+  const state = handle.state();
+  assert.equal(state.active, false);
+  assert.equal(state.bound, false);
+  assert.match(state.reason, /bind/i);
+  assert.match(state.lastError.bind, /EADDRINUSE/);
+  assert.equal(state.lastError.socket, null, "the bind never succeeded");
+  handle.stop();
+});
+
+test("a send failure is recorded without throwing", () => {
+  const { socket, handle } = advertise();
+  socket.sendError = new Error("ENETUNREACH: network is unreachable");
+
+  socket.emit("message", queryPacket(SERVICE_TYPE));
+
+  assert.match(handle.state().lastError.send, /ENETUNREACH/);
+  handle.stop();
+});
+
+test("a host with no usable address reports inactive with a reason", () => {
+  let created = false;
+  const handle = startAdvertisement({
+    port: 8251,
+    version: "0.4.4",
+    createSocket: () => {
+      created = true;
+      return fakeSocket();
+    },
+    networkInterfaces: () => ({
+      lo0: [{ family: "IPv4", internal: true, address: "127.0.0.1" }],
+      eth0: [{ family: "IPv6", internal: false, address: "fe80::1" }]
+    })
+  });
+
+  const state = handle.state();
+  assert.equal(created, false, "no socket is opened without an address");
+  assert.equal(state.active, false);
+  assert.equal(state.bound, false);
+  assert.equal(state.address, null);
+  assert.match(state.reason, /address/i);
+  assert.deepEqual(state.counters, { datagrams: 0, queries: 0, responses: 0 });
+  handle.stop();
+  handle.stop();
+});
+
+test("stop() marks the advertisement inactive and stays idempotent", () => {
+  const { socket, handle } = advertise();
+
+  handle.stop();
+  handle.stop();
+
+  assert.equal(socket.closeCount, 1);
+  const state = handle.state();
+  assert.equal(state.active, false);
+  assert.match(state.reason, /stop/i);
 });

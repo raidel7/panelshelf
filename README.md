@@ -292,15 +292,35 @@ and A records. The TXT record carries `version`, `port`, and
 `path=/api/health`.
 
 Discovery is strictly optional and best-effort. If the socket cannot bind, join
-the multicast group, or send, the server logs nothing special and continues
-serving HTTP normally; entering the NAS address by hand always works. Whether a
-given client sees the advertisement depends on its own network — some Wi-Fi
-networks and VPNs block multicast between hosts. To check from macOS on the
-same LAN:
+the multicast group, or send, the server continues serving HTTP normally;
+entering the NAS address by hand always works. Whether a given client sees the
+advertisement depends on its own network — some Wi-Fi networks and VPNs block
+multicast between hosts. To check from macOS on the same LAN:
 
 ```bash
 dns-sd -B _panelshelf._tcp
 ```
+
+### `GET /api/discovery`
+
+Because those failures are otherwise invisible from outside the NAS, the
+responder reports its own state:
+
+```bash
+curl http://<nas>:8251/api/discovery
+```
+
+The JSON says whether the advertisement is `active` (and if not, the `reason`),
+which `address`, `host`, `instance`, and `port` it advertises, whether the
+socket `bound` and joined the multicast group (`membership`), `counters` for
+datagrams received, matching queries, and responses sent, and the last error
+message from each of the `bind`, `membership`, `socket`, and `send` paths. The
+same object is written to the DSM package log once at startup, under the message
+`PanelShelf discovery`.
+
+`counters.datagrams` is the one to read first: zero means the socket is bound
+but is being delivered no multicast at all, which points at the system responder
+owning UDP 5353 or a firewall, not at our packet encoding.
 
 ## Backup and restore
 

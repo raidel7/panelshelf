@@ -186,8 +186,16 @@ function encodeResponse({ instance, host, address, port, version }) {
   return Buffer.concat([header, ...answers]);
 }
 
-function primaryAddress() {
-  for (const entries of Object.values(os.networkInterfaces())) {
+// State is read over HTTP and written to a log, so every recorded error is
+// reduced to a plain string here rather than carrying an Error through JSON,
+// which would serialize to {}.
+function errorMessage(error) {
+  if (!error) return "unknown error";
+  return String(error.message || error);
+}
+
+function primaryAddress(interfaces) {
+  for (const entries of Object.values(interfaces)) {
     for (const entry of entries || []) {
       if (entry.family === "IPv4" && !entry.internal) return entry.address;
     }
@@ -195,11 +203,50 @@ function primaryAddress() {
   return null;
 }
 
-function startAdvertisement({ port, version, instance = "PanelShelf" }) {
-  const address = primaryAddress();
-  if (!address) return { stop() {} };
+// createSocket and networkInterfaces exist so tests can drive the responder
+// without opening a real multicast socket or depending on the machine's own
+// interfaces. They default to the real dgram and os, and server.js passes
+// neither: production behaviour is exactly what it was.
+function startAdvertisement({
+  port,
+  version,
+  instance = "PanelShelf",
+  createSocket = (options) => dgram.createSocket(options),
+  networkInterfaces = () => os.networkInterfaces()
+}) {
+  // Every failure path below used to be silent, which made a NAS that simply
+  // never appears in dns-sd indistinguishable from one whose socket lost the
+  // bind to the system responder. state() reports what actually happened,
+  // recorded where it happens rather than inferred afterwards. Nothing here
+  // changes what the responder does -- only what it can tell us about it.
+  const counters = { datagrams: 0, queries: 0, responses: 0 };
+  const lastError = { bind: null, membership: null, socket: null, send: null };
+  let bound = false;
+  let membership = false;
+  let active = false;
+  let reason = null;
 
+  const address = primaryAddress(networkInterfaces());
   const host = `${os.hostname().split(".")[0]}.local`;
+
+  const state = () => ({
+    active,
+    reason,
+    serviceType: SERVICE_TYPE,
+    instance,
+    host: address ? host : null,
+    address,
+    port,
+    bound,
+    membership,
+    counters: { ...counters },
+    lastError: { ...lastError }
+  });
+
+  if (!address) {
+    reason = "no external IPv4 address found on any interface";
+    return { stop() {}, state };
+  }
 
   // Encode once, here, not inside the message handler. encodeName throws on a
   // label over 63 bytes, and a hostname long enough to trip it is entirely
@@ -208,7 +255,7 @@ function startAdvertisement({ port, version, instance = "PanelShelf" }) {
   // thrown here it lands in the caller's try/catch at startup.
   const response = encodeResponse({ instance, host, address, port, version });
 
-  const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+  const socket = createSocket({ type: "udp4", reuseAddr: true });
   let closed = false;
 
   // close() throws ERR_SOCKET_DGRAM_NOT_RUNNING once the socket is already
@@ -218,6 +265,7 @@ function startAdvertisement({ port, version, instance = "PanelShelf" }) {
   const closeSocket = () => {
     if (closed) return;
     closed = true;
+    active = false;
     try {
       socket.close();
     } catch {
@@ -225,22 +273,58 @@ function startAdvertisement({ port, version, instance = "PanelShelf" }) {
     }
   };
 
-  socket.on("error", closeSocket);
+  // Errors reach us as an EventEmitter event, which carries no indication of
+  // which operation failed. The bind is the only thing in flight before the
+  // listening callback runs, so an error before then is a bind error and an
+  // error after it is the live socket failing. Distinguishing them matters:
+  // "lost UDP 5353 to the system responder" and "the socket died later" call
+  // for completely different fixes.
+  socket.on("error", (error) => {
+    if (bound) {
+      lastError.socket = errorMessage(error);
+      reason = "socket error";
+    } else {
+      lastError.bind = errorMessage(error);
+      reason = "bind failed";
+    }
+    closeSocket();
+  });
 
   socket.on("message", (message) => {
+    counters.datagrams += 1;
     const wanted = decodeQuestions(message).some(
       (question) => question.name === SERVICE_TYPE && question.type === TYPE_PTR
     );
     if (!wanted) return;
-    socket.send(response, MULTICAST_PORT, MULTICAST_ADDRESS, () => {});
+    counters.queries += 1;
+    // Counted as sent when handed to the socket, not when the callback comes
+    // back clean: a send that failed still shows here, with the reason in
+    // lastError.send, so a NAS answering into a black hole is distinguishable
+    // from one that never sees a query at all.
+    counters.responses += 1;
+    socket.send(response, MULTICAST_PORT, MULTICAST_ADDRESS, (error) => {
+      if (error) lastError.send = errorMessage(error);
+    });
   });
 
+  reason = "binding";
   socket.bind(MULTICAST_PORT, () => {
+    bound = true;
+    if (!closed) {
+      active = true;
+      reason = null;
+    }
     try {
       socket.addMembership(MULTICAST_ADDRESS);
+      // Recorded before setMulticastTTL, which is a separate call that can fail
+      // on its own: the group join is what decides whether queries ever arrive.
+      membership = true;
       socket.setMulticastTTL(255);
-    } catch {
-      // Discovery is optional; manual entry always works.
+    } catch (error) {
+      // Discovery is optional; manual entry always works. Recorded rather than
+      // swallowed: a socket that bound but never joined the group receives
+      // nothing, which from outside looks exactly like a firewall drop.
+      lastError.membership = errorMessage(error);
     }
   });
 
@@ -248,7 +332,15 @@ function startAdvertisement({ port, version, instance = "PanelShelf" }) {
   // but server.js shuts down through process.exit, so the process still exits.
   // A future graceful shutdown that drops process.exit would need to both call
   // stop() and unref the socket, or it will hang waiting on this socket.
-  return { stop: closeSocket };
+  return {
+    stop() {
+      // Only the first stop names itself as the reason: a socket that already
+      // errored keeps the reason that explains the failure.
+      if (!closed) reason = "stopped";
+      closeSocket();
+    },
+    state
+  };
 }
 
 module.exports = {

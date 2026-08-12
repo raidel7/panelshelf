@@ -73,6 +73,36 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   const base = `http://127.0.0.1:${port}`;
   await waitFor(`${base}/api/health`, (body) => body.status === "ok");
 
+  // Discovery has to be diagnosable over HTTP: the NAS refuses SSH, so this
+  // endpoint is the only way to tell "never bound" from "bound but never
+  // asked". It answers with the responder's state whatever happened, including
+  // when the advertisement failed outright -- a 404 would be one more silent
+  // failure mode.
+  const discoveryResponse = await fetch(`${base}/api/discovery`);
+  assert.equal(discoveryResponse.status, 200, logs);
+  const discovery = await discoveryResponse.json();
+  assert.equal(typeof discovery.active, "boolean");
+  assert.equal(discovery.serviceType, "_panelshelf._tcp.local");
+  assert.equal(discovery.instance, "PanelShelf");
+  assert.equal(discovery.port, port);
+  assert.equal(typeof discovery.bound, "boolean");
+  assert.equal(typeof discovery.membership, "boolean");
+  assert.equal(typeof discovery.counters.datagrams, "number");
+  assert.equal(typeof discovery.counters.queries, "number");
+  assert.equal(typeof discovery.counters.responses, "number");
+  assert.deepEqual(Object.keys(discovery.lastError).sort(), [
+    "bind",
+    "membership",
+    "send",
+    "socket"
+  ]);
+  // An inactive responder must say why; an active one has nothing to explain.
+  if (discovery.active) {
+    assert.equal(discovery.reason, null);
+  } else {
+    assert.equal(typeof discovery.reason, "string", logs);
+  }
+
   let bulkResponse = await fetch(`${base}/api/metadata/bulk`);
   assert.equal(bulkResponse.status, 200, logs);
   const bulkState = await bulkResponse.json();
