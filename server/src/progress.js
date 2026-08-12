@@ -82,8 +82,75 @@ function mergeRecords(existingInput, incomingInput) {
   return merged;
 }
 
+async function atomicWriteJson(filePath, value) {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  const temporary = `${filePath}.${process.pid}.tmp`;
+  await fsp.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
+    mode: 0o600
+  });
+  await fsp.rename(temporary, filePath);
+}
+
+class ProgressStore {
+  constructor(dataDirectory) {
+    this.filePath = path.join(dataDirectory, "progress.json");
+    this.records = {};
+  }
+
+  async initialize() {
+    try {
+      this.records = normalizeRecords(
+        JSON.parse(await fsp.readFile(this.filePath, "utf8"))
+      );
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      this.records = {};
+    }
+  }
+
+  all() {
+    return structuredClone(this.records);
+  }
+
+  get(comicId) {
+    return this.records[comicId] ? structuredClone(this.records[comicId]) : null;
+  }
+
+  async save(comicId, input) {
+    if (!COMIC_ID.test(comicId)) {
+      throw jsonError("Comic not found.", "NOT_FOUND");
+    }
+    const record = normalizeRecord(input);
+    record.lastReadAt = new Date().toISOString();
+    this.records[comicId] = record;
+    await atomicWriteJson(this.filePath, this.records);
+    return this.get(comicId);
+  }
+
+  async remove(comicId) {
+    delete this.records[comicId];
+    await atomicWriteJson(this.filePath, this.records);
+  }
+
+  async merge(input) {
+    this.records = mergeRecords(this.records, input);
+    await atomicWriteJson(this.filePath, this.records);
+    return this.all();
+  }
+
+  exportData() {
+    return this.all();
+  }
+
+  async restoreData(value) {
+    this.records = normalizeRecords(value);
+    await atomicWriteJson(this.filePath, this.records);
+  }
+}
+
 module.exports = {
   COMIC_ID,
+  ProgressStore,
   mergeRecords,
   normalizeRecord,
   normalizeRecords,

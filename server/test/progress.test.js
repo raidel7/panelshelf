@@ -148,3 +148,63 @@ test("mergeRecords lets the incoming record win a timestamp tie", () => {
 
   assert.equal(merged[COMIC_A].pageIndex, 2);
 });
+
+const fsp = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { ProgressStore } = require("../src/progress");
+
+async function temporaryStore() {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-progress-"));
+  const store = new ProgressStore(directory);
+  await store.initialize();
+  return { directory, store };
+}
+
+test("save stamps lastReadAt and round-trips through disk", async () => {
+  const { directory, store } = await temporaryStore();
+
+  const saved = await store.save(COMIC_A, { pageIndex: 13, pageCount: 32 });
+  assert.equal(saved.pageIndex, 13);
+  assert.ok(Date.parse(saved.lastReadAt) > 0);
+
+  const reopened = new ProgressStore(directory);
+  await reopened.initialize();
+  assert.equal(reopened.get(COMIC_A).pageIndex, 13);
+});
+
+test("save rejects an invalid comic id", async () => {
+  const { store } = await temporaryStore();
+  await assert.rejects(() => store.save("nope", { pageIndex: 1 }), {
+    code: "NOT_FOUND"
+  });
+});
+
+test("remove deletes a record", async () => {
+  const { store } = await temporaryStore();
+  await store.save(COMIC_A, { pageIndex: 3 });
+  await store.remove(COMIC_A);
+  assert.equal(store.get(COMIC_A), null);
+});
+
+test("merge applies newest-wins and persists", async () => {
+  const { directory, store } = await temporaryStore();
+  await store.save(COMIC_A, { pageIndex: 3 });
+
+  await store.merge({
+    [COMIC_A]: { pageIndex: 30, lastReadAt: "2000-01-01T00:00:00.000Z" },
+    [COMIC_B]: { pageIndex: 7, lastReadAt: "2026-08-12T00:00:00.000Z" }
+  });
+
+  const reopened = new ProgressStore(directory);
+  await reopened.initialize();
+  assert.equal(reopened.get(COMIC_A).pageIndex, 3, "older incoming record loses");
+  assert.equal(reopened.get(COMIC_B).pageIndex, 7);
+});
+
+test("initialize tolerates a missing file", async () => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-progress-"));
+  const store = new ProgressStore(directory);
+  await store.initialize();
+  assert.deepEqual(store.all(), {});
+});
