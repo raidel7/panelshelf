@@ -6,6 +6,7 @@ const http = require("node:http");
 const path = require("node:path");
 const { URL } = require("node:url");
 const { ComicLibrary, browseFolders } = require("./library");
+const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
 
@@ -623,6 +624,11 @@ async function startServer() {
         dataDirectory: DATA_DIRECTORY
       })
     );
+    try {
+      startAdvertisement({ port: PORT, version: VERSION });
+    } catch {
+      // Discovery is optional; the server still serves over HTTP.
+    }
   });
 
   const shutdown = (signal) => {

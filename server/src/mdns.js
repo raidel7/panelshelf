@@ -5,6 +5,9 @@
 // multicast additions of RFC 6762. We only ever advertise, never resolve, so
 // this handles the subset of the format a responder needs.
 
+const dgram = require("node:dgram");
+const os = require("node:os");
+
 const SERVICE_TYPE = "_panelshelf._tcp.local";
 const MULTICAST_ADDRESS = "224.0.0.251";
 const MULTICAST_PORT = 5353;
@@ -179,6 +182,60 @@ function encodeResponse({ instance, host, address, port, version }) {
   return Buffer.concat([header, ...answers]);
 }
 
+function primaryAddress() {
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries || []) {
+      if (entry.family === "IPv4" && !entry.internal) return entry.address;
+    }
+  }
+  return null;
+}
+
+function startAdvertisement({ port, version, instance = "PanelShelf" }) {
+  const address = primaryAddress();
+  if (!address) return { stop() {} };
+
+  const host = `${os.hostname().split(".")[0]}.local`;
+
+  // Encode once, here, not inside the message handler. encodeName throws on a
+  // label over 63 bytes, and a hostname long enough to trip it is entirely
+  // ordinary on macOS. Thrown from an EventEmitter handler that would be an
+  // uncaught exception that kills the whole server on a stranger's query;
+  // thrown here it lands in the caller's try/catch at startup.
+  const response = encodeResponse({ instance, host, address, port, version });
+
+  const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+
+  socket.on("error", () => socket.close());
+
+  socket.on("message", (message) => {
+    const wanted = decodeQuestions(message).some(
+      (question) => question.name === SERVICE_TYPE && question.type === TYPE_PTR
+    );
+    if (!wanted) return;
+    socket.send(response, MULTICAST_PORT, MULTICAST_ADDRESS, () => {});
+  });
+
+  socket.bind(MULTICAST_PORT, () => {
+    try {
+      socket.addMembership(MULTICAST_ADDRESS);
+      socket.setMulticastTTL(255);
+    } catch {
+      // Discovery is optional; manual entry always works.
+    }
+  });
+
+  return {
+    stop() {
+      try {
+        socket.close();
+      } catch {
+        // Already closed.
+      }
+    }
+  };
+}
+
 module.exports = {
   MULTICAST_ADDRESS,
   MULTICAST_PORT,
@@ -186,5 +243,6 @@ module.exports = {
   TYPE_PTR,
   decodeQuestions,
   encodeName,
-  encodeResponse
+  encodeResponse,
+  startAdvertisement
 };
