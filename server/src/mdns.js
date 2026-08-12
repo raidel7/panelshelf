@@ -12,6 +12,25 @@ const SERVICE_TYPE = "_panelshelf._tcp.local";
 const MULTICAST_ADDRESS = "224.0.0.251";
 const MULTICAST_PORT = 5353;
 const TTL = 120;
+// A goodbye is the same records with a zero TTL (RFC 6762 §10.1).
+const TTL_GOODBYE = 0;
+
+// RFC 6762 §8.3 requires at least two announcements one second apart, and
+// permits up to eight with the gap doubling each time. Three covers the case of
+// a single datagram being dropped -- multicast is unreliable and nothing
+// retransmits it -- without adding meaningful traffic. The first is scheduled
+// rather than sent inline so no packet leaves before the caller holds the
+// handle, and so a throw can never escape into startAdvertisement's caller.
+const ANNOUNCE_DELAYS_MS = [0, 1_000, 3_000];
+
+// Then repeat forever, because a browser that starts later has no way to ask us
+// anything: on the NAS our socket never receives queries at all (avahi owns UDP
+// 5353), so a client's own query is not a path back to us. 90 seconds is chosen
+// against the 120-second record TTL: every announcement refreshes a listener's
+// cache with 30 seconds to spare, so a passive client never sees the service
+// lapse and reappear, while four records every 90 seconds is negligible next to
+// ordinary LAN mDNS chatter.
+const ANNOUNCE_INTERVAL_MS = 90_000;
 const TYPE_A = 1;
 const TYPE_PTR = 12;
 const TYPE_TXT = 16;
@@ -117,12 +136,12 @@ function decodeQuestions(buffer) {
   return questions;
 }
 
-function record(name, type, data, recordClass = CLASS_IN) {
+function record(name, type, data, recordClass = CLASS_IN, ttl = TTL) {
   const encodedName = encodeName(name);
   const header = Buffer.alloc(RECORD_HEADER_LENGTH);
   header.writeUInt16BE(type, 0);
   header.writeUInt16BE(recordClass, RECORD_CLASS_OFFSET);
-  header.writeUInt32BE(TTL, RECORD_TTL_OFFSET);
+  header.writeUInt32BE(ttl, RECORD_TTL_OFFSET);
   header.writeUInt16BE(data.length, RECORD_RDLENGTH_OFFSET);
   return Buffer.concat([encodedName, header, data]);
 }
@@ -143,7 +162,11 @@ function textData(entries) {
   );
 }
 
-function encodeResponse({ instance, host, address, port, version }) {
+// ttl is a parameter rather than a second encoder because a goodbye (RFC 6762
+// §10.1) is byte-for-byte the announcement with every TTL set to zero: clients
+// match it against their cache by name, type, class and rdata, so the two must
+// never drift apart.
+function encodeResponse({ instance, host, address, port, version, ttl = TTL }) {
   const serviceName = `${instance}.${SERVICE_TYPE}`;
   const header = Buffer.alloc(HEADER_LENGTH);
   header.writeUInt16BE(0, 0);
@@ -167,20 +190,28 @@ function encodeResponse({ instance, host, address, port, version }) {
   // on the LAN to discard its cached address for a name belonging to someone
   // else, which is the one thing this responder could break outside PanelShelf.
   const answers = [
-    record(SERVICE_TYPE, TYPE_PTR, encodeName(serviceName)),
+    record(SERVICE_TYPE, TYPE_PTR, encodeName(serviceName), CLASS_IN, ttl),
     record(
       serviceName,
       TYPE_SRV,
       Buffer.concat([srvData, encodeName(host)]),
-      CLASS_IN_FLUSH
+      CLASS_IN_FLUSH,
+      ttl
     ),
     record(
       serviceName,
       TYPE_TXT,
       textData([`version=${version}`, `port=${port}`, "path=/api/health"]),
-      CLASS_IN_FLUSH
+      CLASS_IN_FLUSH,
+      ttl
     ),
-    record(host, TYPE_A, Buffer.from(address.split(".").map(Number)))
+    record(
+      host,
+      TYPE_A,
+      Buffer.from(address.split(".").map(Number)),
+      CLASS_IN,
+      ttl
+    )
   ];
 
   return Buffer.concat([header, ...answers]);
@@ -205,26 +236,43 @@ function primaryAddress(interfaces) {
 
 // createSocket and networkInterfaces exist so tests can drive the responder
 // without opening a real multicast socket or depending on the machine's own
-// interfaces. They default to the real dgram and os, and server.js passes
-// neither: production behaviour is exactly what it was.
+// interfaces. announceDelaysMs and announceIntervalMs exist so those tests do
+// not have to wait out real seconds. All four default to production values, and
+// server.js passes none of them.
 function startAdvertisement({
   port,
   version,
   instance = "PanelShelf",
   createSocket = (options) => dgram.createSocket(options),
-  networkInterfaces = () => os.networkInterfaces()
+  networkInterfaces = () => os.networkInterfaces(),
+  announceDelaysMs = ANNOUNCE_DELAYS_MS,
+  announceIntervalMs = ANNOUNCE_INTERVAL_MS
 }) {
   // Every failure path below used to be silent, which made a NAS that simply
   // never appears in dns-sd indistinguishable from one whose socket lost the
   // bind to the system responder. state() reports what actually happened,
   // recorded where it happens rather than inferred afterwards. Nothing here
   // changes what the responder does -- only what it can tell us about it.
-  const counters = { datagrams: 0, queries: 0, responses: 0 };
-  const lastError = { bind: null, membership: null, socket: null, send: null };
+  const counters = {
+    datagrams: 0,
+    queries: 0,
+    responses: 0,
+    announcements: 0,
+    goodbyes: 0
+  };
+  const lastError = {
+    bind: null,
+    membership: null,
+    multicastInterface: null,
+    socket: null,
+    send: null
+  };
   let bound = false;
   let membership = false;
   let active = false;
   let reason = null;
+  let lastAnnouncedAt = null;
+  let multicastInterface = null;
 
   const address = primaryAddress(networkInterfaces());
   const host = `${os.hostname().split(".")[0]}.local`;
@@ -239,6 +287,12 @@ function startAdvertisement({
     port,
     bound,
     membership,
+    multicastInterface,
+    // Announcing is the path that actually makes us discoverable, so its state
+    // has to be readable over HTTP: an operator with no shell on the NAS must
+    // be able to tell "announced 5 times, no errors" from "never announced".
+    announceIntervalMs,
+    lastAnnouncedAt,
     counters: { ...counters },
     lastError: { ...lastError }
   });
@@ -254,9 +308,21 @@ function startAdvertisement({
   // uncaught exception that kills the whole server on a stranger's query;
   // thrown here it lands in the caller's try/catch at startup.
   const response = encodeResponse({ instance, host, address, port, version });
+  // Built at startup for the same reason as the response: stop() runs on a
+  // shutdown path where a throw is least welcome.
+  const goodbye = encodeResponse({
+    instance,
+    host,
+    address,
+    port,
+    version,
+    ttl: TTL_GOODBYE
+  });
 
   const socket = createSocket({ type: "udp4", reuseAddr: true });
   let closed = false;
+  let stopping = false;
+  const timers = new Set();
 
   // close() throws ERR_SOCKET_DGRAM_NOT_RUNNING once the socket is already
   // closed. The error handler below runs inside an EventEmitter, where a throw
@@ -290,6 +356,68 @@ function startAdvertisement({
     closeSocket();
   });
 
+  // Sends from the socket bound to 5353. Binding is contended -- on the NAS
+  // avahi owns the port and the kernel delivers every query to it -- but
+  // sending is not: any socket may send to 224.0.0.251:5353, and sending from
+  // the bound one gives the datagram source port 5353, which some clients
+  // require of a multicast DNS response. If the bind failed the socket is
+  // already closed and the guard below skips the send, so sharing costs us
+  // nothing on the failure paths; a separate ephemeral socket would only add a
+  // second thing that can fail while making our packets look less legitimate.
+  const sendPacket = (packet, done = () => {}) => {
+    if (closed) return false;
+    try {
+      socket.send(packet, MULTICAST_PORT, MULTICAST_ADDRESS, (error) => {
+        if (error) lastError.send = errorMessage(error);
+        done();
+      });
+    } catch (error) {
+      // dgram throws synchronously if the socket died between the guard above
+      // and the call. This runs from a timer and from stop(); an escaping throw
+      // would be an uncaught exception that takes the comic server down with
+      // it, and discovery must never cost us HTTP.
+      lastError.send = errorMessage(error);
+      done();
+      return false;
+    }
+    return true;
+  };
+
+  // The whole point of the change: we announce unprompted rather than waiting
+  // to be asked. RFC 6762 §8.3. Continuous browsers -- dns-sd, and the
+  // NWBrowser an iPad client uses -- cache what arrives unsolicited, so this is
+  // enough to be discovered even though we never see a single query.
+  const announce = () => {
+    // Counted when handed to the socket, not when the callback comes back
+    // clean, so an announcement into a black hole still shows here with the
+    // reason in lastError.send.
+    if (!sendPacket(response)) return;
+    counters.announcements += 1;
+    lastAnnouncedAt = new Date().toISOString();
+  };
+
+  const schedule = (fn, delay, repeat = false) => {
+    const timer = repeat ? setInterval(fn, delay) : setTimeout(fn, delay);
+    // Never let discovery hold the process open. A missing unref would turn a
+    // clean shutdown into a hang once server.js stops calling process.exit.
+    if (typeof timer.unref === "function") timer.unref();
+    timers.add(timer);
+    return timer;
+  };
+
+  const clearTimers = () => {
+    for (const timer of timers) {
+      clearTimeout(timer);
+      clearInterval(timer);
+    }
+    timers.clear();
+  };
+
+  // Kept, and no longer load-bearing. On any host where 5353 is free this
+  // answers queries directly and costs nothing; on the NAS it never fires,
+  // because avahi already owns the port and the kernel hands it every packet
+  // (measured: 0 queries seen across a live browse). Treat it as a bonus path
+  // -- if discovery breaks, look at the announcements above, not here.
   socket.on("message", (message) => {
     counters.datagrams += 1;
     const wanted = decodeQuestions(message).some(
@@ -302,9 +430,7 @@ function startAdvertisement({
     // lastError.send, so a NAS answering into a black hole is distinguishable
     // from one that never sees a query at all.
     counters.responses += 1;
-    socket.send(response, MULTICAST_PORT, MULTICAST_ADDRESS, (error) => {
-      if (error) lastError.send = errorMessage(error);
-    });
+    sendPacket(response);
   });
 
   reason = "binding";
@@ -326,6 +452,28 @@ function startAdvertisement({
       // nothing, which from outside looks exactly like a firewall drop.
       lastError.membership = errorMessage(error);
     }
+
+    try {
+      // Its own try/catch, because this decides where our announcements go and
+      // the group join decides what we receive: one failing must not hide the
+      // other. Without it the kernel sends on the default route's interface,
+      // which on a host with a VPN or a Docker bridge is not the LAN -- on the
+      // developer Mac this was measured sending from a 10.14.0.2 tunnel
+      // address while advertising a 192.168.x.x A record, so nothing on the LAN
+      // ever saw an announcement. Pinning it to the address we advertise keeps
+      // the two consistent.
+      socket.setMulticastInterface(address);
+      multicastInterface = address;
+    } catch (error) {
+      lastError.multicastInterface = errorMessage(error);
+    }
+
+    // Announcing needs a socket that has finished binding, so the burst starts
+    // here rather than at call time. It survives a failed group join: joining
+    // decides what we receive, and we no longer depend on receiving anything.
+    if (closed || stopping) return;
+    for (const delay of announceDelaysMs) schedule(announce, delay);
+    schedule(announce, announceIntervalMs, true);
   });
 
   // The caller may discard this handle: the socket keeps the event loop alive,
@@ -334,10 +482,24 @@ function startAdvertisement({
   // stop() and unref the socket, or it will hang waiting on this socket.
   return {
     stop() {
+      clearTimers();
       // Only the first stop names itself as the reason: a socket that already
       // errored keeps the reason that explains the failure.
       if (!closed) reason = "stopped";
-      closeSocket();
+      active = false;
+      if (closed || stopping) {
+        closeSocket();
+        return;
+      }
+      stopping = true;
+      // A goodbye is the same records with TTL 0 (RFC 6762 §10.1): clients drop
+      // the service at once instead of showing a dead server for up to the full
+      // TTL. Sent before the close, and the close is deferred to the send
+      // callback so the datagram is not discarded with the socket. The fallback
+      // timer covers a callback that never arrives; both paths run through
+      // closeSocket, which is idempotent.
+      if (sendPacket(goodbye, closeSocket)) counters.goodbyes += 1;
+      schedule(closeSocket, 250);
     },
     state
   };

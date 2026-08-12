@@ -90,9 +90,22 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   assert.equal(typeof discovery.counters.datagrams, "number");
   assert.equal(typeof discovery.counters.queries, "number");
   assert.equal(typeof discovery.counters.responses, "number");
+  // Announcing is what actually makes the server discoverable now, so an
+  // operator with no shell on the NAS has to be able to read it here:
+  // "announced 5 times, no errors" must be distinguishable from "never
+  // announced", which is why the count and the timestamp are both exposed.
+  assert.equal(typeof discovery.counters.announcements, "number");
+  assert.equal(typeof discovery.counters.goodbyes, "number");
+  assert.equal(typeof discovery.announceIntervalMs, "number");
+  assert.ok(
+    discovery.lastAnnouncedAt === null ||
+      !Number.isNaN(Date.parse(discovery.lastAnnouncedAt)),
+    `lastAnnouncedAt is null or a timestamp, got ${discovery.lastAnnouncedAt}`
+  );
   assert.deepEqual(Object.keys(discovery.lastError).sort(), [
     "bind",
     "membership",
+    "multicastInterface",
     "send",
     "socket"
   ]);
