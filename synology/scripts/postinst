@@ -1,0 +1,6 @@
+#!/bin/sh
+
+VAR_DIR="${SYNOPKG_PKGVAR:-/var/packages/PanelShelf/var}"
+umask 077
+mkdir -p "${VAR_DIR}" "${VAR_DIR}/covers" "${VAR_DIR}/tmp"
+exit 0

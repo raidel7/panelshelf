@@ -1,0 +1,596 @@
+"use strict";
+
+const fs = require("node:fs");
+const fsp = require("node:fs/promises");
+const http = require("node:http");
+const path = require("node:path");
+const { URL } = require("node:url");
+const { ComicLibrary, browseFolders } = require("./library");
+const { comicMime, createOpdsCatalog } = require("./opds");
+
+const VERSION = "0.4.3";
+const HOST = process.env.PANELSHELF_HOST || "0.0.0.0";
+const PORT = Number(process.env.PANELSHELF_PORT || 8251);
+const DATA_DIRECTORY =
+  process.env.PANELSHELF_DATA || path.resolve(process.cwd(), "data");
+const PUBLIC_DIRECTORY = path.resolve(__dirname, "..", "public");
+const MAX_JSON_BODY = 256 * 1024;
+const MAX_BACKUP_BODY = 20 * 1024 * 1024;
+
+function setSecurityHeaders(response) {
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Frame-Options", "SAMEORIGIN");
+  response.setHeader("Referrer-Policy", "no-referrer");
+  response.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self';"
+  );
+}
+
+function sendJson(response, status, value) {
+  const body = Buffer.from(JSON.stringify(value));
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": body.length,
+    "Cache-Control": "no-store"
+  });
+  response.end(body);
+}
+
+function sendError(response, error) {
+  const statusByCode = {
+    NOT_FOUND: 404,
+    PROVIDER_RECORD_NOT_FOUND: 404,
+    SCAN_RUNNING: 409,
+    METADATA_JOB_RUNNING: 409,
+    PROVIDER_AUTH_FAILED: 401,
+    PROVIDER_PERMISSION_REQUIRED: 403,
+    PROVIDER_RATE_LIMITED: 429,
+    PROVIDER_UNAVAILABLE: 502,
+    FOLDER_UNAVAILABLE: 400,
+    INVALID_CONFIG: 400,
+    INVALID_PROFILE: 400,
+    INVALID_SCAN_ACTION: 400,
+    INVALID_PATH: 400,
+    NOT_A_DIRECTORY: 400,
+    SOURCE_OVERLAP: 400,
+    INVALID_METADATA_QUERY: 400,
+    INVALID_METADATA_OVERRIDE: 400,
+    INVALID_PROVIDER: 400,
+    INVALID_PROVIDER_RECORD: 400,
+    INVALID_BACKUP: 400,
+    METADATA_NOT_CONFIGURED: 400,
+    PROVIDER_INVALID_REQUEST: 400,
+    PROVIDER_INVALID_RESPONSE: 502
+  };
+  const status = statusByCode[error.code] || 500;
+  sendJson(response, status, {
+    error: {
+      code: error.code || "INTERNAL_ERROR",
+      message: status === 500 && !error.code ? "Unexpected server error." : error.message,
+      details: error.details
+    }
+  });
+}
+
+function contentDisposition(name) {
+  const fallback = String(name || "comic")
+    .replace(/[^\x20-\x7e]+/g, "_")
+    .replace(/["\\]/g, "_");
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(
+    String(name || "comic")
+  )}`;
+}
+
+async function serveComicArchive(request, response, library, id) {
+  const comic = library.getComic(id);
+  if (comic.available === false) {
+    const error = new Error("Comic file is unavailable.");
+    error.code = "NOT_FOUND";
+    throw error;
+  }
+  const stat = await fsp.stat(comic.path);
+  const name = path.basename(comic.path);
+  const headers = {
+    "Accept-Ranges": "bytes",
+    "Content-Type": comicMime(comic),
+    "Content-Disposition": contentDisposition(name),
+    "Cache-Control": "private, no-store"
+  };
+  const range = request.headers.range;
+  if (!range) {
+    response.writeHead(200, { ...headers, "Content-Length": stat.size });
+    if (request.method === "HEAD") return response.end();
+    return fs.createReadStream(comic.path).pipe(response);
+  }
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (!match) {
+    response.writeHead(416, {
+      "Content-Range": `bytes */${stat.size}`,
+      "Content-Length": 0
+    });
+    return response.end();
+  }
+  let start = match[1] ? Number(match[1]) : null;
+  let end = match[2] ? Number(match[2]) : null;
+  if (start === null) {
+    const suffixLength = Math.min(end || 0, stat.size);
+    start = stat.size - suffixLength;
+    end = stat.size - 1;
+  } else {
+    end = end === null ? stat.size - 1 : Math.min(end, stat.size - 1);
+  }
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end < start ||
+    start >= stat.size
+  ) {
+    response.writeHead(416, {
+      "Content-Range": `bytes */${stat.size}`,
+      "Content-Length": 0
+    });
+    return response.end();
+  }
+  const length = end - start + 1;
+  response.writeHead(206, {
+    ...headers,
+    "Content-Length": length,
+    "Content-Range": `bytes ${start}-${end}/${stat.size}`
+  });
+  if (request.method === "HEAD") return response.end();
+  return fs.createReadStream(comic.path, { start, end }).pipe(response);
+}
+
+async function readJsonBody(request, maximum = MAX_JSON_BODY) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    total += chunk.length;
+    if (total > maximum) {
+      const error = new Error("Request body is too large.");
+      error.code = "INVALID_CONFIG";
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  if (chunks.length === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    const error = new Error("Request body must contain valid JSON.");
+    error.code = "INVALID_CONFIG";
+    throw error;
+  }
+}
+
+async function serveStatic(response, pathname) {
+  const relative = pathname === "/" ? "index.html" : pathname.slice(1);
+  const safePath = path.resolve(PUBLIC_DIRECTORY, relative);
+  if (!safePath.startsWith(`${PUBLIC_DIRECTORY}${path.sep}`)) return false;
+  try {
+    const stat = await fsp.stat(safePath);
+    if (!stat.isFile()) return false;
+    const extension = path.extname(safePath).toLowerCase();
+    const contentType =
+      extension === ".html"
+        ? "text/html; charset=utf-8"
+        : extension === ".css"
+          ? "text/css; charset=utf-8"
+          : extension === ".js"
+            ? "text/javascript; charset=utf-8"
+            : extension === ".svg"
+              ? "image/svg+xml"
+              : "application/octet-stream";
+    response.writeHead(200, {
+      "Content-Type": contentType,
+      "Content-Length": stat.size,
+      "Cache-Control":
+        extension === ".html" || extension === ".css" || extension === ".js"
+          ? "no-cache, no-store, must-revalidate"
+          : "public, max-age=3600"
+    });
+    fs.createReadStream(safePath).pipe(response);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function startServer() {
+  const library = new ComicLibrary(DATA_DIRECTORY);
+  await library.initialize();
+
+  const server = http.createServer(async (request, response) => {
+    setSecurityHeaders(response);
+    const requestUrl = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+    const pathname = decodeURIComponent(requestUrl.pathname);
+
+    try {
+      if (request.method === "GET" && pathname === "/api/health") {
+        return sendJson(response, 200, {
+          status: "ok",
+          version: VERSION,
+          uptimeSeconds: Math.round(process.uptime())
+        });
+      }
+
+      if (request.method === "GET" && pathname === "/api/config") {
+        return sendJson(response, 200, await library.getConfig());
+      }
+
+      if (request.method === "PUT" && pathname === "/api/config") {
+        const body = await readJsonBody(request);
+        const config = await library.saveConfig(body);
+        return sendJson(response, 200, config);
+      }
+
+      if (request.method === "POST" && pathname === "/api/backup/export") {
+        const body = await readJsonBody(request, MAX_BACKUP_BODY);
+        return sendJson(
+          response,
+          200,
+          library.createBackup(body.browser || {}, VERSION)
+        );
+      }
+
+      if (request.method === "POST" && pathname === "/api/backup/preview") {
+        const body = await readJsonBody(request, MAX_BACKUP_BODY);
+        return sendJson(response, 200, await library.previewBackup(body));
+      }
+
+      if (request.method === "POST" && pathname === "/api/backup/restore") {
+        const body = await readJsonBody(request, MAX_BACKUP_BODY);
+        return sendJson(response, 200, await library.restoreBackup(body));
+      }
+
+      if (request.method === "GET" && pathname === "/api/metadata/settings") {
+        return sendJson(response, 200, library.getMetadataSettings());
+      }
+
+      if (request.method === "PUT" && pathname === "/api/metadata/settings") {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          200,
+          await library.saveMetadataSettings(body)
+        );
+      }
+
+      if (request.method === "GET" && pathname === "/api/metadata/bulk") {
+        return sendJson(response, 200, library.getBulkMetadataState());
+      }
+
+      if (request.method === "POST" && pathname === "/api/metadata/bulk") {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          202,
+          await library.startBulkMetadata(body)
+        );
+      }
+
+      if (
+        request.method === "POST" &&
+        pathname === "/api/metadata/bulk/pause"
+      ) {
+        return sendJson(response, 200, await library.pauseBulkMetadata());
+      }
+
+      if (
+        request.method === "POST" &&
+        pathname === "/api/metadata/bulk/resume"
+      ) {
+        return sendJson(response, 200, await library.resumeBulkMetadata());
+      }
+
+      if (
+        request.method === "POST" &&
+        pathname === "/api/metadata/bulk/cancel"
+      ) {
+        return sendJson(response, 200, await library.cancelBulkMetadata());
+      }
+
+      if (request.method === "POST" && pathname === "/api/sources/preview") {
+        const body = await readJsonBody(request);
+        const preview = await library.previewSource(
+          body.path,
+          body.profile || "detect"
+        );
+        return sendJson(response, 200, preview);
+      }
+
+      if (request.method === "GET" && pathname === "/api/reading-orders") {
+        return sendJson(response, 200, library.getReadingOrders());
+      }
+
+      if (request.method === "POST" && pathname === "/api/reading-orders") {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          201,
+          await library.createReadingOrder(body)
+        );
+      }
+
+      const duplicateOrderMatch = pathname.match(
+        /^\/api\/reading-orders\/(manual_[a-f0-9]{24})\/duplicate$/
+      );
+      if (request.method === "POST" && duplicateOrderMatch) {
+        return sendJson(
+          response,
+          201,
+          await library.duplicateReadingOrder(duplicateOrderMatch[1])
+        );
+      }
+
+      const readingOrderMatch = pathname.match(
+        /^\/api\/reading-orders\/(manual_[a-f0-9]{24})$/
+      );
+      if (request.method === "PUT" && readingOrderMatch) {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          200,
+          await library.updateReadingOrder(readingOrderMatch[1], body)
+        );
+      }
+      if (request.method === "DELETE" && readingOrderMatch) {
+        return sendJson(
+          response,
+          200,
+          await library.deleteReadingOrder(readingOrderMatch[1])
+        );
+      }
+
+      if (request.method === "GET" && pathname === "/api/folders") {
+        return sendJson(
+          response,
+          200,
+          await browseFolders(requestUrl.searchParams.get("path") || "/")
+        );
+      }
+
+      if (request.method === "POST" && pathname === "/api/scan") {
+        if (library.getScanState().running) {
+          const error = new Error("A library scan is already running.");
+          error.code = "SCAN_RUNNING";
+          throw error;
+        }
+        const body = await readJsonBody(request);
+        const scanPromise = library.scan({
+          action: body.action || "quick",
+          sourceId: body.sourceId || null
+        });
+        scanPromise.catch((error) => {
+          console.error(
+            JSON.stringify({
+              time: new Date().toISOString(),
+              message: "Background scan failed",
+              error: error.stack || error.message
+            })
+          );
+        });
+        return sendJson(response, 202, library.getScanState());
+      }
+
+      if (request.method === "GET" && pathname === "/api/scan") {
+        return sendJson(response, 200, library.getScanState());
+      }
+
+      if (request.method === "GET" && pathname === "/api/comics") {
+        return sendJson(
+          response,
+          200,
+          library
+            .listComics(requestUrl.searchParams.get("q") || "")
+            .map((comic) => library.publicComic(comic))
+        );
+      }
+
+      if (
+        request.method === "GET" &&
+        (pathname === "/opds" || pathname.startsWith("/opds/"))
+      ) {
+        const baseUrl = `http://${request.headers.host || `localhost:${PORT}`}`;
+        const catalog = createOpdsCatalog(library, requestUrl, baseUrl);
+        if (catalog) {
+          const body = Buffer.from(catalog.body);
+          response.writeHead(200, {
+            "Content-Type": `${catalog.type}; charset=utf-8`,
+            "Content-Length": body.length,
+            "Cache-Control": "private, no-cache"
+          });
+          return response.end(body);
+        }
+      }
+
+      const opdsComicMatch = pathname.match(
+        /^\/opds\/comics\/([a-f0-9]{24})\/file$/
+      );
+      if (
+        (request.method === "GET" || request.method === "HEAD") &&
+        opdsComicMatch
+      ) {
+        return serveComicArchive(
+          request,
+          response,
+          library,
+          opdsComicMatch[1]
+        );
+      }
+
+      const metadataSearchMatch = pathname.match(
+        /^\/api\/comics\/([a-f0-9]{24})\/metadata\/search$/
+      );
+      if (request.method === "POST" && metadataSearchMatch) {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          200,
+          await library.searchMetadata(metadataSearchMatch[1], body)
+        );
+      }
+
+      const metadataCandidateMatch = pathname.match(
+        /^\/api\/comics\/([a-f0-9]{24})\/metadata\/candidates\/([a-z0-9_-]+)\/([A-Za-z0-9._:-]{1,100})$/
+      );
+      if (request.method === "GET" && metadataCandidateMatch) {
+        return sendJson(
+          response,
+          200,
+          await library.reviewMetadata(
+            metadataCandidateMatch[1],
+            metadataCandidateMatch[2],
+            metadataCandidateMatch[3],
+            {
+              refresh: requestUrl.searchParams.get("refresh") === "1"
+            }
+          )
+        );
+      }
+
+      const metadataMatch = pathname.match(
+        /^\/api\/comics\/([a-f0-9]{24})\/metadata\/match$/
+      );
+      if (request.method === "POST" && metadataMatch) {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          200,
+          await library.confirmMetadata(
+            metadataMatch[1],
+            body.provider,
+            String(body.recordId || "")
+          )
+        );
+      }
+
+      const metadataOverrideMatch = pathname.match(
+        /^\/api\/comics\/([a-f0-9]{24})\/metadata\/override$/
+      );
+      if (request.method === "PUT" && metadataOverrideMatch) {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          200,
+          await library.saveMetadataOverride(metadataOverrideMatch[1], body)
+        );
+      }
+      if (request.method === "DELETE" && metadataOverrideMatch) {
+        return sendJson(
+          response,
+          200,
+          await library.removeMetadataOverride(metadataOverrideMatch[1])
+        );
+      }
+      if (request.method === "DELETE" && metadataMatch) {
+        return sendJson(
+          response,
+          200,
+          await library.removeMetadata(metadataMatch[1])
+        );
+      }
+
+      const metadataCoverMatch = pathname.match(
+        /^\/api\/metadata\/providers\/([a-z0-9_-]+)\/issues\/([A-Za-z0-9._:-]{1,100})\/cover$/
+      );
+      if (request.method === "GET" && metadataCoverMatch) {
+        const cover = await library.metadataCover(
+          metadataCoverMatch[1],
+          metadataCoverMatch[2]
+        );
+        response.writeHead(200, {
+          "Content-Type": cover.mime,
+          "Content-Length": cover.buffer.length,
+          "Cache-Control": "private, max-age=1800"
+        });
+        return response.end(cover.buffer);
+      }
+
+      const pagesMatch = pathname.match(/^\/api\/comics\/([a-f0-9]{24})\/pages$/);
+      if (request.method === "GET" && pagesMatch) {
+        const comic = library.getComic(pagesMatch[1]);
+        const pages = await library.pagesForComic(comic);
+        return sendJson(response, 200, {
+          comic: library.publicComic(comic),
+          pages: pages.map((entry, index) => ({ index, name: entry.name }))
+        });
+      }
+
+      const coverMatch = pathname.match(/^\/api\/comics\/([a-f0-9]{24})\/cover$/);
+      if (request.method === "GET" && coverMatch) {
+        const cover = await library.cover(coverMatch[1]);
+        response.writeHead(200, {
+          "Content-Type": cover.mime,
+          "Content-Length": cover.buffer.length,
+          "Cache-Control": "private, max-age=86400"
+        });
+        return response.end(cover.buffer);
+      }
+
+      const pageMatch = pathname.match(
+        /^\/api\/comics\/([a-f0-9]{24})\/pages\/(\d+)$/
+      );
+      if (request.method === "GET" && pageMatch) {
+        const page = await library.page(pageMatch[1], Number(pageMatch[2]));
+        response.writeHead(200, {
+          "Content-Type": page.mime,
+          "Content-Length": page.buffer.length,
+          "Cache-Control": "private, max-age=3600",
+          "X-Comic-Page-Count": String(page.pageCount)
+        });
+        return response.end(page.buffer);
+      }
+
+      if (request.method === "GET" && (await serveStatic(response, pathname))) {
+        return;
+      }
+
+      return sendJson(response, 404, {
+        error: { code: "NOT_FOUND", message: "Not found." }
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          time: new Date().toISOString(),
+          method: request.method,
+          path: pathname,
+          error: error.stack || error.message
+        })
+      );
+      if (!response.headersSent) sendError(response, error);
+      else response.destroy();
+    }
+  });
+
+  server.requestTimeout = 120_000;
+  server.headersTimeout = 30_000;
+  server.listen(PORT, HOST, () => {
+    console.log(
+      JSON.stringify({
+        time: new Date().toISOString(),
+        message: "PanelShelf started",
+        version: VERSION,
+        host: HOST,
+        port: PORT,
+        dataDirectory: DATA_DIRECTORY
+      })
+    );
+  });
+
+  const shutdown = (signal) => {
+    console.log(JSON.stringify({ time: new Date().toISOString(), signal }));
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+startServer().catch((error) => {
+  console.error(error.stack || error);
+  process.exit(1);
+});

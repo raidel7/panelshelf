@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.4.3-1025)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install ImageMagick
+        run: |
+          if ! command -v convert >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+
+      - name: Install server dependencies
+        run: npm run install:server
+
+      - name: Run tests
+        run: npm test
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build SPKs and source archive
+        env:
+          PANELSHELF_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          for arch in x86_64 armv8 armv7; do
+            PANELSHELF_ARCH="$arch" bash scripts/build-spk.sh
+          done
+          bash scripts/build-source.sh
+          ls -la dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          gh release create "v${VERSION}" dist/* \
+            --title "PanelShelf ${VERSION}" \
+            --notes-file RELEASE_NOTES.md \
+            --target "$GITHUB_SHA"

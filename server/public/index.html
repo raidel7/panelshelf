@@ -1,0 +1,1181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#17151f">
+    <title>PanelShelf</title>
+    <link rel="stylesheet" href="/styles.css?v=0.4.3-1024">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="PanelShelf home">
+          <img src="/logo.svg" width="42" height="42" alt="">
+          <span>
+            <strong>PanelShelf</strong>
+            <small>Your comics, quietly organized.</small>
+          </span>
+        </a>
+        <div class="topbar-actions">
+          <label class="search">
+            <span class="sr-only">Search comics</span>
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="m21 21-4.35-4.35m2.35-5.15A7.5 7.5 0 1 1 4 11.5a7.5 7.5 0 0 1 15 0Z"/>
+            </svg>
+            <input id="searchInput" type="search" placeholder="Search your shelf">
+          </label>
+          <button id="ordersButton" class="button button-secondary orders-button" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M5 4h13a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z"/>
+              <path d="M8 8h8M8 12h8M8 16h5"/>
+            </svg>
+            <span>Reading orders</span>
+          </button>
+          <button id="issuesButton" class="button issues-button" type="button" hidden>
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 3 2.8 20h18.4L12 3Z"/>
+              <path d="M12 9v5m0 3.2v.1"/>
+            </svg>
+            <span class="issues-label">Issues</span>
+            <strong id="issueCount" class="issue-count"></strong>
+          </button>
+          <div id="scanControl" class="scan-control">
+            <button id="scanButton" class="button button-primary scan-main-button" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4"/>
+              </svg>
+              <span>Quick scan</span>
+            </button>
+            <button
+              id="scanMenuButton"
+              class="button button-primary scan-menu-button"
+              type="button"
+              aria-label="Choose scan action"
+              aria-haspopup="menu"
+              aria-expanded="false"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="m7 9 5 5 5-5"/>
+              </svg>
+            </button>
+            <div id="scanMenu" class="scan-menu" role="menu" hidden>
+              <p class="scan-menu-heading">Library scan</p>
+              <button class="scan-action" type="button" role="menuitem" data-scan-action="quick">
+                <span>
+                  <strong>Quick scan</strong>
+                  <small>Open only new or changed archives</small>
+                </span>
+                <kbd>Default</kbd>
+              </button>
+              <div class="scan-menu-section">
+                <p>Scan one source</p>
+                <div id="scanSourceActions"></div>
+              </div>
+              <button
+                id="retryScanAction"
+                class="scan-action"
+                type="button"
+                role="menuitem"
+                data-scan-action="retry"
+              >
+                <span>
+                  <strong>Retry issues</strong>
+                  <small>Recheck only the latest failed items</small>
+                </span>
+                <b id="retryScanCount"></b>
+              </button>
+              <button
+                id="fullScanAction"
+                class="scan-action"
+                type="button"
+                role="menuitem"
+                data-scan-action="full"
+              >
+                <span>
+                  <strong>Full rebuild</strong>
+                  <small>Reopen every archive and reread metadata</small>
+                </span>
+              </button>
+              <div class="scan-menu-section metadata-scan-section">
+                <p>Online metadata</p>
+                <button
+                  id="bulkMetadataAction"
+                  class="scan-action"
+                  type="button"
+                  role="menuitem"
+                >
+                  <span>
+                    <strong>Enrich metadata</strong>
+                    <small>Smart-match every unmatched comic</small>
+                  </span>
+                  <b id="bulkMetadataMenuState"></b>
+                </button>
+              </div>
+            </div>
+          </div>
+          <button id="settingsButton" class="icon-button" type="button" aria-label="Library settings">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/>
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.96 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 10 3.04V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.96 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="library-heading">
+          <div>
+            <p class="eyebrow">Library</p>
+            <h1>Your comics</h1>
+            <p id="librarySummary" class="muted">Loading your shelf…</p>
+          </div>
+          <div id="scanStatus" class="status-pill" hidden></div>
+        </section>
+
+        <section id="libraryControls" class="library-controls" hidden>
+          <div class="library-control-group">
+            <span class="control-label">View</span>
+            <nav id="libraryViews" class="library-views" aria-label="Library view">
+              <button class="view-chip active" type="button" data-view="all">All comics</button>
+              <button class="view-chip" type="button" data-view="publisher">Publishers</button>
+              <button class="view-chip" type="button" data-view="chronological">Chronological</button>
+            </nav>
+          </div>
+          <div class="library-control-group">
+            <span class="control-label">Reading status</span>
+            <nav id="libraryFilters" class="library-filters" aria-label="Reading status">
+              <button class="filter-chip active" type="button" data-status="all">All</button>
+              <button class="filter-chip" type="button" data-status="unread">Unread</button>
+              <button class="filter-chip" type="button" data-status="in-progress">In progress</button>
+              <button class="filter-chip" type="button" data-status="completed">Completed</button>
+              <button class="filter-chip" type="button" data-status="skipped">Skipped</button>
+            </nav>
+          </div>
+        </section>
+
+        <section id="continueSection" class="continue-section" hidden>
+          <div class="shelf-heading">
+            <div>
+              <p class="eyebrow">Pick up where you left off</p>
+              <h2>Continue reading</h2>
+            </div>
+            <span id="progressStorageNote">Saved in this browser</span>
+          </div>
+          <div id="continueRow" class="continue-row"></div>
+        </section>
+
+        <section id="emptyState" class="empty-state" hidden>
+          <div class="empty-art" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <p class="eyebrow">A fresh shelf</p>
+          <h2>Add your comics folder</h2>
+          <p>
+            Choose any readable folder on an internal volume or attached USB drive.
+            PanelShelf scans subfolders and leaves every original file untouched.
+          </p>
+          <button id="emptyAddButton" class="button button-primary" type="button">
+            Choose a folder
+          </button>
+        </section>
+
+        <section id="noResults" class="empty-state compact" hidden>
+          <h2>No matching comics</h2>
+          <p>Try a different title, series, or folder name.</p>
+        </section>
+
+        <section id="browseView" class="browse-view" aria-live="polite" hidden>
+          <nav id="browseBreadcrumb" class="browse-breadcrumb" aria-label="Current library location"></nav>
+          <header class="browse-heading">
+            <div>
+              <p id="browseEyebrow" class="eyebrow"></p>
+              <h2 id="browseTitle"></h2>
+              <p id="browseDescription" class="muted"></p>
+            </div>
+            <div class="browse-actions">
+              <div
+                id="chronologyLayoutToggle"
+                class="chronology-layout-toggle"
+                role="group"
+                aria-label="Chronology visualization"
+                hidden
+              >
+                <button type="button" data-chronology-layout="grid" aria-pressed="true">
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>
+                  </svg>
+                  Grid
+                </button>
+                <button type="button" data-chronology-layout="timeline" aria-pressed="false">
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M4 12h16M7 8v8M12 6v12M17 8v8"/>
+                  </svg>
+                  Timeline
+                </button>
+              </div>
+              <button
+                id="unfiledShelfButton"
+                class="skip-filter-chip unfiled-shelf-chip"
+                type="button"
+                aria-pressed="false"
+                hidden
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M3 7.5h7l2 2h9v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/>
+                  <path d="M8 15h8"/>
+                </svg>
+                <span>Unfiled</span>
+                <strong id="unfiledShelfCount"></strong>
+              </button>
+              <button
+                id="skippedFilterButton"
+                class="skip-filter-chip"
+                type="button"
+                aria-pressed="false"
+                hidden
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M3 3l18 18M10.7 10.7a2 2 0 0 0 2.6 2.6M9.9 4.3A10.8 10.8 0 0 1 12 4c5.2 0 8.6 4.3 9.5 5.7a4 4 0 0 1 0 4.6 14 14 0 0 1-2.1 2.6M6.2 6.2a15 15 0 0 0-3.7 3.5 4 4 0 0 0 0 4.6C3.4 15.7 6.8 20 12 20c1 0 2-.2 2.9-.5"/>
+                </svg>
+                <span id="skippedFilterLabel">Hide skipped</span>
+                <strong id="skippedFilterCount" hidden></strong>
+              </button>
+            </div>
+          </header>
+          <aside id="browseNotice" class="browse-notice" hidden></aside>
+          <section id="chronologyTimeline" class="chronology-timeline" hidden></section>
+          <div id="collectionGrid" class="collection-grid"></div>
+          <div id="browseComicGrid" class="comic-grid browse-comic-grid"></div>
+        </section>
+
+        <section id="comicGrid" class="comic-grid" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <aside
+      id="collectionPreview"
+      class="collection-hover-preview"
+      aria-hidden="true"
+      hidden
+    >
+      <div class="collection-preview-artwork">
+        <span
+          id="collectionPreviewFallback"
+          class="collection-preview-fallback"
+        ></span>
+        <img id="collectionPreviewImage" alt="" hidden>
+      </div>
+      <div class="collection-preview-copy">
+        <div class="collection-preview-labels">
+          <span
+            id="collectionPreviewEyebrow"
+            class="collection-preview-eyebrow"
+          ></span>
+          <span
+            id="collectionPreviewOrder"
+            class="collection-preview-order"
+            hidden
+          ></span>
+          <span
+            id="collectionPreviewState"
+            class="collection-preview-state"
+            hidden
+          ></span>
+        </div>
+        <strong id="collectionPreviewTitle"></strong>
+        <p id="collectionPreviewDescription"></p>
+        <small id="collectionPreviewDetail"></small>
+      </div>
+    </aside>
+
+    <dialog id="settingsDialog" class="dialog settings-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Sources</p>
+            <h2>Library folders</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" aria-label="Close settings">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <p class="muted">
+            Add folders from internal volumes or USB shares, then confirm how each
+            source is organized. PanelShelf never renames or moves your files.
+          </p>
+          <div id="sourceList" class="source-list"></div>
+          <button id="browseButton" class="button button-secondary" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M3 7.5h7l2 2h9v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/>
+              <path d="M3 7.5V5a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v2.5"/>
+            </svg>
+            Browse NAS folders
+          </button>
+          <div class="path-entry">
+            <label for="manualPath">Or enter an absolute folder path</label>
+            <div>
+              <input id="manualPath" type="text" placeholder="/volumeUSB1/usbshare/Comics" autocomplete="off">
+              <button id="addPathButton" class="button button-secondary" type="button">Add</button>
+            </div>
+          </div>
+          <aside class="permission-note">
+            <strong>If a folder says “permission required”</strong>
+            <p>
+              Give the PanelShelf package account read permission to that shared folder in DSM,
+              then try again. Write access is never required.
+            </p>
+          </aside>
+          <section class="online-metadata-callout">
+            <div>
+              <span class="result-label">Optional enrichment</span>
+              <strong>Online metadata</strong>
+              <p>
+                Search multiple metadata sources one comic at a time, review the
+                result, and confirm before PanelShelf attaches anything.
+              </p>
+            </div>
+            <div class="online-metadata-callout-actions">
+              <span id="metadataSettingsStatus" class="provider-state">Off</span>
+              <button
+                id="openMetadataSettingsButton"
+                class="button button-secondary"
+                type="button"
+              >
+                Configure
+              </button>
+            </div>
+          </section>
+          <section class="data-backup-callout">
+            <div>
+              <span class="result-label">Data safety</span>
+              <strong>Backup and restore</strong>
+              <p>
+                Save sources, reading orders, metadata matches, manual edits,
+                progress, shelf status, and chronology preferences in one portable JSON file.
+                Comic archives and provider credentials are never included.
+              </p>
+            </div>
+            <div class="data-backup-actions">
+              <button id="exportBackupButton" class="button button-secondary" type="button">
+                Export backup
+              </button>
+              <button id="importBackupButton" class="button button-secondary" type="button">
+                Restore backup
+              </button>
+              <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
+            </div>
+          </section>
+          <p id="settingsError" class="form-error" hidden></p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-dialog" value="cancel">Cancel</button>
+          <button id="saveSettingsButton" class="button button-primary" type="button">Save and scan</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="metadataSettingsDialog" class="dialog metadata-settings-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Optional enrichment</p>
+            <h2>Metadata providers</h2>
+          </div>
+          <button
+            class="icon-button close-metadata-settings"
+            value="cancel"
+            aria-label="Close metadata settings"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <p class="muted">
+            PanelShelf sends only the search fields you choose. Your comic files
+            never leave the NAS, and local reading continues when the internet is
+            unavailable.
+          </p>
+
+          <div class="provider-list">
+          <div class="provider-card">
+            <div class="provider-heading">
+              <div>
+                <span class="provider-mark">G</span>
+                <div>
+                  <strong>Grand Comics Database</strong>
+                  <small>Primary comics and collected-edition matcher · no key required</small>
+                </div>
+              </div>
+              <span id="metadataGcdState" class="provider-state">Ready</span>
+            </div>
+            <label class="check-option provider-toggle">
+              <input id="metadataGcdEnabled" type="checkbox" checked>
+              <span>
+                <strong>Use GCD</strong>
+                <small>Metadata is attributed under CC BY-SA 4.0. PanelShelf keeps your local cover.</small>
+              </span>
+            </label>
+            <div class="provider-links">
+              <a href="https://www.comics.org/" target="_blank" rel="noreferrer">Open GCD</a>
+            </div>
+          </div>
+
+          <div class="provider-card">
+            <div class="provider-heading">
+              <div>
+                <span class="provider-mark">M</span>
+                <div>
+                  <strong>Metron Comic Book Database</strong>
+                  <small>Issue and series lookup</small>
+                </div>
+              </div>
+              <span id="metadataProviderState" class="provider-state">Not configured</span>
+            </div>
+
+            <label class="check-option provider-toggle">
+              <input id="metadataProviderEnabled" type="checkbox">
+              <span>
+                <strong>Enable Metron matching</strong>
+                <small>Matching remains manual. PanelShelf never runs it during a library scan.</small>
+              </span>
+            </label>
+
+            <label for="metadataToken" class="provider-token-field">
+              Metron API token
+              <input
+                id="metadataToken"
+                type="password"
+                maxlength="500"
+                placeholder="Paste a new token or leave blank to keep the saved token"
+                autocomplete="new-password"
+              >
+              <small id="metadataTokenHint">
+                Sign in to Metron, open your profile, and generate a revocable API token.
+              </small>
+            </label>
+
+            <label class="check-option provider-permission">
+              <input id="metadataPermissionConfirmed" type="checkbox">
+              <span>
+                <strong>I may use this Metron account with this installation</strong>
+                <small>
+                  A future commercial PanelShelf release still requires separate
+                  approval from the metadata provider.
+                </small>
+              </span>
+            </label>
+
+            <div class="provider-links">
+              <a href="https://metron.cloud/" target="_blank" rel="noreferrer">
+                Open Metron
+              </a>
+              <button id="clearMetadataTokenButton" type="button">Remove saved token</button>
+            </div>
+          </div>
+
+          <div class="provider-card">
+            <div class="provider-heading">
+              <div>
+                <span class="provider-mark">OL</span>
+                <div>
+                  <strong>Open Library</strong>
+                  <small>Collected-edition fallback · no key required</small>
+                </div>
+              </div>
+              <span id="metadataOpenLibraryState" class="provider-state">Ready</span>
+            </div>
+            <label class="check-option provider-toggle">
+              <input id="metadataOpenLibraryEnabled" type="checkbox" checked>
+              <span>
+                <strong>Use Open Library for books</strong>
+                <small>Queried only for trades, hardcovers, omnibuses, and graphic novels.</small>
+              </span>
+            </label>
+            <div class="provider-links">
+              <a href="https://openlibrary.org/" target="_blank" rel="noreferrer">Open Library</a>
+            </div>
+          </div>
+
+          </div>
+
+          <div id="metadataRateLimit" class="metadata-rate-limit" hidden></div>
+          <p id="metadataSettingsError" class="form-error" hidden></p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-metadata-settings" value="cancel">
+            Cancel
+          </button>
+          <button id="saveMetadataSettingsButton" class="button button-primary" type="button">
+            Save
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="bulkMetadataDialog" class="dialog bulk-metadata-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Online metadata</p>
+            <h2>Enrich your library</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" aria-label="Close bulk metadata">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content bulk-metadata-content">
+          <div class="bulk-metadata-intro">
+            <strong>Conservative automatic matching</strong>
+            <p>
+              PanelShelf searches enabled providers using Smart fallback. A result is attached
+              automatically only at 90% confidence or higher and when it clearly beats the
+              runner-up. Existing confirmed matches are never replaced.
+            </p>
+          </div>
+          <div id="bulkMetadataProgress" class="bulk-metadata-progress" hidden>
+            <div class="bulk-progress-heading">
+              <span>
+                <strong id="bulkMetadataStatus">Not started</strong>
+                <small id="bulkMetadataCurrent"></small>
+              </span>
+              <b id="bulkMetadataPercent">0%</b>
+            </div>
+            <div
+              class="bulk-progress-track"
+              role="progressbar"
+              aria-label="Metadata enrichment progress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+            >
+              <span id="bulkMetadataProgressBar"></span>
+            </div>
+            <div class="bulk-metadata-stats">
+              <div><strong id="bulkMetadataProcessed">0</strong><span>Checked</span></div>
+              <div><strong id="bulkMetadataApproved">0</strong><span>Approved</span></div>
+              <div><strong id="bulkMetadataReview">0</strong><span>Needs review</span></div>
+              <div><strong id="bulkMetadataUnmatched">0</strong><span>No match</span></div>
+              <div><strong id="bulkMetadataErrors">0</strong><span>Errors</span></div>
+            </div>
+          </div>
+          <div id="bulkMetadataRecent" class="bulk-metadata-recent" hidden>
+            <h3>Latest results</h3>
+            <div id="bulkMetadataResults"></div>
+          </div>
+          <p id="bulkMetadataError" class="form-error" hidden></p>
+        </div>
+        <footer class="dialog-footer bulk-metadata-footer">
+          <button id="cancelBulkMetadataButton" class="button danger-button" type="button" hidden>
+            Cancel job
+          </button>
+          <div>
+            <button id="pauseBulkMetadataButton" class="button button-ghost" type="button" hidden>
+              Pause
+            </button>
+            <button id="startBulkMetadataButton" class="button button-primary" type="button">
+              Enrich unmatched comics
+            </button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="metadataDialog" class="dialog metadata-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Online metadata</p>
+            <h2 id="metadataComicTitle">Find a match</h2>
+          </div>
+          <button
+            class="icon-button close-metadata"
+            value="cancel"
+            aria-label="Close metadata matching"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <section id="currentMetadataMatch" class="current-metadata-match" hidden>
+            <div>
+              <span class="result-label">Confirmed match</span>
+              <strong id="currentMetadataMatchName"></strong>
+              <small id="currentMetadataMatchDetail"></small>
+            </div>
+            <span id="currentMetadataMatchProvider" class="provider-state ready">Provider</span>
+          </section>
+
+          <div class="metadata-workbench">
+            <aside class="metadata-local-card">
+              <div class="metadata-cover">
+                <span id="metadataLocalCoverFallback">Local cover</span>
+                <img id="metadataLocalCover" alt="">
+              </div>
+              <span class="result-label">On this NAS</span>
+              <strong id="metadataLocalTitle"></strong>
+              <small id="metadataLocalDetail"></small>
+              <code id="metadataLocalPath"></code>
+            </aside>
+
+            <section class="metadata-search-panel">
+              <div class="metadata-search-fields">
+                <label for="metadataSearchProvider">
+                  Search with
+                  <select id="metadataSearchProvider">
+                    <option value="smart">Smart fallback</option>
+                    <option value="gcd">Grand Comics Database</option>
+                    <option value="metron">Metron</option>
+                    <option value="openlibrary">Open Library</option>
+                  </select>
+                </label>
+                <label for="metadataSeries">
+                  Series
+                  <input id="metadataSeries" type="text" maxlength="200">
+                </label>
+                <label for="metadataTitle">
+                  Title / subtitle
+                  <input id="metadataTitle" type="text" maxlength="200">
+                </label>
+                <label for="metadataNumber">
+                  Issue / volume
+                  <input id="metadataNumber" type="text" maxlength="40">
+                </label>
+                <label for="metadataEdition">
+                  Edition
+                  <select id="metadataEdition">
+                    <option value="auto">Auto</option>
+                    <option value="single-issue">Single issue</option>
+                    <option value="trade-paperback">Trade paperback</option>
+                    <option value="hardcover">Hardcover</option>
+                    <option value="omnibus">Omnibus</option>
+                    <option value="graphic-novel">Graphic novel</option>
+                  </select>
+                </label>
+                <label for="metadataYear">
+                  Publication / series year
+                  <input id="metadataYear" type="number" min="1800" max="2200">
+                </label>
+                <label for="metadataPublisher">
+                  Publisher
+                  <input id="metadataPublisher" type="text" maxlength="160">
+                </label>
+              </div>
+              <div class="metadata-search-actions">
+                <button id="searchMetadataButton" class="button button-primary" type="button">
+                  Search providers
+                </button>
+                <span id="metadataSearchNote" class="muted"></span>
+              </div>
+              <p id="metadataError" class="form-error" hidden></p>
+              <div id="metadataSearchResults" class="metadata-search-results"></div>
+            </section>
+          </div>
+
+          <section id="metadataReview" class="metadata-review" hidden>
+            <div class="metadata-review-heading">
+              <div>
+                <span class="result-label">Review before attaching</span>
+                <h3 id="metadataCandidateName"></h3>
+                <p id="metadataCandidateDetail" class="muted"></p>
+              </div>
+              <div class="metadata-review-cover">
+                <span id="metadataCandidateCoverFallback">No online cover</span>
+                <img id="metadataCandidateCover" alt="" hidden>
+              </div>
+            </div>
+            <dl id="metadataComparison" class="metadata-comparison"></dl>
+            <aside class="metadata-safety-note">
+              Embedded ComicInfo.xml values stay authoritative. Confirmed online
+              data fills missing details only and never changes chronology.
+            </aside>
+          </section>
+
+          <p id="metadataAttribution" class="metadata-attribution" hidden>
+            Metadata provided by
+            <a id="metadataAttributionLink" href="#" target="_blank" rel="noreferrer">provider</a>.
+          </p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-metadata" value="cancel">Close</button>
+          <div>
+            <button id="removeMetadataMatchButton" class="button danger-button" type="button" hidden>
+              Remove match
+            </button>
+            <button id="confirmMetadataMatchButton" class="button button-primary" type="button" hidden>
+              Confirm match
+            </button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="metadataEditorDialog" class="dialog metadata-editor-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">PanelShelf metadata</p>
+            <h2 id="metadataEditorComicTitle">Edit comic</h2>
+          </div>
+          <button class="icon-button close-metadata-editor" value="cancel" aria-label="Close metadata editor">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <aside class="metadata-editor-note">
+            These edits override filenames, ComicInfo.xml, and online matches in
+            PanelShelf. Your CBZ and CBR files are never modified.
+          </aside>
+          <div class="metadata-editor-fields">
+            <label>Title<input id="metadataEditTitle" type="text" maxlength="300"></label>
+            <label>Series<input id="metadataEditSeries" type="text" maxlength="300"></label>
+            <label>Issue number<input id="metadataEditNumber" type="text" maxlength="60"></label>
+            <label>Volume<input id="metadataEditVolume" type="number" min="0" max="99999"></label>
+            <label>Publisher<input id="metadataEditPublisher" type="text" maxlength="200"></label>
+            <label>Publication year<input id="metadataEditYear" type="number" min="1800" max="2200"></label>
+            <label>Format<input id="metadataEditFormat" type="text" maxlength="100" placeholder="Trade Paperback, Hardcover…"></label>
+            <label>Storyline / arc<input id="metadataEditStoryArc" type="text" maxlength="300"></label>
+            <label class="wide">Writers<input id="metadataEditWriters" type="text" maxlength="1000" placeholder="Separate names with commas"></label>
+            <label class="wide">Artists<input id="metadataEditArtists" type="text" maxlength="1000" placeholder="Separate names with commas"></label>
+            <label class="wide">Genres<input id="metadataEditGenres" type="text" maxlength="2000" placeholder="Separate values with commas"></label>
+            <label class="wide">Tags<input id="metadataEditTags" type="text" maxlength="2000" placeholder="Separate values with commas"></label>
+            <label class="wide">Summary<textarea id="metadataEditSummary" maxlength="10000" rows="6"></textarea></label>
+          </div>
+          <p id="metadataEditorError" class="form-error" hidden></p>
+        </div>
+        <footer class="dialog-footer">
+          <button id="resetMetadataOverrideButton" class="button danger-button" type="button" hidden>
+            Reset manual edits
+          </button>
+          <div>
+            <button class="button button-ghost close-metadata-editor" value="cancel">Cancel</button>
+            <button id="saveMetadataOverrideButton" class="button button-primary" type="button">Save edits</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="folderDialog" class="dialog folder-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Folder browser</p>
+            <h2>Select a comics folder</h2>
+          </div>
+          <button class="icon-button close-folder" value="cancel" aria-label="Close folder browser">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="folder-toolbar">
+          <button id="folderUpButton" class="icon-button" type="button" aria-label="Go to parent folder">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 15 7-7 7 7"/></svg>
+          </button>
+          <code id="folderPath">/</code>
+        </div>
+        <div id="folderList" class="folder-list"></div>
+        <p id="folderError" class="form-error" hidden></p>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-folder" value="cancel">Cancel</button>
+          <button id="selectFolderButton" class="button button-primary" type="button">Select this folder</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="structureDialog" class="dialog structure-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Source setup</p>
+            <h2>Interpret this folder</h2>
+          </div>
+          <button class="icon-button close-structure" value="cancel" aria-label="Close structure preview">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <code id="structurePath" class="structure-path"></code>
+          <div class="structure-controls">
+            <label for="structureProfile">
+              Organization profile
+              <select id="structureProfile">
+                <option value="detect">Detect a supported layout</option>
+                <option value="loose-comics">Loose comics</option>
+                <option value="folders-as-series">Folders as series</option>
+                <option value="hierarchical-timeline">Hierarchical timeline</option>
+                <option value="exact-reading-order">Exact reading order</option>
+                <option value="unordered">Unordered library</option>
+              </select>
+            </label>
+            <button id="analyzeStructureButton" class="button button-secondary" type="button">
+              Analyze
+            </button>
+          </div>
+          <p id="profileHelp" class="profile-help"></p>
+
+          <section id="structureResult" hidden>
+            <div class="detection-card">
+              <div>
+                <span class="result-label">Interpretation</span>
+                <strong id="detectedProfile"></strong>
+                <p id="detectionReason"></p>
+              </div>
+              <span id="detectionConfidence" class="confidence-badge"></span>
+            </div>
+
+            <div id="publisherResult" class="publisher-result" hidden>
+              <span>Publisher</span>
+              <strong id="detectedPublisher"></strong>
+            </div>
+
+            <dl class="structure-summary">
+              <div><dt>Comics</dt><dd id="previewComicCount">0</dd></div>
+              <div><dt>Folders</dt><dd id="previewFolderCount">0</dd></div>
+              <div><dt>Ordered</dt><dd id="previewOrderedCount">0</dd></div>
+              <div><dt>Unfiled</dt><dd id="previewStagingCount">0</dd></div>
+            </dl>
+
+            <div id="structureIssueSection" class="structure-issue-section" hidden>
+              <h3>Validation</h3>
+              <div id="structureIssues" class="structure-issues"></div>
+            </div>
+
+            <section class="tree-section">
+              <div class="section-heading">
+                <div>
+                  <h3>Structure preview</h3>
+                  <p>Roles and order are virtual. Source folders stay untouched.</p>
+                </div>
+                <span id="treeLimitNote" class="tree-limit-note" hidden></span>
+              </div>
+              <div id="structureTree" class="structure-tree"></div>
+            </section>
+
+            <div class="source-options">
+              <label for="stagingPolicy">
+                Folders beginning with “_”
+                <select id="stagingPolicy">
+                  <option value="show-unfiled">Show on an Unfiled shelf</option>
+                  <option value="exclude">Exclude from scans</option>
+                </select>
+              </label>
+              <label class="check-option">
+                <input id="hideOrderPrefixes" type="checkbox" checked>
+                <span>
+                  <strong>Hide numeric prefixes in PanelShelf</strong>
+                  <small>The original folder and filenames are never changed.</small>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <div id="structureLoading" class="structure-loading" hidden>
+            Reading folders without changing them…
+          </div>
+          <p id="structureError" class="form-error" hidden></p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-structure" value="cancel">Cancel</button>
+          <button id="useStructureButton" class="button button-primary" type="button" disabled>
+            Use this structure
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="issuesDialog" class="dialog issues-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Latest scan</p>
+            <h2>Scan issues</h2>
+          </div>
+          <button class="icon-button close-issues" value="cancel" aria-label="Close scan issues">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <p id="issuesSummary" class="muted"></p>
+          <div id="issueList" class="issue-list"></div>
+        </div>
+        <footer class="dialog-footer">
+          <button id="issuesSettingsButton" class="button button-secondary" type="button">
+            Library settings
+          </button>
+          <button class="button button-primary close-issues" value="cancel">Close</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="permissionDialog" class="dialog permission-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Permission repair</p>
+            <h2>Allow PanelShelf to read this folder</h2>
+          </div>
+          <button class="icon-button close-permission" value="cancel" aria-label="Close permission help">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <p class="permission-intro">
+            DSM blocked this item. PanelShelf stays restricted for safety, so DSM must grant
+            its package account read-only access.
+          </p>
+          <dl class="permission-grid">
+            <div>
+              <dt>Shared folder</dt>
+              <dd><code id="permissionShare"></code></dd>
+            </div>
+            <div>
+              <dt>Account</dt>
+              <dd><code id="permissionAccount">PanelShelf</code></dd>
+            </div>
+            <div>
+              <dt>Access</dt>
+              <dd>Read only</dd>
+            </div>
+            <div class="permission-path">
+              <dt>Blocked item</dt>
+              <dd><code id="permissionPath"></code></dd>
+            </div>
+          </dl>
+          <div class="permission-actions">
+            <button id="openDsmPermissionsButton" class="button button-primary" type="button">
+              Open DSM Shared Folders
+            </button>
+            <button id="copyAccountButton" class="button button-secondary" type="button">
+              Copy “PanelShelf”
+            </button>
+          </div>
+          <ol class="permission-steps">
+            <li>Select <strong id="permissionShareStep"></strong>, then choose <strong>Edit</strong>.</li>
+            <li>Open <strong>Permissions</strong> and choose <strong>System internal user</strong>.</li>
+            <li>Find <strong>PanelShelf</strong>, select <strong>Read only</strong>, and save.</li>
+          </ol>
+          <aside class="permission-file-note">
+            If only this file remains blocked, open it in File Station and check
+            <strong>Properties → Permission</strong> for an explicit deny rule.
+          </aside>
+          <p class="permission-fallback">
+            If the shortcut opens the DSM desktop, continue with
+            <strong>Control Panel → Shared Folder</strong>.
+          </p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-permission" value="cancel">Close</button>
+          <button id="permissionRescanButton" class="button button-primary" type="button">
+            I fixed it — rescan
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="ordersDialog" class="dialog orders-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Reading</p>
+            <h2>Reading orders</h2>
+          </div>
+          <button class="icon-button close-orders" value="cancel" aria-label="Close reading orders">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <div class="order-section-heading">
+            <div>
+              <h3>Your chronologies</h3>
+              <p>Create an exact sequence that can cross folders and series.</p>
+            </div>
+            <button id="createOrderButton" class="button button-primary" type="button">
+              New order
+            </button>
+          </div>
+          <div id="manualOrderList" class="order-grid"></div>
+
+          <div class="order-section-heading automatic-heading">
+            <div>
+              <h3>From your folders</h3>
+              <p>Safe automatic contexts generated from each source convention.</p>
+            </div>
+          </div>
+          <div id="automaticOrderList" class="order-grid"></div>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-primary close-orders" value="cancel">Close</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="orderDetailDialog" class="dialog order-detail-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p id="orderDetailKind" class="eyebrow">Reading order</p>
+            <h2 id="orderDetailName"></h2>
+          </div>
+          <button class="icon-button close-order-detail" value="cancel" aria-label="Close reading order">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <div class="order-detail-hero">
+            <div class="order-cover">
+              <img id="orderDetailCover" alt="">
+              <span id="orderCoverFallback">No cover</span>
+            </div>
+            <div>
+              <p id="orderDetailDescription" class="muted"></p>
+              <dl class="order-stats">
+                <div><dt>Comics</dt><dd id="orderDetailCount">0</dd></div>
+                <div><dt>Finished</dt><dd id="orderDetailFinished">0</dd></div>
+                <div><dt>Unplaced</dt><dd id="orderDetailUnplaced">0</dd></div>
+              </dl>
+              <div id="orderDetailActions" class="order-detail-actions" hidden>
+                <button id="editOrderButton" class="button button-secondary" type="button">Edit</button>
+                <button id="duplicateOrderButton" class="button button-secondary" type="button">Duplicate</button>
+                <button id="deleteOrderButton" class="button danger-button" type="button">Delete</button>
+              </div>
+            </div>
+          </div>
+          <div id="orderDetailNotice" class="order-detail-notice" hidden></div>
+          <div id="orderDetailItems" class="order-item-list"></div>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-order-detail" value="cancel">Close</button>
+          <button id="startOrderButton" class="button button-primary" type="button">
+            Start reading
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="orderEditorDialog" class="dialog order-editor-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Manual chronology</p>
+            <h2 id="orderEditorTitle">New reading order</h2>
+          </div>
+          <button class="icon-button close-order-editor" value="cancel" aria-label="Close chronology editor">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <div class="order-fields">
+            <label for="orderName">
+              Name
+              <input id="orderName" type="text" maxlength="120" placeholder="My reading order">
+            </label>
+            <label for="orderDescription">
+              Description
+              <textarea id="orderDescription" maxlength="2000" rows="3" placeholder="Optional notes about this chronology"></textarea>
+            </label>
+          </div>
+          <div class="editor-toolbar">
+            <button id="addOrderComicsButton" class="button button-secondary" type="button">Add comics</button>
+            <button id="moveSelectedUpButton" class="button button-ghost" type="button">Move up</button>
+            <button id="moveSelectedDownButton" class="button button-ghost" type="button">Move down</button>
+            <button id="removeSelectedButton" class="button button-ghost danger-text" type="button">Remove</button>
+          </div>
+          <p class="editor-help">Drag rows or select several comics and move them together.</p>
+          <div id="orderEditorItems" class="order-editor-items"></div>
+
+          <section id="unplacedSection" class="unplaced-section" hidden>
+            <div class="order-section-heading">
+              <div>
+                <h3>Unplaced</h3>
+                <p>New comics found after a rescan wait here without changing your order.</p>
+              </div>
+              <button id="placeAllButton" class="button button-secondary" type="button">Place all at end</button>
+            </div>
+            <div id="unplacedItems" class="order-editor-items compact"></div>
+          </section>
+          <p id="orderEditorError" class="form-error" hidden></p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-order-editor" value="cancel">Cancel</button>
+          <button id="saveOrderButton" class="button button-primary" type="button">Save order</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="comicPickerDialog" class="dialog comic-picker-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Manual chronology</p>
+            <h2>Add comics</h2>
+          </div>
+          <button class="icon-button close-comic-picker" value="cancel" aria-label="Close comic picker">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <label class="picker-search" for="comicPickerSearch">
+            <span class="sr-only">Search comics to add</span>
+            <input id="comicPickerSearch" type="search" placeholder="Search title, series, or folder">
+          </label>
+          <div id="comicPickerList" class="comic-picker-list"></div>
+        </div>
+        <footer class="dialog-footer">
+          <span id="pickerSelectionCount" class="muted">0 selected</span>
+          <div>
+            <button class="button button-ghost close-comic-picker" value="cancel">Cancel</button>
+            <button id="confirmComicPickerButton" class="button button-primary" type="button">Add selected</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="readerDialog" class="reader-dialog">
+      <div class="reader-shell">
+        <header class="reader-toolbar">
+          <button id="readerClose" class="reader-button reader-back-button" type="button" aria-label="Back to library">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></svg>
+            <span>Back</span>
+          </button>
+          <div class="reader-title">
+            <strong id="readerTitle"></strong>
+            <span id="readerCounter"></span>
+            <small id="readerOrder"></small>
+          </div>
+          <div class="reader-controls">
+            <label class="reader-mode-label" for="readerMode">
+              <span class="sr-only">Reader mode</span>
+              <select id="readerMode">
+                <option value="single">Single page</option>
+                <option value="double">Double page</option>
+                <option value="manga">Manga / right-to-left</option>
+                <option value="continuous">Continuous scroll</option>
+              </select>
+            </label>
+            <button id="fitButton" class="reader-button text-button" type="button">Fit height</button>
+          </div>
+        </header>
+        <div id="readerStage" class="reader-stage">
+          <button id="previousPage" class="page-zone previous" type="button" aria-label="Previous page"></button>
+          <div id="readerPages" class="reader-pages"></div>
+          <div id="readerLoading" class="reader-loading">Loading page…</div>
+          <button id="nextPage" class="page-zone next" type="button" aria-label="Next page"></button>
+          <div id="readerEnd" class="reader-end" hidden>
+            <p class="eyebrow">Finished</p>
+            <h2 id="readerEndTitle">End of this reading order</h2>
+            <p id="readerEndMessage"></p>
+            <button id="readerNextComicButton" class="button button-primary" type="button" hidden>
+              Continue to next comic
+            </button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" hidden>
+      <span id="toastMessage"></span>
+      <button id="toastAction" class="toast-action" type="button" hidden></button>
+    </div>
+    <script src="/app.js?v=0.4.3-1024" defer></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "panelshelf-server",
+  "version": "0.4.3",
+  "private": true,
+  "description": "PanelShelf comic server",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "dependencies": {
+    "node-unrar-js": "2.0.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,2 +1,17 @@
 .DS_Store
 .claude/settings.local.json
+
+# Node / server
+node_modules/
+npm-debug.log*
+
+# Build output
+build/
+dist/
+
+# Xcode / iOS
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.swiftpm/
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist

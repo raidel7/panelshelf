@@ -1,0 +1,72 @@
+name: Nightly build
+
+on:
+  schedule:
+    # 05:00 UTC daily
+    - cron: '0 5 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install ImageMagick
+        run: |
+          if ! command -v convert >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+
+      - name: Install server dependencies
+        run: npm run install:server
+
+      - name: Run tests
+        run: npm test
+
+      - name: Resolve nightly version
+        id: version
+        run: |
+          base="$(node -p "require('./package.json').version")"
+          echo "value=${base}-$(date -u +%y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Build SPKs and source archive
+        env:
+          PANELSHELF_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          for arch in x86_64 armv8 armv7; do
+            PANELSHELF_ARCH="$arch" bash scripts/build-spk.sh
+          done
+          bash scripts/build-source.sh
+          ls -la dist
+
+      - name: Publish rolling nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          notes="Automated nightly build of \`${GITHUB_SHA:0:7}\` (version ${VERSION}).
+
+          Unsigned packages — install in DSM via **Package Center → Manual Install**
+          and allow packages from any publisher."
+          # Replace the rolling release so stale assets never linger.
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          gh release create nightly dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Nightly ${VERSION}" \
+            --notes "$notes" \
+            --prerelease

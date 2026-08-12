@@ -1,0 +1,19 @@
+{
+  "name": "panelshelf",
+  "version": "0.4.3",
+  "private": true,
+  "description": "A lightweight, native Synology comic library and browser reader.",
+  "scripts": {
+    "install:server": "npm --prefix server install --omit=dev",
+    "test": "node --test server/test/*.test.js",
+    "validate:spk": "node scripts/validate-spk.mjs",
+    "start": "node server/src/server.js",
+    "build:spk": "bash scripts/build-spk.sh",
+    "build:source": "bash scripts/build-source.sh",
+    "build:all": "bash scripts/build-all-spks.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
