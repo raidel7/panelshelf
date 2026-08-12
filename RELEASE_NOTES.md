@@ -1,3 +1,28 @@
+# PanelShelf 0.4.6-1027
+
+Service discovery that actually works on a NAS.
+
+## Announced discovery
+
+- The server now announces itself on the local network instead of waiting to be
+  asked. DSM runs its own responder, which owns the mDNS port, so queries sent
+  by a browsing client were delivered to it and never to PanelShelf — measured
+  on a real NAS as zero matching queries against 169 datagrams.
+- Announcements go out at startup and every 90 seconds thereafter, well inside
+  the 120-second record lifetime, so a client that starts browsing later still
+  finds the server.
+- Stopping or upgrading the package now sends a goodbye, so clients drop the
+  entry immediately instead of waiting for it to expire.
+- Announcements are pinned to the network interface the server advertises.
+  Previously they followed the default route, which on a machine with a VPN or
+  a Docker bridge meant they left on the wrong interface and nothing on the LAN
+  ever saw them.
+- `GET /api/discovery` additionally reports the interface in use, the announce
+  interval, the time of the last announcement, and how many announcements and
+  goodbyes have been sent.
+- Answering direct queries still works where the mDNS port is free. It is now a
+  bonus path rather than the mechanism discovery depends on.
+
 # PanelShelf 0.4.5-1026
 
 Diagnostics for service discovery.
