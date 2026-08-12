@@ -56,3 +56,77 @@ test("normalizeRecords drops invalid ids and invalid records", () => {
   assert.deepEqual(Object.keys(records), [COMIC_A]);
   assert.equal(records[COMIC_A].pageIndex, 5);
 });
+
+test("normalizeRecord normalizes missing lastReadAt and orderId to null", () => {
+  const record = normalizeRecord({ pageIndex: 1, pageCount: 10 });
+
+  assert.equal(record.lastReadAt, null);
+  assert.equal(record.orderId, null);
+});
+
+test("normalizeRecord normalizes garbage numeric input to 0", () => {
+  const record = normalizeRecord({
+    pageIndex: "abc",
+    pageCount: NaN
+  });
+
+  assert.equal(record.pageIndex, 0);
+  assert.equal(record.pageCount, 0);
+
+  const infinityRecord = normalizeRecord({ pageIndex: Infinity, pageCount: Infinity });
+  assert.equal(infinityRecord.pageIndex, 0);
+  assert.equal(infinityRecord.pageCount, 0);
+});
+
+test("normalizeRecords returns {} for non-plain-object input instead of throwing", () => {
+  assert.deepEqual(normalizeRecords([1, 2, 3]), {});
+  assert.deepEqual(normalizeRecords("nonsense"), {});
+  assert.deepEqual(normalizeRecords(null), {});
+});
+
+const { mergeRecords } = require("../src/progress");
+
+test("mergeRecords keeps the newest record per comic", () => {
+  const merged = mergeRecords(
+    { [COMIC_A]: { pageIndex: 2, lastReadAt: "2026-08-10T00:00:00.000Z" } },
+    { [COMIC_A]: { pageIndex: 9, lastReadAt: "2026-08-11T00:00:00.000Z" } }
+  );
+
+  assert.equal(merged[COMIC_A].pageIndex, 9);
+});
+
+test("mergeRecords keeps the existing record when the incoming one is older", () => {
+  const merged = mergeRecords(
+    { [COMIC_A]: { pageIndex: 9, lastReadAt: "2026-08-11T00:00:00.000Z" } },
+    { [COMIC_A]: { pageIndex: 2, lastReadAt: "2026-08-10T00:00:00.000Z" } }
+  );
+
+  assert.equal(merged[COMIC_A].pageIndex, 9);
+});
+
+test("mergeRecords prefers a timestamped record over an untimestamped one", () => {
+  const merged = mergeRecords(
+    { [COMIC_A]: { pageIndex: 9, lastReadAt: "2026-08-11T00:00:00.000Z" } },
+    { [COMIC_A]: { pageIndex: 2, lastReadAt: null } }
+  );
+
+  assert.equal(merged[COMIC_A].pageIndex, 9);
+});
+
+test("mergeRecords takes the incoming record when neither has a timestamp", () => {
+  const merged = mergeRecords(
+    { [COMIC_A]: { pageIndex: 9, lastReadAt: "not a date" } },
+    { [COMIC_A]: { pageIndex: 2, lastReadAt: null } }
+  );
+
+  assert.equal(merged[COMIC_A].pageIndex, 2);
+});
+
+test("mergeRecords adds records that only exist on one side", () => {
+  const merged = mergeRecords(
+    { [COMIC_A]: { pageIndex: 1 } },
+    { [COMIC_B]: { pageIndex: 4 } }
+  );
+
+  assert.deepEqual(Object.keys(merged).sort(), [COMIC_A, COMIC_B].sort());
+});

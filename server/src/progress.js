@@ -53,4 +53,34 @@ function normalizeRecords(value) {
   return records;
 }
 
-module.exports = { COMIC_ID, normalizeRecord, normalizeRecords, plainObject };
+function timestampValue(record) {
+  const parsed = Date.parse(record.lastReadAt || "");
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mergeRecords(existingInput, incomingInput) {
+  const existing = normalizeRecords(existingInput);
+  const incoming = normalizeRecords(incomingInput);
+  const merged = { ...existing };
+  for (const [comicId, record] of Object.entries(incoming)) {
+    const current = merged[comicId];
+    if (!current) {
+      merged[comicId] = record;
+      continue;
+    }
+    const currentAt = timestampValue(current);
+    const incomingAt = timestampValue(record);
+    if (currentAt !== null && incomingAt === null) continue;
+    if (currentAt !== null && incomingAt !== null && incomingAt < currentAt) continue;
+    merged[comicId] = record;
+  }
+  return merged;
+}
+
+module.exports = {
+  COMIC_ID,
+  mergeRecords,
+  normalizeRecord,
+  normalizeRecords,
+  plainObject
+};
