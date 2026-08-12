@@ -18,7 +18,7 @@ const TYPE_TXT = 16;
 const TYPE_SRV = 33;
 const CLASS_IN = 1;
 // RFC 6762 §10.2: the top bit of the class field tells clients to flush any
-// cached records with the same name and type. Only for records unique to us.
+// cached records with the same name and type. Only for names we own.
 const CLASS_IN_FLUSH = 0x8001;
 
 // Header layout: 12 bytes of ID, flags, and four section counts.
@@ -155,9 +155,18 @@ function encodeResponse({ instance, host, address, port, version }) {
   srvData.writeUInt16BE(0, SRV_WEIGHT_OFFSET);
   srvData.writeUInt16BE(port, SRV_PORT_OFFSET);
 
+  // The three classes differ deliberately.
+  // PTR is shared with any other responder for this service type, so it keeps
+  // the plain class.
+  // SRV and TXT sit under our own instance name, which nothing else claims, so
+  // they flush.
+  // A sits under <hostname>.local, which we do NOT own: on DSM (and macOS) the
+  // system's own responder owns and defends that name, and RFC 6762 §8 requires
+  // probing before claiming a unique name -- which an advertise-only responder
+  // deliberately never does. Setting the flush bit here would tell every client
+  // on the LAN to discard its cached address for a name belonging to someone
+  // else, which is the one thing this responder could break outside PanelShelf.
   const answers = [
-    // PTR is shared with any other responder for this service type, so it
-    // keeps the plain class; the rest describe only this instance.
     record(SERVICE_TYPE, TYPE_PTR, encodeName(serviceName)),
     record(
       serviceName,
@@ -171,12 +180,7 @@ function encodeResponse({ instance, host, address, port, version }) {
       textData([`version=${version}`, `port=${port}`, "path=/api/health"]),
       CLASS_IN_FLUSH
     ),
-    record(
-      host,
-      TYPE_A,
-      Buffer.from(address.split(".").map(Number)),
-      CLASS_IN_FLUSH
-    )
+    record(host, TYPE_A, Buffer.from(address.split(".").map(Number)))
   ];
 
   return Buffer.concat([header, ...answers]);
@@ -248,10 +252,7 @@ function startAdvertisement({ port, version, instance = "PanelShelf" }) {
 }
 
 module.exports = {
-  MULTICAST_ADDRESS,
-  MULTICAST_PORT,
   SERVICE_TYPE,
-  TYPE_PTR,
   decodeQuestions,
   encodeName,
   encodeResponse,

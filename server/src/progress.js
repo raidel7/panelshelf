@@ -164,7 +164,11 @@ class ProgressStore {
     record.lastReadAt = new Date().toISOString();
     this.records[comicId] = record;
     await this.persist();
-    return this.get(comicId);
+    // The record we just built, not a re-read: a backup restore that replaced
+    // this.records during the await would make the re-read return null, and the
+    // route would answer a successful PUT with `200 null`, which a typed client
+    // cannot decode.
+    return structuredClone(record);
   }
 
   async remove(comicId) {
@@ -226,10 +230,8 @@ class ProgressStore {
 }
 
 module.exports = {
-  COMIC_ID,
   ProgressStore,
   mergeRecords,
   normalizeRecord,
-  normalizeRecords,
-  plainObject
+  normalizeRecords
 };

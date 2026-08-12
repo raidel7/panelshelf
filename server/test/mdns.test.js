@@ -219,15 +219,19 @@ test("encodeResponse builds each answer record in full", () => {
   assert.deepEqual([...a.rdata], [192, 168, 1, 10], "address octets in order");
 });
 
-test("encodeResponse sets the cache-flush bit on unique records only", () => {
+test("encodeResponse sets the cache-flush bit only on names we own", () => {
   const answers = decodeAnswers(encodeResponse(RESPONSE));
   const classOf = (type) =>
     answers.find((answer) => answer.type === type).class;
 
   assert.equal(classOf(12), 1, "PTR is shared and keeps plain IN");
-  assert.equal(classOf(33), 0x8001, "SRV is unique and flushes the cache");
-  assert.equal(classOf(16), 0x8001, "TXT is unique and flushes the cache");
-  assert.equal(classOf(1), 0x8001, "A is unique and flushes the cache");
+  assert.equal(classOf(33), 0x8001, "SRV is under our own instance name");
+  assert.equal(classOf(16), 0x8001, "TXT is under our own instance name");
+  // <hostname>.local belongs to the host's own responder, and RFC 6762 §8
+  // requires probing before claiming a unique name -- which an advertise-only
+  // responder deliberately never does. Flushing it would tell every client on
+  // the LAN to discard a record we have no claim to.
+  assert.equal(classOf(1), 1, "A is a name we do not own and must not flush");
 });
 
 test("encodeResponse rejects a TXT entry longer than 255 bytes", () => {
