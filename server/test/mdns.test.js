@@ -48,3 +48,42 @@ test("encodeResponse carries the instance, port, and TXT metadata", () => {
   assert.ok(packet.includes(Buffer.from("version=0.4.3", "utf8")));
   assert.ok(packet.includes(Buffer.from("port=8251", "utf8")));
 });
+
+function readAnswerClasses(packet) {
+  const classes = {};
+  let offset = 12;
+  for (let index = 0; index < packet.readUInt16BE(6); index += 1) {
+    while (packet[offset] !== 0) offset += packet[offset] + 1;
+    offset += 1;
+    const type = packet.readUInt16BE(offset);
+    classes[type] = packet.readUInt16BE(offset + 2);
+    offset += 10 + packet.readUInt16BE(offset + 8);
+  }
+  return classes;
+}
+
+test("encodeResponse sets the cache-flush bit on unique records only", () => {
+  const classes = readAnswerClasses(
+    encodeResponse({
+      instance: "PanelShelf",
+      host: "panelshelf.local",
+      address: "192.168.1.10",
+      port: 8251,
+      version: "0.4.3"
+    })
+  );
+
+  assert.equal(classes[12], 1, "PTR is shared and keeps plain IN");
+  assert.equal(classes[33], 0x8001, "SRV is unique and flushes the cache");
+  assert.equal(classes[16], 0x8001, "TXT is unique and flushes the cache");
+  assert.equal(classes[1], 0x8001, "A is unique and flushes the cache");
+});
+
+test("encodeName rejects a label longer than 63 bytes", () => {
+  assert.throws(() => encodeName(`${"a".repeat(64)}.local`), {
+    message: /label/i
+  });
+  assert.deepEqual([...encodeName(`${"a".repeat(63)}.local`).subarray(0, 1)], [
+    63
+  ]);
+});
