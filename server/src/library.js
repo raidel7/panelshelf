@@ -448,8 +448,26 @@ class ComicLibrary {
       await atomicWriteJson(this.configPath, this.config);
     }
     const saved = await readJson(this.indexPath, { comics: [] });
-    this.setComics(Array.isArray(saved.comics) ? saved.comics : []);
+    const savedComics = Array.isArray(saved.comics) ? saved.comics : [];
+    // An index written before removed sources were pruned still carries their
+    // comics, so upgrading is enough to be rid of them — the user does not have
+    // to re-save Library folders or scan first. This is config membership only,
+    // never availability: a source that is merely unplugged still claims its
+    // comics here and keeps every one of them.
+    const retainedComics = savedComics.filter((comic) =>
+      comicIsConfigured(comic, this.config.sources)
+    );
+    const droppedOrphans = retainedComics.length !== savedComics.length;
+    this.setComics(retainedComics);
+    // Reconciles the orders against the pruned list on its own.
     await this.readingOrders.initialize(this.comics);
+    if (droppedOrphans) {
+      await this.enrichment.reconcile(this.comics);
+      await atomicWriteJson(this.indexPath, {
+        scannedAt: saved.scannedAt || null,
+        comics: this.comics
+      });
+    }
     const savedScanState = await readJson(this.scanReportPath, emptyScanState());
     const normalizedScanState =
       savedScanState && typeof savedScanState === "object" ? savedScanState : {};

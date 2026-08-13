@@ -979,3 +979,159 @@ test("removing a source leaves a manual reading order in a sane state", async (t
     "a removed comic must not resurface as Unplaced"
   );
 });
+
+// Upgrading is enough. An index written by an older build already carries the
+// orphans, and a user who has been chasing this will not think to re-save
+// Library folders after installing the fix.
+test("startup drops comics whose source is no longer configured", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-startup-orphan-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const dc = path.join(directory, "DC");
+  await fsp.mkdir(dc, { recursive: true });
+  await fsp.writeFile(
+    path.join(dc, "DC Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const dataDirectory = path.join(directory, "data");
+  const library = new ComicLibrary(dataDirectory);
+  await library.initialize();
+  await library.saveConfig({
+    sources: [{ path: dc, profile: "unordered", needsProfileConfirmation: false }]
+  });
+  await library.scan();
+  const [dcComic] = library.listComics();
+
+  // Forge the index an older build would have left behind: comics for a source
+  // the config has never heard of, written straight to disk.
+  const indexPath = path.join(dataDirectory, "library.json");
+  const stored = JSON.parse(await fsp.readFile(indexPath, "utf8"));
+  stored.comics.push({
+    ...dcComic,
+    id: "a".repeat(24),
+    title: "Orphaned Marvel issue",
+    path: path.join(directory, "Marvel", "Orphan.cbz"),
+    libraryRoot: path.join(directory, "Marvel"),
+    sourceId: "src_490062e863dab9360ec06035",
+    sourceName: "Marvel"
+  });
+  await fsp.writeFile(indexPath, JSON.stringify(stored));
+
+  const restarted = new ComicLibrary(dataDirectory);
+  await restarted.initialize();
+  assert.deepEqual(
+    restarted.listComics().map((comic) => comic.sourceName),
+    ["DC"],
+    "the orphan must not survive a restart"
+  );
+
+  // ...and the prune was persisted, not just applied in memory.
+  const pruned = JSON.parse(await fsp.readFile(indexPath, "utf8"));
+  assert.deepEqual(
+    pruned.comics.map((comic) => comic.sourceName),
+    ["DC"]
+  );
+});
+
+// The startup prune must draw the same removed-vs-unplugged line as the scan.
+// Getting this wrong would delete a user's library the moment their USB drive
+// happened to be unplugged during a reboot.
+test("startup keeps the comics of a configured source that is unavailable", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-startup-unplugged-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "Removable");
+  await fsp.mkdir(path.join(source, "Series"), { recursive: true });
+  await fsp.writeFile(
+    path.join(source, "Series", "Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const dataDirectory = path.join(directory, "data");
+  const library = new ComicLibrary(dataDirectory);
+  await library.initialize();
+  await library.saveConfig({
+    sources: [
+      { path: source, profile: "folders-as-series", needsProfileConfirmation: false }
+    ]
+  });
+  await library.scan();
+  assert.equal(library.listComics().length, 1);
+
+  // Unplug the drive, then reboot.
+  await fsp.rm(source, { recursive: true });
+  const restarted = new ComicLibrary(dataDirectory);
+  await restarted.initialize();
+  assert.equal(
+    restarted.listComics().length,
+    1,
+    "an unplugged drive is not a removed one; its comics must survive the restart"
+  );
+  assert.equal(restarted.listComics()[0].sourceName, "Removable");
+
+  // The drive comes back and the comics are readable again.
+  await fsp.mkdir(path.join(source, "Series"), { recursive: true });
+  await fsp.writeFile(
+    path.join(source, "Series", "Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+  await restarted.scan();
+  assert.equal(restarted.listComics().length, 1);
+  assert.equal(restarted.listComics()[0].available, true);
+});
+
+// A startup that has nothing to drop must not touch the index at all.
+test("startup with nothing to drop leaves the index file untouched", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-startup-clean-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const dc = path.join(directory, "DC");
+  await fsp.mkdir(dc, { recursive: true });
+  await fsp.writeFile(
+    path.join(dc, "DC Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const dataDirectory = path.join(directory, "data");
+  const library = new ComicLibrary(dataDirectory);
+  await library.initialize();
+  await library.saveConfig({
+    sources: [{ path: dc, profile: "unordered", needsProfileConfirmation: false }]
+  });
+  await library.scan();
+
+  const indexPath = path.join(dataDirectory, "library.json");
+  const before = await fsp.stat(indexPath);
+  const contents = await fsp.readFile(indexPath, "utf8");
+
+  const restarted = new ComicLibrary(dataDirectory);
+  await restarted.initialize();
+
+  const after = await fsp.stat(indexPath);
+  assert.equal(
+    after.mtimeMs,
+    before.mtimeMs,
+    "a normal startup must not rewrite the index for nothing"
+  );
+  assert.equal(await fsp.readFile(indexPath, "utf8"), contents);
+  assert.equal(restarted.listComics().length, 1);
+});

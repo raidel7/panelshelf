@@ -1,3 +1,21 @@
+# PanelShelf 0.4.8-1029
+
+Upgrading is enough to clear out removed folders.
+
+## The previous fix now reaches comics already indexed
+
+- 0.4.7 stopped comics from a removed library folder being carried forward, but
+  only once you scanned or re-saved Library folders. An index written by an
+  older build still listed them until then, which for anyone who had already hit
+  this bug meant installing the fix appeared to do nothing.
+- The index is now checked against your library folders at startup, so the
+  comics from a folder you removed are gone as soon as the package restarts.
+  Reading orders and saved metadata matches are reconciled with it.
+- A folder that is configured but unavailable at startup — a USB drive unplugged
+  during a reboot — keeps every one of its comics. Only folders that are no
+  longer in Library folders at all are cleared.
+- A library with nothing to clear out is not rewritten at startup.
+
 # PanelShelf 0.4.7-1028
 
 Removing a library folder now actually removes its comics.
