@@ -629,3 +629,68 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Your comics/);
 });
+
+test("the chronology is browsable one node at a time", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+
+  // A hierarchical timeline: two numbered eras whose order is not their
+  // alphabetical order, plus a staging folder that must stay out of it.
+  const page = () => zipBuffer([{ name: "page.png", data: ONE_PIXEL_PNG }]);
+  for (const [folder, name] of [
+    ["0010 Alpha Era", "Later.cbz"],
+    ["0002 Zulu Era", "Earlier.cbz"],
+    ["_staging", "Unfiled.cbz"]
+  ]) {
+    await fsp.mkdir(path.join(comicsDirectory, folder), { recursive: true });
+    await fsp.writeFile(path.join(comicsDirectory, folder, name), page());
+  }
+
+  let response = await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sources: [
+        { path: comicsDirectory, name: "Comics", profile: "hierarchical-timeline" }
+      ]
+    })
+  });
+  assert.equal(response.status, 200, state.logs);
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 3);
+
+  const root = await (await fetch(`${base}/api/chronology`)).json();
+  assert.equal(root.node.id, "chronology");
+  assert.equal(root.children.length, 1, "one source");
+  const source = root.children[0];
+  assert.equal(source.role, "source");
+
+  const level = await (
+    await fetch(`${base}/api/chronology?node=${encodeURIComponent(source.id)}`)
+  ).json();
+  assert.deepEqual(
+    level.children.map((node) => node.displayName),
+    ["Zulu Era", "Alpha Era", "Unfiled"],
+    "era 2 before era 10 though it is called Zulu, and staging last"
+  );
+  assert.deepEqual(
+    level.children.map((node) => node.orderNumber),
+    [1, 2, null],
+    "position chips count the numbered siblings"
+  );
+  assert.deepEqual(level.breadcrumbs.map((crumb) => crumb.id), ["chronology", source.id]);
+
+  // The comics inside a branch are projected like any other compact list.
+  const era = await (
+    await fetch(`${base}/api/chronology?node=${encodeURIComponent(level.children[0].id)}`)
+  ).json();
+  assert.deepEqual(era.comics.map((comic) => comic.title), ["Earlier"]);
+  assert.deepEqual(
+    Object.keys(era.comics[0]).sort(),
+    ["available", "format", "id", "pageCount", "publisher", "series", "title"]
+  );
+
+  // An id that is not in the tree is a 404, not an empty screen.
+  response = await fetch(`${base}/api/chronology?node=chronology/source:nope`);
+  assert.equal(response.status, 404, state.logs);
+  assert.equal((await response.json()).error.code, "NOT_FOUND");
+});

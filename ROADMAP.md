@@ -4,8 +4,8 @@ Updated: 2026-08-13
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.4.11, build 1032 | Released. The developer's own NAS still runs 0.4.6 / 1027. |
-| **iPad app** | unreleased | In development. Browsing, reading, and progress sync work end to end. |
+| **Server and web** | 0.4.12, build 1033 | Released and installed on the developer's NAS. |
+| **iPad app** | unreleased | In development. Browsing, reading, progress sync, Home, and chronology work end to end. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries,
 together with a first-party iPad client that reads from it. It preserves the
@@ -90,6 +90,7 @@ The current build provides:
 | 0.4.9 / 1030 | `?view=compact` listing and `GET /api/comics/:id` — 71 MB to 5 MB |
 | 0.4.10 / 1031 | Grid-sized cover thumbnails — 774 KB per cover to 51 KB |
 | 0.4.11 / 1032 | Windowed shelf rendering and a preview that no longer blanks |
+| 0.4.12 / 1033 | Arrival dates with `sort=added`, and progress deletions that reconcile |
 
 ### iPad app
 
@@ -107,11 +108,14 @@ working:
 - A decoded-cover cache — memory over disk, downsampled, prefetched
 - A visible notice when comics were dropped, so a short shelf cannot pass for a
   complete one
+- Home: a Resume hero, Continue reading, and Recently added
+- Chronology browsing over `GET /api/chronology` — breadcrumbs, position chips,
+  collections cover-first, and the comics filed at each level
+- A sidebar that reopens on the section it was left in
 
-Not built yet, in the order below: Home, offline downloads, the Browse group
-(Publishers, Chronology, Reading orders), and library management. The sidebar
-currently shows Home, All comics, and Settings only, and Home is a placeholder
-that renders the All comics grid.
+Not built yet, in the order below: skip state and the year rail on the
+chronology, Publishers and Reading orders, offline downloads, and library
+management.
 
 ### Known gaps in the foundation
 
@@ -576,14 +580,21 @@ and Franco-Belgian publishers.
 
 ## Delivery sequence
 
-The four iPad milestones come first: the app is the least finished part of the
+The iPad milestones come first: the app is the least finished part of the
 product and the server work it needs most is already done.
+
+Chronology moved ahead of offline downloads on the owner's call, and the reason
+is worth recording: the chronology is the feature PanelShelf has that other
+comic servers do not, so an iPad app without it is missing the point of the
+server it talks to.
 
 | # | Milestone | Track | Status | Planning range |
 | --- | --- | --- | --- | --- |
-| 1 | Home and Resume | iPad | **Next** | 3–5 days |
-| 2 | Offline downloads | iPad | Planned | 1–2 weeks |
-| 3 | Browse: Publishers, Chronology, Reading orders | iPad | Planned | 1–2 weeks |
+| — | Home and Resume | iPad | **Done** — 0.4.12 | — |
+| — | Chronology browsing | iPad + server | **Done** | — |
+| 1 | Chronology: skip state and the year rail | iPad + server | **Next** | 3–5 days |
+| 2 | Browse: Publishers and Reading orders | iPad | Planned | 1 week |
+| 3 | Offline downloads | iPad | Planned | 1–2 weeks |
 | 4 | Library management from the iPad | iPad + server | Planned | 1 week |
 | 5 | 0.4.12 — Offline shelf and cover cache | Server | Planned | 1–2 weeks |
 | 6 | 0.4.13 — Sync API hardening | Both | Planned | 2–3 weeks |
@@ -600,7 +611,7 @@ it is ready to leave TestFlight.
 
 ---
 
-## 1. Home and Resume — iPad
+## Done: Home and Resume — iPad
 
 ### Goal
 
@@ -635,7 +646,7 @@ route that returns the most recent N comics.
 - A library with no progress shows an inviting Home, not an error.
 - Home does not fetch covers the grid has already cached.
 
-## 2. Offline downloads — iPad
+## 3. Offline downloads — iPad
 
 ### Goal
 
@@ -668,27 +679,49 @@ with this milestone so the app does not have to reach into the OPDS namespace.
   extensions and non-image entries.
 - Deleting a download never touches the source archive.
 
-## 3. Browse: Publishers, Chronology, Reading orders — iPad
+## 1. Chronology: skip state and the year rail — iPad and server
 
 ### Goal
 
-The three views the web viewer has had since 0.3.1 and the app has never had.
+Finish the chronology. Browsing landed with `GET /api/chronology`; what is
+missing is the state that says which branches a reader has set aside, and the
+year rail that makes an era legible at a glance.
+
+### Scope
+
+- Move skipped-branch state to the server, keyed on the node ids the tree
+  already has, the way reading progress moved in 0.4.4. It is browser-local
+  today, so the iPad shows branches the reader has hidden in the browser.
+- Migrate the web viewer's stored skip set once, behind a flag, and keep the
+  backup format working.
+- Skip and restore from the iPad, with the muted, struck-through presentation
+  the web uses.
+- The year or year range for a branch, and the timeline rail above the grid.
+
+### Release gates
+
+- A branch skipped on either client reads as skipped on the other.
+- A restore from a pre-migration backup does not lose skip state.
+- Chronology order matches the web viewer exactly for the same source.
+
+## 2. Browse: Publishers and Reading orders — iPad
+
+### Goal
+
+The other two views the web viewer has had since 0.3.1.
 
 ### Scope
 
 - Publishers: collection cards grouped by canonical publisher and imprint.
-- Chronology: the hierarchical browser with breadcrumbs, position chips, and
-  skip state, plus the year rail as a horizontal strip above the grid.
 - Reading orders: automatic and manual orders, opened into an ordered shelf.
-- One grid component behind all three, fed by different queries.
+- One grid component behind these and the chronology, fed by different queries.
 - Next-comic navigation inside the active reading context, matching the server's
   boundary rules rather than guessing across unnumbered branches.
 
 ### Release gates
 
-- A skipped branch reads as skipped on both clients.
-- Chronology order matches the web viewer exactly for the same source.
 - Switching sidebar items never loses the shelf's scroll position.
+- An automatic order on the iPad contains exactly what it contains on the web.
 
 ## 4. Library management from the iPad — iPad and server
 

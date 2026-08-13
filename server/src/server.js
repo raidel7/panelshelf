@@ -473,6 +473,18 @@ async function startServer() {
         return sendJson(response, 200, comics.map(project));
       }
 
+      // One screen of the chronology: where you are, how you got there, the
+      // collections below you and the comics filed at this level. The browser
+      // builds this itself from the full library; a client on the compact
+      // listing has none of the fields it needs, so the server walks it.
+      if (request.method === "GET" && pathname === "/api/chronology") {
+        const view = library.chronology(requestUrl.searchParams.get("node"));
+        if (!view) {
+          throw jsonError("That collection is not in the chronology.", "NOT_FOUND");
+        }
+        return sendJson(response, 200, view);
+      }
+
       // The full record for one comic, without opening its archive — which is
       // what asking `/pages` for it costs. The detail screen needs the metadata
       // a compact list omits and nothing more.

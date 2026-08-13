@@ -47,6 +47,7 @@ const {
   publisherMatch,
   roleForFolder
 } = require("./structure");
+const { buildChronology, chronologyView } = require("./chronology");
 
 const COMIC_EXTENSIONS = new Set([".cbr", ".cbz"]);
 const CONFIG_SCHEMA_VERSION = 2;
@@ -522,6 +523,22 @@ class ComicLibrary {
       naturalCompare(left.title, right.title)
     );
     this.comicsById = new Map(this.comics.map((comic) => [comic.id, comic]));
+    // The chronology is derived from exactly this list, so it cannot outlive a
+    // change to it. Rebuilt on the next request rather than here: a scan sets
+    // the comics repeatedly and most of those trees would never be looked at.
+    this.chronologyTree = null;
+  }
+
+  // Built once per version of the index and kept: walking tens of thousands of
+  // comics into a tree costs real time on a NAS, and a client browsing the
+  // chronology asks for one node after another.
+  chronology(nodeId) {
+    if (!this.chronologyTree) {
+      this.chronologyTree = buildChronology(this.comics);
+    }
+    return chronologyView(this.chronologyTree, nodeId, (comic) =>
+      this.compactComic(comic)
+    );
   }
 
   async getConfig() {
