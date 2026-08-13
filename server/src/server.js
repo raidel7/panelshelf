@@ -10,7 +10,7 @@ const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
 
-const VERSION = "0.4.11";
+const VERSION = "0.4.12";
 const HOST = process.env.PANELSHELF_HOST || "0.0.0.0";
 const PORT = Number(process.env.PANELSHELF_PORT || 8251);
 const DATA_DIRECTORY =

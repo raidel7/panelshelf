@@ -1,3 +1,43 @@
+# PanelShelf 0.4.12-1033
+
+Groundwork for the iPad app's Home screen, and a progress fix that shows up in
+your browser.
+
+## Marking a comic unread on the iPad no longer leaves it half-read here
+
+- The iPad recorded "unread" by saving a position of page 1 rather than by
+  clearing the saved position. The web viewer treats any saved position that is
+  not completed or skipped as started, so a comic you marked unread on the iPad
+  reappeared in Continue Reading at 1%.
+- The iPad now clears the position, which is what the web viewer has always
+  done. Marking a comic unread on either one leaves it unread on both.
+- If the iPad is offline when you do it, the change waits with the rest of its
+  unsent reading positions and is sent when it reconnects — and it is weighed
+  against what the server holds rather than applied blindly. Marking a comic
+  unread on the iPad at noon will not wipe out a position you read in the
+  browser at one; the older of the two loses.
+
+## The library list can be asked for what arrived most recently
+
+- Comics now record when they first entered the library, and keep that date
+  through rescans and through being moved to another folder.
+- `GET /api/comics` accepts `sort=added` and `limit`, so a client can ask for
+  the dozen most recent comics instead of downloading the catalogue to find
+  them. This is what the iPad app's Home screen is built on.
+- Comics already in your library keep working without a rescan: until a scan
+  gives them an arrival date, the file's own date stands in.
+- Comics found by the very first scan of a new source are dated by their files
+  rather than by the scan. Adding a folder of ten thousand comics should not
+  make all ten thousand of them "added today".
+
+## Validation
+
+- 154 server tests and 102 iPad tests pass.
+- The reading-position rules were checked by breaking them on purpose: applying
+  an offline deletion without weighing it, forgetting a queued deletion across a
+  relaunch, and handing a cleared position back on the next refresh each fail
+  the test written for them.
+
 # PanelShelf 0.4.11-1032
 
 The web viewer stops rebuilding your whole library every time anything changes.
