@@ -131,6 +131,228 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(styles, /\.collection-status-control/);
 });
 
+// The shelf reconciler is sliced out the same way the progress block is. The
+// bug it guards against is invisible to text matching and to a glance at the
+// page: a card whose comic record changed used to be replaced without its old
+// node being taken out, so the shelf quietly grew duplicates.
+const gridSource = (async () => {
+  const source = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+  const start = source.indexOf("\nconst COMIC_WINDOW_STEP = ");
+  const end = source.indexOf("\nfunction libraryShelfScope()");
+  assert.ok(
+    start > 0 && end > start,
+    "app.js must keep the comic grid reconciler between its usual anchors"
+  );
+  return source.slice(start, end);
+})();
+
+// Enough of a DOM for a grid that holds cards: the reconciler only moves
+// children around, and node identity is the whole point of the test.
+const DOM_STUB = `
+  let nextNodeId = 0;
+  function createNode(label) {
+    return {
+      label,
+      nodeId: nextNodeId++,
+      parentNode: null,
+      children: [],
+      get lastElementChild() {
+        return this.children[this.children.length - 1] || null;
+      },
+      insertBefore(node, reference) {
+        node.remove();
+        node.parentNode = this;
+        const at = reference ? this.children.indexOf(reference) : -1;
+        if (at === -1) this.children.push(node);
+        else this.children.splice(at, 0, node);
+        return node;
+      },
+      remove() {
+        if (!this.parentNode) return;
+        const at = this.parentNode.children.indexOf(this);
+        if (at !== -1) this.parentNode.children.splice(at, 1);
+        this.parentNode = null;
+      }
+    };
+  }
+  let builds = 0;
+  function comicCard(comic, options = {}) {
+    builds += 1;
+    const node = createNode(comic.id);
+    node.comicId = comic.id;
+    node.title = comic.title;
+    node.compact = Boolean(options.compact);
+    node.orderId = options.orderId || null;
+    return node;
+  }
+  let statusUpdates = 0;
+  function updateComicCardStatus() {
+    statusUpdates += 1;
+  }
+  function comicsFrom(count, offset = 0) {
+    return Array.from({ length: count }, (unused, index) => ({
+      id: "c" + (index + offset),
+      title: "Comic " + (index + offset)
+    }));
+  }
+  function idsIn(grid) {
+    return grid.children.map((node) => node.comicId);
+  }
+`;
+
+function gridSandbox() {
+  const observed = [];
+  const context = {
+    IntersectionObserver: class {
+      observe(node) {
+        observed.push(node);
+      }
+      unobserve() {}
+    },
+    JSON
+  };
+  vm.createContext(context);
+  return {
+    observed,
+    ready: gridSource.then((source) =>
+      vm.runInContext(`${DOM_STUB}\n${source}`, context)
+    ),
+    run: (expression) => vm.runInContext(expression, context)
+  };
+}
+
+test("the shelf draws a window of the library and grows it", async () => {
+  const sandbox = gridSandbox();
+  await sandbox.ready;
+
+  sandbox.run("var grid = createNode('grid'); var comics = comicsFrom(300);");
+  const first = sandbox.run("renderComicGrid(grid, comics, { scope: 'all' })");
+  assert.equal(first, 96, "a fresh shelf draws one window, not the library");
+  assert.equal(sandbox.run("grid.children.length"), 96);
+  assert.equal(sandbox.run("idsIn(grid)[0]"), "c0");
+  assert.equal(sandbox.run("idsIn(grid)[95]"), "c95");
+  assert.equal(sandbox.run("builds"), 96, "one card is built per drawn comic");
+
+  // Scrolling to the end of the window extends it without disturbing what the
+  // reader has already scrolled past.
+  sandbox.run("var kept = grid.children.slice();");
+  sandbox.run(
+    "comicGridViews.get(grid).windowSize = 192; renderComicGrid(grid, comics, { scope: 'all' });"
+  );
+  assert.equal(sandbox.run("grid.children.length"), 192);
+  assert.equal(
+    sandbox.run("kept.every((node, index) => grid.children[index] === node)"),
+    true,
+    "the cards already on screen are the same nodes"
+  );
+  assert.equal(sandbox.run("builds"), 192, "only the new cards were built");
+});
+
+test("re-rendering an unchanged shelf builds nothing", async () => {
+  const sandbox = gridSandbox();
+  await sandbox.ready;
+
+  sandbox.run("var grid = createNode('grid'); var comics = comicsFrom(10);");
+  sandbox.run("renderComicGrid(grid, comics, { scope: 'all' })");
+  sandbox.run("var kept = grid.children.slice();");
+
+  // The same records in a new array: a filter that happens to match the same
+  // comics, or a status change that re-runs the render.
+  sandbox.run("renderComicGrid(grid, comics.slice(), { scope: 'all' })");
+  assert.equal(sandbox.run("builds"), 10, "no card was rebuilt");
+  assert.equal(
+    sandbox.run("kept.every((node, index) => grid.children[index] === node)"),
+    true
+  );
+
+  // Records replaced by a refresh that changed nothing: recognised by value.
+  sandbox.run(
+    "renderComicGrid(grid, JSON.parse(JSON.stringify(comics)), { scope: 'all' })"
+  );
+  assert.equal(sandbox.run("builds"), 10, "equal records keep their cards");
+  assert.equal(
+    sandbox.run("kept.every((node, index) => grid.children[index] === node)"),
+    true
+  );
+});
+
+test("a comic whose record changed is replaced, not duplicated", async () => {
+  const sandbox = gridSandbox();
+  await sandbox.ready;
+
+  sandbox.run("var grid = createNode('grid'); var comics = comicsFrom(5);");
+  sandbox.run("renderComicGrid(grid, comics, { scope: 'all' })");
+  sandbox.run(
+    "var edited = comics.map((comic) => comic.id === 'c2' ? { id: 'c2', title: 'Renamed' } : comic);"
+  );
+  sandbox.run("renderComicGrid(grid, edited, { scope: 'all' })");
+
+  assert.equal(sandbox.run("grid.children.length"), 5, "no leftover card");
+  assert.deepEqual(sandbox.run("JSON.stringify(idsIn(grid))"), JSON.stringify(["c0", "c1", "c2", "c3", "c4"]));
+  assert.equal(sandbox.run("grid.children[2].title"), "Renamed");
+  assert.equal(sandbox.run("builds"), 6, "only the changed comic was rebuilt");
+});
+
+test("a shorter list drops the cards it no longer has", async () => {
+  const sandbox = gridSandbox();
+  await sandbox.ready;
+
+  sandbox.run("var grid = createNode('grid'); var comics = comicsFrom(20);");
+  sandbox.run("renderComicGrid(grid, comics, { scope: 'all' })");
+  sandbox.run(
+    "renderComicGrid(grid, comics.filter((comic) => comic.id !== 'c7'), { scope: 'all' })"
+  );
+
+  assert.equal(sandbox.run("grid.children.length"), 19);
+  assert.equal(sandbox.run("idsIn(grid).includes('c7')"), false);
+  assert.equal(sandbox.run("comicGridViews.get(grid).cards.size"), 19);
+
+  sandbox.run("renderComicGrid(grid, [], { scope: 'all' })");
+  assert.equal(sandbox.run("grid.children.length"), 0);
+  assert.equal(sandbox.run("comicGridViews.get(grid).cards.size"), 0);
+});
+
+test("a different filter starts the window over", async () => {
+  const sandbox = gridSandbox();
+  await sandbox.ready;
+
+  sandbox.run("var grid = createNode('grid'); var comics = comicsFrom(400);");
+  sandbox.run("renderComicGrid(grid, comics, { scope: 'all|' })");
+  sandbox.run(
+    "comicGridViews.get(grid).windowSize = 288; renderComicGrid(grid, comics, { scope: 'all|' });"
+  );
+  assert.equal(sandbox.run("grid.children.length"), 288);
+
+  sandbox.run("renderComicGrid(grid, comics, { scope: 'completed|' })");
+  assert.equal(
+    sandbox.run("grid.children.length"),
+    96,
+    "a new filter is a new list, drawn from the top"
+  );
+  assert.equal(sandbox.run("comicGridViews.get(grid).cards.size"), 96);
+});
+
+test("Continue Reading is drawn whole and follows its reading order", async () => {
+  const sandbox = gridSandbox();
+  await sandbox.ready;
+
+  sandbox.run("var row = createNode('row'); var comics = comicsFrom(120);");
+  sandbox.run(
+    "renderComicGrid(row, comics, { scope: 'continue', windowed: false, cardFor: () => ({ compact: true, orderId: 'order-1' }) })"
+  );
+  assert.equal(sandbox.run("row.children.length"), 120, "the row is never windowed");
+  assert.equal(sandbox.run("row.children[0].compact"), true);
+
+  // The same comic under a different reading order is a different card.
+  sandbox.run("var kept = row.children[0];");
+  sandbox.run(
+    "renderComicGrid(row, comics, { scope: 'continue', windowed: false, cardFor: () => ({ compact: true, orderId: 'order-2' }) })"
+  );
+  assert.equal(sandbox.run("row.children.length"), 120, "still one card per comic");
+  assert.equal(sandbox.run("row.children[0] === kept"), false);
+  assert.equal(sandbox.run("row.children[0].orderId"), "order-2");
+});
+
 // app.js has no module system, so the progress block is sliced out of the
 // source and run in a sandbox with stubs for the handful of globals it uses.
 // Text matching cannot tell whether these requests are actually made, and the

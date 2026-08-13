@@ -671,7 +671,7 @@ function renderBulkMetadataState(job = state.bulkMetadata) {
 async function refreshComicsAfterBulk(job) {
   if (!job?.jobId || state.bulkMetadataRefreshJobId === job.jobId) return;
   state.bulkMetadataRefreshJobId = job.jobId;
-  state.comics = await api("/api/comics");
+  setLibraryComics(await api("/api/comics"));
   renderContinueReading();
   renderComics();
   renderOrders();
@@ -1436,8 +1436,8 @@ function openMetadataDialog(comic) {
 }
 
 function updateComicFromMetadata(updated) {
-  state.comics = state.comics.map((comic) =>
-    comic.id === updated.id ? updated : comic
+  setLibraryComics(
+    state.comics.map((comic) => (comic.id === updated.id ? updated : comic))
   );
   if (state.reader.comic?.id === updated.id) state.reader.comic = updated;
   state.metadata.comic = updated;
@@ -1559,8 +1559,24 @@ function allOrders() {
   return [...state.manualOrders, ...state.automaticOrders];
 }
 
+// Everything that draws the library looks comics up by id, and it does it a
+// lot: once per rendered card when a reading status changes, once per entry in
+// every automatic reading order. A linear scan of 26,625 comics turned each of
+// those passes into seconds of frozen UI, so the list is indexed whenever it
+// is replaced.
+let comicIndex = new Map();
+// Bumped with the index. Cards that cache a comic object hold it only for as
+// long as the list it came from is the current one.
+let libraryGeneration = 0;
+
+function setLibraryComics(comics) {
+  state.comics = Array.isArray(comics) ? comics : [];
+  comicIndex = new Map(state.comics.map((comic) => [comic.id, comic]));
+  libraryGeneration += 1;
+}
+
 function comicById(id) {
-  return state.comics.find((comic) => comic.id === id) || null;
+  return comicIndex.get(id) || null;
 }
 
 function orderById(id) {
@@ -2203,10 +2219,15 @@ function comicStatusControl(comic, status) {
   return wrapper;
 }
 
+function comicStatusSignature(comic, status) {
+  return `${status}|${status === "in-progress" ? progressPercent(comic) : 0}`;
+}
+
 function comicCard(comic, options = {}) {
   const article = document.createElement("article");
   const status = readingStatus(comic);
   article.dataset.comicId = comic.id;
+  article.dataset.statusSignature = comicStatusSignature(comic, status);
   article.className = `comic-card status-${status}${
     comic.available === false ? " unavailable" : ""
   }${options.compact ? " compact-card" : ""}`;
@@ -2308,40 +2329,209 @@ function comicCard(comic, options = {}) {
   return article;
 }
 
+// Marking one comic read redrew the badge, the progress bar and all four menu
+// rows on every card on the shelf, which is tens of thousands of writes for one
+// changed comic and a visible flash. Each node remembers the status it is
+// already showing, so a pass over the shelf now touches only what moved.
+function updateComicCardStatus(node, comic) {
+  const status = readingStatus(comic);
+  const signature = comicStatusSignature(comic, status);
+  if (node.dataset.statusSignature === signature) return;
+  node.dataset.statusSignature = signature;
+  for (const value of ["unread", "in-progress", "completed", "skipped"]) {
+    node.classList.toggle(`status-${value}`, value === status);
+  }
+  const badge = node.querySelector(".reading-badge");
+  if (badge) {
+    badge.className = `reading-badge ${status}`;
+    badge.textContent = statusLabel(status);
+  }
+  const button = node.querySelector(".cover-button");
+  let track = button?.querySelector(".cover-progress") || null;
+  if (button && status === "in-progress") {
+    if (!track) {
+      track = document.createElement("span");
+      track.className = "cover-progress";
+      track.append(document.createElement("span"));
+      button.append(track);
+    }
+    track.firstElementChild.style.width = `${progressPercent(comic)}%`;
+  } else {
+    track?.remove();
+  }
+  node.querySelectorAll("[data-status-value]").forEach((item) => {
+    const active = item.dataset.statusValue === status;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-checked", active ? "true" : "false");
+    const check = item.querySelector(".comic-status-check");
+    if (check) check.textContent = active ? "✓" : "";
+  });
+}
+
 function updateVisibleComicStatuses() {
   document.querySelectorAll("[data-comic-id]").forEach((node) => {
     const comic = comicById(node.dataset.comicId);
-    if (!comic) return;
-    const status = readingStatus(comic);
-    for (const value of ["unread", "in-progress", "completed", "skipped"]) {
-      node.classList.toggle(`status-${value}`, value === status);
-    }
-    const badge = node.querySelector(".reading-badge");
-    if (badge) {
-      badge.className = `reading-badge ${status}`;
-      badge.textContent = statusLabel(status);
-    }
-    const button = node.querySelector(".cover-button");
-    let track = button?.querySelector(".cover-progress") || null;
-    if (button && status === "in-progress") {
-      if (!track) {
-        track = document.createElement("span");
-        track.className = "cover-progress";
-        track.append(document.createElement("span"));
-        button.append(track);
-      }
-      track.firstElementChild.style.width = `${progressPercent(comic)}%`;
-    } else {
-      track?.remove();
-    }
-    node.querySelectorAll("[data-status-value]").forEach((item) => {
-      const active = item.dataset.statusValue === status;
-      item.classList.toggle("active", active);
-      item.setAttribute("aria-checked", active ? "true" : "false");
-      const check = item.querySelector(".comic-status-check");
-      if (check) check.textContent = active ? "✓" : "";
-    });
+    if (comic) updateComicCardStatus(node, comic);
   });
+}
+
+// Drawing one card per comic is what made the shelf flash. A library of 26,625
+// comics built 26,625 cards — a million elements, each with its own <img> — and
+// threw them all away and rebuilt them whenever anything changed: a reading
+// status, a filter, a finished scan. The rebuild is what the eye saw.
+//
+// A grid now holds a window of the list and grows it as the last card comes
+// into view, and re-rendering reconciles what is already there the way
+// reconcileBulkMetadataResults reuses its rows. A card is rebuilt only when
+// that comic's own record changed; reading status is applied on top by
+// updateComicCardStatus, so marking a comic read touches exactly one card.
+const COMIC_WINDOW_STEP = 96;
+const comicGridViews = new Map();
+const comicGridObserver =
+  typeof IntersectionObserver === "function"
+    ? new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const grid = entry.target.parentElement;
+            const view = grid ? comicGridViews.get(grid) : null;
+            if (!view || view.rendered >= view.comics.length) continue;
+            view.windowSize = view.rendered + COMIC_WINDOW_STEP;
+            renderComicGrid(grid, view.comics, view.options);
+          }
+        },
+        // Far enough ahead that the next rows exist before they are scrolled to.
+        { rootMargin: "1400px 0px" }
+      )
+    : null;
+
+function comicGridView(grid) {
+  let view = comicGridViews.get(grid);
+  if (!view) {
+    view = {
+      scope: null,
+      windowSize: COMIC_WINDOW_STEP,
+      rendered: 0,
+      cards: new Map(),
+      comics: [],
+      options: {},
+      tail: null
+    };
+    comicGridViews.set(grid, view);
+  }
+  return view;
+}
+
+// Object identity answers "is this card still right?" for every local change,
+// because nothing but a reload replaces a comic record. After a scan or a
+// metadata edit the records are new objects, so the ones that did not actually
+// change are recognised by value and keep their card — otherwise every visible
+// cover would be torn out and re-requested for a scan that changed one file.
+function comicGridCardNode(view, comic, cardOptions) {
+  const variant = `${cardOptions.compact ? "compact" : "full"}|${
+    cardOptions.orderId || ""
+  }`;
+  const existing = view.cards.get(comic.id);
+  if (existing && existing.variant === variant) {
+    if (existing.comic === comic) return existing.node;
+    const signature = JSON.stringify(comic);
+    if (existing.signature === signature) {
+      existing.comic = comic;
+      return existing.node;
+    }
+  }
+  // The card being replaced is still in the grid, and the sweep below only
+  // knows about the nodes this map still points at: it has to go now or it
+  // stays on the shelf as a duplicate.
+  if (existing) existing.node.remove();
+  const entry = {
+    node: comicCard(comic, cardOptions),
+    comic,
+    signature: JSON.stringify(comic),
+    variant
+  };
+  view.cards.set(comic.id, entry);
+  return entry.node;
+}
+
+function renderComicGrid(grid, comics, options = {}) {
+  const view = comicGridView(grid);
+  const scope = options.scope || "";
+  // A different search, filter or branch is a different list, so the window
+  // starts over. The same list rendered again — a status change, a refresh
+  // after a scan — keeps everything the reader has already scrolled past.
+  const sameScope = view.scope === scope;
+  if (!sameScope) {
+    view.scope = scope;
+    view.windowSize = COMIC_WINDOW_STEP;
+  }
+  // Growing the window as the reader scrolls only has to place the cards it is
+  // adding: the ones already there came from this same list under this same
+  // scope, so nothing ahead of the old edge moved or went away. Without this a
+  // reader deep into a long shelf pays for the whole window on every step. A
+  // grid whose cards take options from outside the record — Continue Reading
+  // reads each comic's reading order — is never short-cut this way, because
+  // those options can change while the list does not.
+  const appendOnly =
+    sameScope && !options.cardFor && view.comics === comics && view.rendered > 0;
+  view.comics = comics;
+  view.options = options;
+  // Nothing grows the window without an observer to notice the end of it, so a
+  // browser without one draws the whole list rather than a shelf that stops.
+  const limit = options.windowed === false || !comicGridObserver
+    ? comics.length
+    : Math.min(comics.length, Math.max(COMIC_WINDOW_STEP, view.windowSize));
+  const from = appendOnly && limit >= view.rendered ? view.rendered : 0;
+
+  const staticCard = options.card || {};
+  const retained = from === 0 ? new Set() : null;
+  for (let index = from; index < limit; index += 1) {
+    const comic = comics[index];
+    if (retained) retained.add(comic.id);
+    const node = comicGridCardNode(
+      view,
+      comic,
+      options.cardFor ? options.cardFor(comic) : staticCard
+    );
+    const expected = grid.children[index] || null;
+    if (expected !== node) grid.insertBefore(node, expected);
+    updateComicCardStatus(node, comic);
+  }
+  if (retained) {
+    for (const [comicId, entry] of view.cards) {
+      if (retained.has(comicId)) continue;
+      entry.node.remove();
+      view.cards.delete(comicId);
+    }
+  }
+  // The window holds exactly this many cards; anything past the end is left
+  // over from a longer list.
+  while (grid.children.length > limit) grid.lastElementChild.remove();
+
+  view.rendered = limit;
+  if (comicGridObserver) {
+    if (view.tail) comicGridObserver.unobserve(view.tail);
+    view.tail = limit > 0 && limit < comics.length ? grid.children[limit - 1] : null;
+    if (view.tail) comicGridObserver.observe(view.tail);
+  }
+  return limit;
+}
+
+// What the reader is looking at, as a string. Two renders that share it are
+// the same list and keep their window; anything else scrolls back to the top
+// of a freshly windowed shelf.
+function libraryShelfScope() {
+  return `${state.statusFilter}|${elements.searchInput.value.trim()}`;
+}
+
+function browseGridScope() {
+  return [
+    libraryShelfScope(),
+    state.libraryView,
+    state.selectedPublisherKey || "",
+    state.chronologyNodeId || "",
+    state.chronologyUnfiledScope || ""
+  ].join("|");
 }
 
 function naturalTextCompare(left, right) {
@@ -2351,24 +2541,33 @@ function naturalTextCompare(left, right) {
   });
 }
 
+// Building and lower-casing this for every comic on every keystroke is most of
+// what a search costs, and none of it changes between keystrokes. Keyed by the
+// record, so a refresh that replaces the list drops the old text with it.
+const comicSearchText = new WeakMap();
+
+function comicSearchHaystack(comic) {
+  let text = comicSearchText.get(comic);
+  if (text !== undefined) return text;
+  text = `${comic.title} ${comic.series} ${comic.relativePath} ${
+    comic.publisher?.name || ""
+  } ${comic.publisher?.parent || ""} ${
+    (comic.hierarchy || []).map((node) => node.displayName || node.name).join(" ")
+  } ${comic.metadata?.summary || ""} ${
+    comic.metadata?.storyArc || ""
+  } ${Object.values(comic.metadata?.creators || {})
+    .flat()
+    .join(" ")} ${(comic.metadata?.genres || []).join(" ")} ${
+    (comic.metadata?.tags || []).join(" ")
+  }`.toLocaleLowerCase();
+  comicSearchText.set(comic, text);
+  return text;
+}
+
 function filteredLibraryComics() {
   const query = elements.searchInput.value.trim().toLocaleLowerCase();
   const searched = query
-    ? state.comics.filter((comic) =>
-        `${comic.title} ${comic.series} ${comic.relativePath} ${
-          comic.publisher?.name || ""
-        } ${comic.publisher?.parent || ""} ${
-          (comic.hierarchy || []).map((node) => node.displayName || node.name).join(" ")
-        } ${comic.metadata?.summary || ""} ${
-          comic.metadata?.storyArc || ""
-        } ${Object.values(comic.metadata?.creators || {})
-          .flat()
-          .join(" ")} ${(comic.metadata?.genres || []).join(" ")} ${
-          (comic.metadata?.tags || []).join(" ")
-        }`
-          .toLocaleLowerCase()
-          .includes(query)
-      )
+    ? state.comics.filter((comic) => comicSearchHaystack(comic).includes(query))
     : state.comics;
   return state.statusFilter === "all"
     ? searched
@@ -2520,6 +2719,71 @@ function hideCollectionPreview(immediate = false) {
   else collectionPreviewHideTimer = setTimeout(finish, 120);
 }
 
+// Moving from one collection to the next used to clear the preview's src and
+// unhide the initials before asking for the replacement, so every hover blanked
+// to two letters and back — the flash is the whole width of the fetch. The
+// cover already on screen now stays until its replacement has decoded off to
+// one side, and only a stall long enough to look broken falls back to the
+// initials. A preview that is not on screen has nothing worth keeping, so it
+// still opens on the initials and fills in behind them.
+const COLLECTION_PREVIEW_STALE_COVER_MS = 260;
+let collectionPreviewCoverRequest = 0;
+let collectionPreviewStaleTimer = null;
+
+function swapCollectionPreviewCover(url, initials) {
+  const image = elements.collectionPreviewImage;
+  const fallback = elements.collectionPreviewFallback;
+  collectionPreviewCoverRequest += 1;
+  const request = collectionPreviewCoverRequest;
+  clearTimeout(collectionPreviewStaleTimer);
+  collectionPreviewStaleTimer = null;
+  fallback.textContent = initials;
+
+  const showInitials = () => {
+    image.hidden = true;
+    image.removeAttribute("src");
+    fallback.hidden = false;
+  };
+  const showCover = () => {
+    image.src = url;
+    image.hidden = false;
+    fallback.hidden = true;
+  };
+
+  if (!url) {
+    showInitials();
+    return;
+  }
+  if (image.getAttribute("src") === url && !image.hidden) return;
+  if (loadedImageUrls.has(url)) {
+    showCover();
+    return;
+  }
+  const keepCurrentCover =
+    !elements.collectionPreview.hidden && !image.hidden && image.getAttribute("src");
+  if (!keepCurrentCover) showInitials();
+  else {
+    collectionPreviewStaleTimer = setTimeout(() => {
+      if (collectionPreviewCoverRequest === request) showInitials();
+    }, COLLECTION_PREVIEW_STALE_COVER_MS);
+  }
+
+  const loader = new Image();
+  loader.addEventListener("load", () => {
+    loadedImageUrls.add(url);
+    if (collectionPreviewCoverRequest !== request) return;
+    clearTimeout(collectionPreviewStaleTimer);
+    showCover();
+  });
+  loader.addEventListener("error", () => {
+    loadedImageUrls.delete(url);
+    if (collectionPreviewCoverRequest !== request) return;
+    clearTimeout(collectionPreviewStaleTimer);
+    showInitials();
+  });
+  loader.src = url;
+}
+
 function showCollectionPreview(anchor, options) {
   if (!supportsCollectionHoverPreview() || !elements.collectionPreview) return;
   clearTimeout(collectionPreviewHideTimer);
@@ -2533,26 +2797,10 @@ function showCollectionPreview(anchor, options) {
     "skipped",
     Boolean(options.skipped)
   );
-  elements.collectionPreviewFallback.textContent = collectionInitials(
-    options.title
+  swapCollectionPreviewCover(
+    firstComic ? thumbnailUrl(firstComic.id) : null,
+    collectionInitials(options.title)
   );
-  elements.collectionPreviewFallback.hidden = false;
-  elements.collectionPreviewImage.hidden = true;
-  elements.collectionPreviewImage.onload = null;
-  elements.collectionPreviewImage.onerror = null;
-  elements.collectionPreviewImage.removeAttribute("src");
-  if (firstComic) {
-    elements.collectionPreviewImage.onload = () => {
-      elements.collectionPreviewFallback.hidden = true;
-      elements.collectionPreviewImage.hidden = false;
-    };
-    elements.collectionPreviewImage.onerror = () => {
-      elements.collectionPreviewImage.hidden = true;
-      elements.collectionPreviewFallback.hidden = false;
-      elements.collectionPreviewImage.removeAttribute("src");
-    };
-    elements.collectionPreviewImage.src = thumbnailUrl(firstComic.id);
-  }
 
   elements.collectionPreviewEyebrow.textContent =
     options.eyebrow || "Collection";
@@ -2613,6 +2861,10 @@ function setCollectionShelfStatus(comics, status, title) {
   persistProgress(available.map((comic) => comic.id));
   closeComicStatusMenu();
   renderContinueReading();
+  // The shelf may be showing this branch's comics under an unchanged filter,
+  // which renders as the same list: their badges are updated here rather than
+  // being rebuilt with the grid.
+  updateVisibleComicStatuses();
   renderComics();
   renderOrders();
   showToast(`${title} marked ${status === "unread" ? "unread" : "completed"}.`);
@@ -2800,6 +3052,70 @@ function collectionCard(options) {
   return article;
 }
 
+// Collection cards carry covers too, so replacing the browse grid wholesale
+// blanked every shelf in it on any re-render. Everything a card draws goes into
+// this signature — plus the library generation, so a reused card never holds a
+// comic record from a list that has since been replaced — and a card whose
+// signature is unchanged is the same card.
+function collectionCardSignature(options) {
+  const comics = options.comics || [];
+  const statusComics = options.statusComics || comics;
+  const cover = comics.find((comic) => comic.available !== false);
+  // Which comic the card's menu would open, found the way collectionStatusControl
+  // finds it but without copying a publisher's worth of comics to do it.
+  const readable = (comic) => comic.available !== false;
+  const opener =
+    statusComics.find(
+      (comic) => readable(comic) && readingStatus(comic) === "in-progress"
+    ) ||
+    statusComics.find(
+      (comic) => readable(comic) && readingStatus(comic) === "unread"
+    ) ||
+    statusComics.find(readable);
+  return [
+    libraryGeneration,
+    options.className || "",
+    options.eyebrow || "",
+    options.title || "",
+    options.description || "",
+    options.orderNumber || "",
+    options.skipped ? 1 : 0,
+    options.skipInherited ? 1 : 0,
+    options.statusMenu ? 1 : 0,
+    options.onToggleSkipped ? 1 : 0,
+    cover ? cover.id : "",
+    comics.length,
+    statusComics.length,
+    opener ? opener.id : ""
+  ].join("|");
+}
+
+const collectionCardNodes = new Map();
+
+function renderCollectionGrid(grid, entries) {
+  const retained = new Set();
+  entries.forEach((entry, index) => {
+    const signature = collectionCardSignature(entry.options);
+    retained.add(entry.key);
+    let cached = collectionCardNodes.get(entry.key);
+    if (!cached || cached.signature !== signature) {
+      // The card it replaces is still in the grid, and the sweep below only
+      // knows about the nodes this map still points at.
+      if (cached) cached.node.remove();
+      cached = { node: collectionCard(entry.options), signature };
+      collectionCardNodes.set(entry.key, cached);
+    }
+    const expected = grid.children[index] || null;
+    if (expected !== cached.node) grid.insertBefore(cached.node, expected);
+  });
+  for (const [key, cached] of collectionCardNodes) {
+    if (retained.has(key)) continue;
+    cached.node.remove();
+    collectionCardNodes.delete(key);
+  }
+  while (grid.children.length > entries.length) grid.lastElementChild.remove();
+}
+
 function setBrowseHeader(eyebrow, title, description) {
   elements.browseEyebrow.textContent = eyebrow;
   elements.browseTitle.textContent = title;
@@ -2839,12 +3155,13 @@ function renderBreadcrumb(items) {
   elements.browseBreadcrumb.replaceChildren(...nodes);
 }
 
+// The two grids are left to the reconcilers: every path through a browse view
+// renders both, with an empty list where it has nothing to show, so neither is
+// emptied and rebuilt on the way through.
 function prepareBrowseView() {
   hideCollectionPreview(true);
   chronologyTimelineContext = null;
-  elements.collectionGrid.replaceChildren();
   elements.collectionGrid.hidden = false;
-  elements.browseComicGrid.replaceChildren();
   elements.chronologyTimeline.replaceChildren();
   elements.chronologyTimeline.hidden = true;
   elements.chronologyLayoutToggle.hidden = true;
@@ -2886,9 +3203,10 @@ function renderPublisherView(filtered) {
           group.comics.length === 1 ? "comic" : "comics"
         } in this library.`
       );
-      elements.browseComicGrid.replaceChildren(
-        ...matching.map((comic) => comicCard(comic))
-      );
+      renderCollectionGrid(elements.collectionGrid, []);
+      renderComicGrid(elements.browseComicGrid, matching, {
+        scope: browseGridScope()
+      });
       if (matching.length === 0) {
         setBrowseNotice([
           "No comics in this publisher match the current search and reading-status filter."
@@ -2904,24 +3222,29 @@ function renderPublisherView(filtered) {
     "Publishers",
     "Browse recognized publishers without changing the folders or metadata in your archives."
   );
-  elements.collectionGrid.replaceChildren(
-    ...matchingGroups.map((group) => {
+  renderComicGrid(elements.browseComicGrid, [], { scope: browseGridScope() });
+  renderCollectionGrid(
+    elements.collectionGrid,
+    matchingGroups.map((group) => {
       const imprintText =
         group.imprints.size > 0
           ? ` · ${[...group.imprints].sort(naturalTextCompare).join(", ")}`
           : "";
-      return collectionCard({
-        eyebrow: group.recognized ? "Publisher" : "Unclassified source",
-        title: group.label,
-        description: `${group.comics.length} ${
-          group.comics.length === 1 ? "comic" : "comics"
-        }${imprintText}`,
-        comics: group.comics,
-        onClick: () => {
-          state.selectedPublisherKey = group.key;
-          renderComics();
+      return {
+        key: `publisher:${group.key}`,
+        options: {
+          eyebrow: group.recognized ? "Publisher" : "Unclassified source",
+          title: group.label,
+          description: `${group.comics.length} ${
+            group.comics.length === 1 ? "comic" : "comics"
+          }${imprintText}`,
+          comics: group.comics,
+          onClick: () => {
+            state.selectedPublisherKey = group.key;
+            renderComics();
+          }
         }
-      });
+      };
     })
   );
 }
@@ -3332,9 +3655,10 @@ function renderUnfiledView(filtered, tree) {
       comics.length === 1 ? "comic is" : "comics are"
     } indexed from folders beginning with “_”, without assigning a chronology position.`
   );
-  elements.browseComicGrid.replaceChildren(
-    ...matching.map((comic) => comicCard(comic))
-  );
+  renderCollectionGrid(elements.collectionGrid, []);
+  renderComicGrid(elements.browseComicGrid, matching, {
+    scope: browseGridScope()
+  });
   setBrowseNotice(
     matching.length === 0
       ? ["No Unfiled comics match the current search and reading-status filter."]
@@ -3715,8 +4039,9 @@ function renderChronologicalView(filtered) {
     const matchingUnfiled = unfiledGroup.comics.filter((comic) =>
       matchingIds.has(comic.id)
     );
-    collectionCards.push(
-      collectionCard({
+    collectionCards.push({
+      key: `chronology-unfiled:${unfiledGroup.scope}`,
+      options: {
         className: "unfiled-collection",
         eyebrow: "Staging shelf",
         title: "Unfiled",
@@ -3734,8 +4059,8 @@ function renderChronologicalView(filtered) {
           state.chronologyUnfiledScope = unfiledGroup.scope;
           renderComics();
         }
-      })
-    );
+      }
+    });
   }
   collectionCards.push(
     ...matchingChildren.map((child) => {
@@ -3744,39 +4069,42 @@ function renderChronologicalView(filtered) {
       );
       const inheritedSkip = Boolean(skippedChronologyAncestor(child));
       const skipped = isChronologyNodeSkipped(child);
-      return collectionCard({
-        eyebrow: chronologyRoleLabel(child),
-        title: child.displayName,
-        description: `${matchingComics.length} ${
-          matchingComics.length === 1
-            ? "comic"
-            : "comics"
-        }`,
-        comics: matchingComics,
-        statusComics: child.comics,
-        statusMenu: true,
-        orderNumber: chronologyOrderNumber(child),
-        skipped,
-        skipInherited: inheritedSkip,
-        onToggleSkipped: canSkipChronologyNode(child)
-          ? () => toggleChronologyNodeSkipped(child)
-          : null,
-        onClick: () => {
-          state.chronologyUnfiledScope = null;
-          state.chronologyNodeId = child.id;
-          state.chronologyTimelineFocusId = null;
-          renderComics();
+      return {
+        key: `chronology:${child.id}`,
+        options: {
+          eyebrow: chronologyRoleLabel(child),
+          title: child.displayName,
+          description: `${matchingComics.length} ${
+            matchingComics.length === 1
+              ? "comic"
+              : "comics"
+          }`,
+          comics: matchingComics,
+          statusComics: child.comics,
+          statusMenu: true,
+          orderNumber: chronologyOrderNumber(child),
+          skipped,
+          skipInherited: inheritedSkip,
+          onToggleSkipped: canSkipChronologyNode(child)
+            ? () => toggleChronologyNodeSkipped(child)
+            : null,
+          onClick: () => {
+            state.chronologyUnfiledScope = null;
+            state.chronologyNodeId = child.id;
+            state.chronologyTimelineFocusId = null;
+            renderComics();
+          }
         }
-      });
+      };
     })
   );
-  elements.collectionGrid.replaceChildren(...collectionCards);
+  renderCollectionGrid(elements.collectionGrid, collectionCards);
   renderFocusedTimeline(matchingChildren, matchingIds);
   elements.collectionGrid.hidden =
     state.chronologyLayout === "timeline" && matchingChildren.length > 0;
-  elements.browseComicGrid.replaceChildren(
-    ...matchingDirect.map((comic) => comicCard(comic))
-  );
+  renderComicGrid(elements.browseComicGrid, matchingDirect, {
+    scope: browseGridScope()
+  });
 
   const allowedProfiles = new Set([
     "hierarchical-timeline",
@@ -3837,18 +4165,17 @@ function renderComics() {
   elements.noResults.hidden = filtered.length > 0 || state.comics.length === 0;
   elements.comicGrid.hidden = true;
   elements.browseView.hidden = true;
-  elements.comicGrid.replaceChildren();
-  if (filtered.length > 0) {
-    if (state.libraryView === "publisher") {
-      elements.browseView.hidden = false;
-      renderPublisherView(filtered);
-    } else if (state.libraryView === "chronological") {
-      elements.browseView.hidden = false;
-      renderChronologicalView(filtered);
-    } else {
-      elements.comicGrid.replaceChildren(...filtered.map(comicCard));
-      elements.comicGrid.hidden = false;
-    }
+  if (filtered.length > 0 && state.libraryView === "publisher") {
+    elements.browseView.hidden = false;
+    renderPublisherView(filtered);
+  } else if (filtered.length > 0 && state.libraryView === "chronological") {
+    elements.browseView.hidden = false;
+    renderChronologicalView(filtered);
+  } else {
+    // The shelf keeps its cards while a browse view is on screen, so coming
+    // back to it costs nothing; an empty list is what clears them.
+    renderComicGrid(elements.comicGrid, filtered, { scope: libraryShelfScope() });
+    elements.comicGrid.hidden = filtered.length === 0;
   }
   const unavailable = state.libraries.filter((item) => !item.available).length;
   elements.librarySummary.textContent = hasLibraries
@@ -3873,14 +4200,14 @@ function renderContinueReading() {
     })
     .slice(0, 12);
   elements.continueSection.hidden = continuing.length === 0;
-  elements.continueRow.replaceChildren(
-    ...continuing.map((comic) =>
-      comicCard(comic, {
-        compact: true,
-        orderId: progressFor(comic.id)?.orderId || null
-      })
-    )
-  );
+  renderComicGrid(elements.continueRow, continuing, {
+    scope: "continue",
+    windowed: false,
+    cardFor: (comic) => ({
+      compact: true,
+      orderId: progressFor(comic.id)?.orderId || null
+    })
+  });
 }
 
 function orderProgress(order) {
@@ -3932,6 +4259,11 @@ function orderCard(order) {
 
 function renderOrders() {
   if (!elements.manualOrderList || !elements.automaticOrderList) return;
+  // These cards live inside the orders dialog and nowhere else, and drawing one
+  // walks every comic in the order to count what is finished. Redrawing them
+  // behind a closed dialog on every shelf status change was seconds of work
+  // nobody could see; opening the dialog draws them.
+  if (elements.ordersDialog && !elements.ordersDialog.open) return;
   if (state.manualOrders.length === 0) {
     const empty = document.createElement("div");
     empty.className = "source-empty";
@@ -3956,8 +4288,8 @@ function renderOrders() {
 }
 
 function openOrders() {
-  renderOrders();
   if (!elements.ordersDialog.open) elements.ordersDialog.showModal();
+  renderOrders();
 }
 
 function detailItem(comicIdValue, order, position) {
@@ -4501,7 +4833,7 @@ async function refresh() {
     api("/api/metadata/bulk")
   ]);
   state.libraries = config.sources || config.libraryPaths || [];
-  state.comics = comics;
+  setLibraryComics(comics);
   state.automaticOrders = orders.automatic || [];
   state.manualOrders = orders.manual || [];
   state.scanState = scanState;

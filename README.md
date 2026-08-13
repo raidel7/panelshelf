@@ -94,7 +94,7 @@ allow packages from any publisher.
 ## Install on the DS1825+
 
 1. Open **DSM → Package Center → Manual Install**.
-2. Select `PanelShelf-x86_64-0.4.10-1031.spk`.
+2. Select `PanelShelf-x86_64-0.4.11-1032.spk`.
 3. Accept the warning for a third-party package.
 4. Start PanelShelf and click **Open**, or visit:
    `http://YOUR-NAS-IP:8251/`

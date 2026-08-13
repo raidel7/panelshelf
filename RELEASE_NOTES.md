@@ -1,3 +1,45 @@
+# PanelShelf 0.4.11-1032
+
+The web viewer stops rebuilding your whole library every time anything changes.
+
+## The shelf no longer flickers
+
+- The viewer drew one card, with its own cover image, for every comic in the
+  library — and it threw all of them away and built them again whenever
+  anything changed: marking a comic read, changing a filter, switching views,
+  finishing a scan, opening and closing the reader. On a 26,625-comic library
+  that is 26,625 cards and about 1.1 million elements, rebuilt from scratch
+  around twenty times over. That rebuild is the flicker.
+- The shelf now draws what fits on screen and adds more as you scroll, and a
+  re-render reuses the cards that are already there instead of replacing them.
+  Measured on a 26,625-comic library: the shelf appears in 0.7 s instead of
+  4.9 s, holds 4,900 elements instead of 1,145,778, and a redraw that used to
+  take 1.3 s of frozen page now takes under a millisecond.
+- Marking one comic read used to rewrite the badge, progress bar and menu on
+  every card in the library — 106,500 changes to the page for one comic, which
+  took 5.5 seconds and flashed the whole shelf. It now changes that one card:
+  four changes, in about ten milliseconds.
+- Scrolling the shelf was running at about three frames a second, with 91
+  stalls totalling 20.7 seconds across a walk down the library. The same walk
+  now runs at frame rate with no stalls.
+- A finished scan, a metadata edit, or anything else that reloads the library
+  used to tear out every cover on screen and ask for it again. Cards whose
+  comic did not actually change are left alone, so a scan finishing behind you
+  no longer blanks the shelf you are looking at, and your place in it is kept.
+- Search is quicker to the same end: typing in the search box was rebuilding a
+  searchable line of text for all 26,625 comics on every keystroke.
+
+## Hovering a collection keeps its cover
+
+- The hover preview cleared its image and showed the collection's initials
+  before asking for the next cover, so moving along a shelf blanked the preview
+  to two letters and back on every card. With covers arriving in about a fifth
+  of a second, that is roughly 600 ms of blank per four cards.
+- The cover on screen now stays until its replacement has loaded. A preview
+  opening fresh still starts on the initials — there is nothing to keep — and a
+  cover that stalls for more than a moment gives way to them rather than
+  sitting under the wrong title.
+
 # PanelShelf 0.4.10-1031
 
 Cover thumbnails, so a shelf stops downloading full-size scanned pages.
