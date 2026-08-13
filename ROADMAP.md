@@ -1,221 +1,134 @@
-# PanelShelf Product and Engineering Roadmap
+# PanelShelf Roadmap
 
-Updated: 2026-07-31
+Updated: 2026-08-13
 
-PanelShelf is a native, read-only Synology DSM comics server for CBZ and CBR
-libraries. Its goal is to make an existing comics collection immediately useful
-without forcing the owner to rename, move, copy, or reorganize the original
-files.
+| Component | Version | State |
+| --- | --- | --- |
+| **Server and web** | 0.4.11, build 1032 | Released. The developer's own NAS still runs 0.4.6 / 1027. |
+| **iPad app** | unreleased | In development. Browsing, reading, and progress sync work end to end. |
 
-This roadmap assumes one primary developer. Time estimates are planning ranges,
-not release promises; testing on real Synology hardware is the main variable.
+PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries,
+together with a first-party iPad client that reads from it. It preserves the
+owner's folder structure and reading orders, supports internal and external USB
+storage, and keeps everything it generates inside the package's private data
+directory without altering the source comics.
+
+This document covers both. They are planned together because they block each
+other in both directions: the iPad app is the reason the server grew a progress
+API, a compact library listing, and cover thumbnails, and each of those was
+built because a real iPad hit a real wall.
+
+Time ranges are planning estimates for one primary developer, not release
+commitments. Physical testing on Synology hardware remains the largest source of
+uncertainty.
 
 ## Product principles
 
-1. **Respect the user's organization.** Folder names, filename numbering, and
-   existing chronological arrangements are intentional data.
-2. **Never modify comic sources.** PanelShelf requires read-only access and
-   stores all generated data in its private package directory.
-3. **Work with internal and USB storage.** A disconnected source remains
-   configured and its last-known library data is preserved.
-4. **Make failures understandable.** Every skipped source or archive must appear
-   in Scan Issues with a useful recovery action.
-5. **Keep installation native.** No Docker, Java, or separately installed
-   runtime should be required.
-6. **Do not expose an unsafe server.** LAN use comes first; authenticated remote
+1. **Comic sources remain read-only.** PanelShelf never renames, moves, or
+   modifies the user's archives.
+2. **The user's organization is authoritative.** Folder hierarchy, numeric
+   prefixes, manual reading orders, and explicit skip choices are intentional
+   data.
+3. **Metadata does not invent chronology.** ComicInfo and online providers may
+   enrich a comic; they cannot silently change its reading order.
+4. **USB libraries are first-class.** A disconnected source stays configured and
+   keeps its last-known shelf data.
+5. **Native installation stays simple.** No Docker, Java, or separately
+   installed runtime.
+6. **Failures must be actionable.** Every scan, permission, archive, or metadata
+   problem belongs in a visible issue report with a recovery action.
+7. **First-party sync stays first-party.** OPDS remains a generic read-only
+   catalog; the iPad app uses a dedicated PanelShelf API, never a Komga
+   compatibility layer.
+8. **Do not expose an unsafe server.** LAN use comes first; authenticated remote
    use arrives before PanelShelf is marketed for internet access.
 
-## Current baseline
+## Two clients, one library
 
-### 0.1 preview — completed
+The web viewer and the iPad app are peers over the same server. Anything that is
+per-reader state — progress, status, skipped branches — belongs on the server so
+both see it; anything that is per-device — sidebar width, reader fit, cover
+caches — stays local.
 
-- Native DSM 7.2+ SPK and restricted `PanelShelf` package account
-- x86-64 build for the DS1825+ and similar models
-- Multiple internal-volume and external-USB source folders
-- Server-side folder browser limited to `/volume*` and `/volumeUSB*`
-- Recursive CBZ and CBR discovery
-- First-page covers, searchable cover grid, and browser reader
-- Fit-width and fit-height reading
-- Persistent settings and library index
-- DSM Package Center and desktop Open shortcut
-- Scan issue reporting in the latest preview
+Server-side reading progress (0.4.4) was the first piece of this and is the
+model for the rest: the web viewer migrated its browser-local store into the API
+once, behind a migration flag, and neither client is now the owner of the truth.
 
-### 0.2 structure foundation — build 1007 completed
+## Where things stand
 
-- Versioned source records and automatic migration from `libraryPaths`
-- Loose, series-folder, hierarchical-timeline, exact-order, and unordered
-  source profiles
-- Automatic supported-layout detection with explicit user confirmation
-- Read-only hierarchy preview with Publisher, Ordered section, Group, Series,
-  Unfiled, and Ignored roles
-- Publisher/imprint alias catalog and confidence display
-- Integer and dotted branch-relative rank parsing
-- Profile validation and overlapping-source prevention
-- Configurable `_` staging-folder behavior and prefix display
-- Last-known comic retention for disconnected USB sources
+### Server and web
 
-Build 1007 is an engineering checkpoint. Its remaining metadata and scan-action
-work is retained below and does not block the reading foundation.
+The current build provides:
 
-### 0.3 reading foundation — build 1008 completed
+- Native non-root DSM package installation and launch integration
+- Multiple internal-volume and external-USB comic sources
+- Recursive CBZ/CBR discovery, cover extraction, search, and browser reading
+- Single-page, double-page, manga, and continuous-scroll reader modes
+- All Comics, Publisher, Chronology, Unfiled, and Timeline browsing
+- Folder-derived and manual reading orders
+- Unread, in-progress, completed, and skipped states
+- Embedded `ComicInfo.xml` support and durable manual metadata overrides
+- Optional smart online matching through GCD, Metron, and Open Library
+- Bulk metadata matching with conservative automatic approval
+- Quick Scan, Scan Source, Retry Issues, and Full Rebuild actions
+- Read-only OPDS 1.2 catalogs, byte-range requests, and archive acquisition
+- Portable settings, metadata, reading-order, and browser-state backup/restore
+- Server-owned reading progress shared by every client
+- mDNS service advertisement (`_panelshelf._tcp`)
+- A compact library listing, a per-comic detail route, and cover thumbnails
+- A windowed shelf that no longer rebuilds itself on every state change
 
-- Browser-local per-comic progress, Continue Reading, and reading-state filters
-- Automatic reading contexts derived from each source convention
-- Context-aware Next Comic navigation with safe folder/series boundaries
-- Manual chronology CRUD, duplicate, drag-and-drop, multi-select, and search
-- Unplaced handling for comics discovered after a manual order is created
-- Reading-order detail views with cover, description, progress, and item count
-- Single, double, manga/right-to-left, and continuous-scroll reader modes
-- Archive fingerprints and stable identity after an unambiguous in-source move
+### Shipped since build 1024
 
-### 0.3.1 library views — build 1009 completed
+| Version / build | Delivered outcome |
+| --- | --- |
+| 0.4.4 / 1025 | Server-side reading progress and mDNS service discovery |
+| 0.4.5 / 1026 | Discovery status endpoint |
+| 0.4.6 / 1027 | Unsolicited discovery announcements for DSM's occupied port 5353 |
+| 0.4.7 / 1028 | Removing a source clears its comics from the index |
+| 0.4.8 / 1029 | The same fix applied to comics indexed before it existed |
+| 0.4.9 / 1030 | `?view=compact` listing and `GET /api/comics/:id` — 71 MB to 5 MB |
+| 0.4.10 / 1031 | Grid-sized cover thumbnails — 774 KB per cover to 51 KB |
+| 0.4.11 / 1032 | Windowed shelf rendering and a preview that no longer blanks |
 
-- Main-page view switcher for All comics, Publishers, and Chronological
-- Reading-status filters remain independent of the selected library view
-- Publisher collection cards with canonical publisher/imprint grouping
-- Publisher recognition when the selected source root is itself named for a
-  known publisher
-- Hierarchical chronology browser with breadcrumbs, child collection cards,
-  and comics stored directly at the current folder
-- Numeric sibling ordering without flattening or inventing an order across
-  unnumbered branches
-- Staging content remains outside chronology and unsupported source profiles
-  are called out explicitly
+### iPad app
 
-### 0.3.2 chronology tracking — build 1010 completed
+iPad-only, iOS 26, SwiftUI and SwiftData, generated with XcodeGen. Built and
+working:
 
-- Circular chronology-position chips preserve each folder's original numeric
-  prefix, including zero padding and dotted insertion values
-- Folder and arc branches can be marked Skipped without changing source files
-  or manual reading orders
-- Skipped collections have a distinct muted, crossed-out presentation
-- A Chronological-view filter hides or reveals skipped branches
-- Skipping a parent visually and functionally applies to its descendants
-- Skip state and filter preference are browser-local, matching the current
-  progress-storage model
+- Connection by typed address validated against `/api/health`, plus Bonjour
+  discovery of `_panelshelf._tcp`
+- Split-view shell with a collapsible sidebar whose state survives relaunch
+- All comics: cover grid and dense list, search over title, series, publisher
+- Comic detail with the full metadata record and status actions
+- Reader with single, double, manga, and continuous modes, and fit width/height
+- Reading progress shared with the web viewer, debounced, with an offline queue
+  that survives a force-quit and reconciles through `/api/progress/merge`
+- A decoded-cover cache — memory over disk, downsampled, prefetched
+- A visible notice when comics were dropped, so a short shelf cannot pass for a
+  complete one
 
-### 0.3.3 cover-first collection browsing — build 1011 completed
+Not built yet, in the order below: Home, offline downloads, the Browse group
+(Publishers, Chronology, Reading orders), and library management. The sidebar
+currently shows Home, All comics, and Settings only, and Home is a placeholder
+that renders the All comics grid.
 
-- Publisher and chronology collections now use prominent portrait cover tiles
-  with their titles underneath
-- Collection titles adapt across four text sizes and can use up to three lines
-  before truncating
-- Chronology position and Skip controls remain visible as compact overlays on
-  the cover
-- Fine-pointer desktop browsers show an enlarged, viewport-aware preview after
-  hovering a collection
-- The preview exposes a structured area for richer publisher, creator, date,
-  and series information when metadata enrichment arrives
-- Touch and coarse-pointer devices retain the direct two-column collection
-  grid without hover-only behavior
+### Known gaps in the foundation
 
-### 0.3.4 Unfiled shelf and comic status controls — build 1012 completed
-
-- `_` staging-folder comics appear on an explicit Unfiled shelf from the
-  Chronological view instead of existing only as an explanatory issue count
-- The Unfiled shelf stays outside chronology and never receives an invented
-  order number
-- A persistent Unfiled count chip provides access while browsing deeper
-  chronology branches
-- Every comic card has a `•••` menu for Unread, In progress, Completed, and
-  Skipped
-- Marking a comic Unread clears its saved browser-local progress
-- Marking a comic Skipped removes it from Continue Reading and makes
-  context-aware Next Comic navigation pass over it
-- Comic status remains separate from folder/arc Skip state, and both are
-  browser-local without modifying source files
-
-### 0.3.5 embedded ComicInfo metadata — build 1013 completed
-
-- Read `ComicInfo.xml` from CBZ and CBR archives without modifying them
-- Store embedded title, series, issue, volume, date, publisher, imprint,
-  creators, genre, tags, story arc, language, rating, and summary fields
-- Prefer embedded title, series, and publisher data over filename inference
-  while preserving explicit folder and reading-order authority
-- Use embedded issue numbers for local series ordering when both compared
-  comics provide them
-- Show an XML badge and surface creator, year, issue, and publisher details in
-  cards, collection previews, search, and the reader
-- Treat malformed or oversized ComicInfo data as a warning without dropping the
-  comic or blocking its pages
-
-Build 1013 is an implementation checkpoint included in the combined build 1014
-release package.
-
-### 0.3.6 scan actions — build 1014 completed
-
-- Quick Scan walks configured sources and reuses unchanged indexed archives
-- Scan One Source refreshes one selected internal or USB source while
-  preserving all other sources
-- Retry Issues rechecks only failed files or unavailable sources from the
-  durable latest scan report
-- Full Rebuild reopens every archive and rereads page and ComicInfo metadata
-- Scan progress reports checked, reopened, reused, retained, and indexed counts
-- Errors and non-blocking metadata warnings share one persisted latest-scan
-  report and one consistent Issues count
-
-### 0.3.7 optional online metadata enrichment — build 1016 completed
-
-- Added an internal provider boundary with Metron as the first, disabled-by-
-  default issue lookup provider
-- Added revocable bearer-token configuration with masked browser responses and
-  permission-restricted private persistence
-- Added explicit per-comic search, candidate selection, full-detail review,
-  field-by-field comparison, confirmation, refresh, and removal
-- Added 24-hour search and seven-day issue caches, reactive provider
-  rate-limit state, `Retry-After` handling, and stale-cache fallback
-- Added stable Metron record IDs, provider attribution, and a confirmed-match
-  badge on comic covers
-- Added a temporary allowlisted cover proxy without writing third-party images
-  into the comic source or permanent cover index
-- Kept local scans, reading, and existing matches functional without an
-  internet connection
-- Kept embedded ComicInfo values authoritative; confirmed provider metadata
-  fills missing display/search fields and never changes chronology
-- Build 1016 adds edition-aware matching for trade paperbacks, hardcovers,
-  omnibuses, and graphic novels. It searches Metron's series type before its
-  issue/volume records, detects common `v01`/TPB/HC filename conventions, and
-  distinguishes a missing collected edition from a failed query.
-- Commercial distribution with Metron remains gated on explicit provider
-  approval
-
-### 0.3.8 smart metadata strategy — build 1017 completed
-
-- Added GCD as the default comics and collected-edition matcher
-- Added scored matching across series, title/subtitle, issue or volume, year,
-  publisher, and edition type
-- Added a manual Smart fallback strategy that stops after a strong match
-- Kept Metron as an optional token-based secondary source
-- Added Open Library as a no-key collected-book fallback
-- Added per-provider controls, attribution, masked credentials, independent
-  caches, and source/confidence labels in the review flow
-- Added settings migration without rescanning or changing existing confirmed
-  matches
-- Continued to keep provider metadata outside source archives and outside all
-  chronology calculations
-
-### 0.3.9 OPDS reader access — build 1018 completed
-
-- Added a read-only OPDS 1.2 root catalog at `/opds`
-- Added catalogs for All comics, Publishers, Sources and recursive folders,
-  automatic chronologies, manual reading orders, and search
-- Added local cover and thumbnail links plus direct CBZ/CBR acquisition
-- Added HTTP byte-range support for reader apps that stream archives
-- Preserved PanelShelf order inside automatic and manual reading-order feeds
-- Removed the Comic Vine provider, its BYOK controls, saved credentials,
-  provider cache, confirmed matches, tests, and legal notices
-- Kept OPDS progress read-only; generic reader progress is not imported into
-  PanelShelf
-
-### Remaining foundation gaps
-
-- No user accounts, OPDS authentication, metadata editor, or marketplace-ready
-  support workflow yet.
+- No user accounts, OPDS authentication, or device tokens.
+- A cover cannot be served while its source is unavailable: `cover()` opens the
+  archive to enumerate pages before it consults the cache, so a sleeping USB
+  disk empties the shelf visually even though the covers are on disk.
+- Thumbnails are generated on first request, on NAS CPU, and there is no way to
+  warm them deliberately or to see what the cache costs.
+- The web viewer still downloads the full library listing, because it needs
+  fields the compact record drops.
+- No marketplace-ready support workflow.
 
 ## Library organization model
 
-The interface should avoid using “scan mode” for two different concepts.
-PanelShelf will separate:
+The interface avoids using “scan mode” for two different concepts. PanelShelf
+separates:
 
 - **Organization profile:** how a source is arranged on disk
 - **Scan action:** how thoroughly PanelShelf refreshes the index
@@ -661,211 +574,324 @@ No single provider should be treated as complete. Publisher aliases and manual
 correction remain important for international libraries, including European
 and Franco-Belgian publishers.
 
-## Release plan
+## Delivery sequence
 
-### 0.2 — Library Structures
+The four iPad milestones come first: the app is the least finished part of the
+product and the server work it needs most is already done.
 
-**Status:** build 1007 engineering checkpoint completed  
-**Estimated effort:** 2–3 weeks
+| # | Milestone | Track | Status | Planning range |
+| --- | --- | --- | --- | --- |
+| 1 | Home and Resume | iPad | **Next** | 3–5 days |
+| 2 | Offline downloads | iPad | Planned | 1–2 weeks |
+| 3 | Browse: Publishers, Chronology, Reading orders | iPad | Planned | 1–2 weeks |
+| 4 | Library management from the iPad | iPad + server | Planned | 1 week |
+| 5 | 0.4.12 — Offline shelf and cover cache | Server | Planned | 1–2 weeks |
+| 6 | 0.4.13 — Sync API hardening | Both | Planned | 2–3 weeks |
+| 7 | 0.4.14 — Storylines and advanced library editing | Server and web | Planned | 3–5 weeks |
+| 8 | 0.5 — Accounts and secure client access | Both | Planned | 3–4 weeks |
+| 9 | iPad release readiness | iPad | Planned | 4–6 weeks |
+| 10 | 0.7 — Reliability, performance, administration | Server | Planned | 3–5 weeks |
+| 11 | 0.9 — Synology marketplace candidate | Server | Planned | 3–6 weeks plus review |
+| 12 | 1.0 — Public release | Both | Planned | After the gates above |
 
-- Replace `libraryPaths` with versioned source records and automatic migration.
-- Add all four organization profiles and supported-layout detection.
-- Add structure validation with an unordered fallback for unsupported layouts.
-- Add a maintained publisher/imprint alias catalog with user-defined aliases.
-- Add publisher-aware hierarchy inference and confidence display.
-- Read the minimum `ComicInfo.xml` fields needed to classify publisher, imprint,
-  series, and issue.
-- Implement natural filename sorting, branch-relative dotted ranks for
-  hierarchical timelines, and validated positions for exact reading orders.
-- Add source interpretation preview.
-- Add Quick, Selected Source, Retry Issues, and Full Rebuild actions.
-- Preserve last-known items for disconnected USB sources.
-- Prevent duplicates when configured source folders overlap.
-- Persist the latest completed scan and derive the toast, issue badge, and issue
-  panel from that same record.
-- Classify access failures as source, directory, or archive failures.
-- Add Recheck Access and Retry Source actions.
-- Keep all source access read-only.
+Server milestones continue from 0.4.11. The numbers 0.4.4 through 0.4.11 are
+spent; anything planned takes 0.4.12 or later. The iPad app is unversioned until
+it is ready to leave TestFlight.
 
-**Release gate**
+---
 
-- All structure cases in the scanning test matrix pass.
-- Existing 0.1 configuration migrates without losing sources.
-- A chronology has the same order after rescan and service restart.
-- Unplugging and reconnecting a USB source does not lose its library identity.
-- An unchanged quick scan does not list pages or regenerate covers.
+## 1. Home and Resume — iPad
 
-### 0.3 — Reading and Manual Chronologies
+### Goal
 
-**Status:** build 1008 completed  
-**Estimated effort:** 2–3 weeks
+Give the app the screen it currently pretends to have. Tapping Home shows the
+All comics grid today, which is the sidebar telling the user something untrue.
 
-- Continue Reading row and per-comic page progress.
-- Completed/unread/in-progress/skipped states with direct per-comic controls.
-- Next comic follows the active reading context. Series and ordinary folder
-  contexts stay within that boundary; exact and manual orders may cross
-  folders; hierarchical timelines stop instead of guessing across unrelated
-  unnumbered branches.
-- Create, rename, duplicate, and delete manual reading orders.
-- Drag-and-drop chronology editor with multi-select.
-- “Unplaced” handling for new comics discovered after a rescan.
-- Reading-order detail page with cover, description, progress, and item count.
-- Single-page, double-page, manga/right-to-left, and continuous-scroll reader
-  modes.
-- Browser-local guest progress first, with a migration path to user accounts.
+### Scope
 
-Build 1008 implements this scope. Automatic orders are derived records;
-manual orders are persisted in `reading-orders.json` inside PanelShelf's
-private package data directory. Reading progress now lives on the server in
-`progress.json`, shared by every browser; it was browser-local through build
-1008.
+- Resume hero for the most recently read in-progress comic: cover, series and
+  title, page position, and a single Resume action that opens the reader at the
+  saved page.
+- Continue reading shelf — every in-progress comic, most recent first, excluding
+  completed and skipped.
+- Recently added shelf.
+- Empty states that distinguish a library with nothing in progress from a
+  library that has not loaded.
+- A horizontal shelf component reused by all three, sharing the existing cover
+  cache and prefetch window.
 
-**Release gate**
+### Dependencies
 
-- Closing and reopening the browser restores progress.
-- A manual chronology remains stable after source rescans and file moves.
-- Reader navigation never jumps to a different series/order unexpectedly.
+`ProgressTracker` already holds every record in memory, so Resume and Continue
+reading need no new server work. Recently added has nothing to sort by: the
+compact listing drops `modifiedAt` deliberately. Adding one ISO timestamp back
+costs roughly 700 KB across a 26,625-comic library on top of 4.35 MB, which is
+worth measuring before committing to it — the alternative is a small dedicated
+route that returns the most recent N comics.
 
-### 0.4.0 — Backup and Restore — build 1019 completed
+### Release gates
 
-- Added portable versioned JSON export from Library settings
-- Included source configuration, manual reading orders, confirmed metadata
-  matches, browser progress/status, skipped chronology folders, selected view,
-  and reader mode
-- Excluded comic archives, regenerable indexes/covers, logs, and provider
-  credentials
-- Added restore validation and a count preview before replacement
-- Preserved temporarily unavailable USB sources and started a quick scan after
-  restore
-- Added rollback of NAS-side settings if a restore write fails
-- Changed chronology chips from raw folder ranks to larger branch-relative
-  sequence numbers (`1`, `2`, `3`)
+- Resume opens the exact page the web viewer last recorded, and vice versa.
+- A library with no progress shows an inviting Home, not an error.
+- Home does not fetch covers the grid has already cached.
 
-### 0.4 — Library Editing and Storylines
+## 2. Offline downloads — iPad
 
-**Status:** in progress; stable shelf and bulk metadata completed in build 1023
+### Goal
 
-**Estimated effort:** 3–5 weeks
+Read on a plane. The download must be the archive file, not a bag of rendered
+page images.
 
-- Metadata editor with manual overrides stored in PanelShelf.
-- Series, volume, publisher, year, genre, writer, artist, and summary views.
-- Storyline builder based on folders, metadata, or manual selection.
-- Custom covers and banners stored in PanelShelf's private data directory.
-- Duplicate detection and merge suggestions.
-- Bulk edit, bulk add to storyline, and bulk rescan.
-- Import/export reading orders as a portable PanelShelf JSON format.
+### Scope
 
-### 0.4.1 — Metadata Editor — build 1021 completed
+- Download queue with per-comic progress, pause, resume, and cancel.
+- Downloads stored outside the backup set, excluded from iCloud.
+- A local archive reader for CBZ and CBR — ZIPFoundation and UnrarKit — whose
+  entry ordering reproduces the server's `isImage` filter and `naturalCompare`
+  sort exactly, so a page index means the same thing offline and online.
+- A Downloads sidebar item: what is stored, how much space it uses, and how to
+  remove it.
+- Reading a downloaded comic while the NAS is unreachable, with progress queued
+  and flushed on reconnect.
+- Storage accounting and an eviction path that never deletes silently.
 
-- Added durable manual overrides for title, series, issue, volume, publisher,
-  year, format, storyline, creators, genres, tags, and summary.
-- Manual overrides take precedence over inferred, embedded, and confirmed
-  online metadata while leaving source archives untouched.
-- Added reset-to-source behavior, backup/restore support, UI badges, HTTP API,
-  OPDS propagation, and rebuild/restart regression coverage.
-- Carried forward content-signature detection for mislabeled CBZ/CBR files.
+### Dependencies
 
-### 0.4.2 — Focused Timeline — build 1022 completed
+The server already serves whole archives with byte ranges at
+`/opds/comics/:id/file`. A first-party `GET /api/comics/:id/file` alias belongs
+with this milestone so the app does not have to reach into the OPDS namespace.
 
-- Added a persistent Grid/Timeline visualization toggle to hierarchical
-  chronology browsing.
-- Added a numbered timeline rail, focused cover carousel, keyboard navigation,
-  nested comic strip, branch entry, and skip controls.
-- Added a prominent current publication year or year range with metadata-source
-  provenance.
-- Added scan-time fallback year inference for parenthetical filename forms such
-  as `(2014)` and `(2006 MinuteMan)`.
-- Kept filename inference separate and below embedded, confirmed online, and
-  manual metadata in the precedence chain.
-- Included the chosen visualization in portable browser-state backup/restore.
+### Release gates
 
-### 0.4.3 — Stable Shelf and Bulk Metadata — build 1023 completed
+- A downloaded comic opens with the NAS powered off.
+- Page N offline is page N online, verified against a CBR with mixed-case
+  extensions and non-image entries.
+- Deleting a download never touches the source archive.
 
-- Prevented progress-only reader and timeline interactions from rebuilding the
-  complete shelf, eliminating the most visible cover/component flashes.
-- Added a labeled reader Back button that returns to the unchanged underlying
-  view and scroll position.
-- Added branch-level chronology actions for start/continue, mark all unread,
-  mark all completed, skip, and restore.
-- Added a persistent background metadata job for unmatched comics using Smart
-  fallback, pause/resume/cancel controls, and live results.
-- Restricted automatic approval to candidates scoring at least 90 with a
-  10-point lead over the runner-up; never replaces a confirmed match.
-- Build 1024 hotfix: stabilized the native bulk-progress dialog during polling
-  by reconciling keyed rows in place and disabling backdrop blur for that
-  dialog only.
+## 3. Browse: Publishers, Chronology, Reading orders — iPad
 
-### 0.4.4 — PanelShelf Sync API
+### Goal
 
-- First-party authenticated progress and shelf-status API for a future
-  PanelShelf iOS client.
-- Optimistic progress updates with conflict-safe timestamps and per-user state.
-- No Komga compatibility adapter or third-party client impersonation.
-- Keep read-only OPDS as a separate acquisition/catalog interface.
+The three views the web viewer has had since 0.3.1 and the app has never had.
 
-**Release gate**
+### Scope
 
-- Manual edits always override inferred metadata.
-- Full rebuild does not erase manual edits, covers, progress, or reading orders.
-- Metadata parsing failures appear as warnings rather than dropping the comic.
+- Publishers: collection cards grouped by canonical publisher and imprint.
+- Chronology: the hierarchical browser with breadcrumbs, position chips, and
+  skip state, plus the year rail as a horizontal strip above the grid.
+- Reading orders: automatic and manual orders, opened into an ordered shelf.
+- One grid component behind all three, fed by different queries.
+- Next-comic navigation inside the active reading context, matching the server's
+  boundary rules rather than guessing across unnumbered branches.
 
-### 0.5 — Accounts and Client Access
+### Release gates
 
-**Estimated effort:** 3–4 weeks
+- A skipped branch reads as skipped on both clients.
+- Chronology order matches the web viewer exactly for the same source.
+- Switching sidebar items never loses the shelf's scroll position.
 
-- Administrator setup on first launch.
-- Multiple users with separate progress and reading lists.
-- Session security, rate limiting, and password recovery.
-- Add authentication to the read-only OPDS feed introduced in build 1018.
-- Responsive tablet and phone improvements.
-- HTTPS reverse-proxy documentation and trusted-proxy configuration.
-- Exportable support bundle with version, sanitized configuration, and logs.
+## 4. Library management from the iPad — iPad and server
 
-**Release gate**
+### Goal
 
-- No library or page endpoint is accessible without authorization once accounts
-  are enabled.
-- The support bundle excludes passwords, session secrets, and comic contents.
+Stop making the user open a browser to fix the library.
 
-### 0.9 — Synology Marketplace Candidate
+### Scope
 
-**Estimated effort:** 3–6 weeks plus external review time
+- Sources list with availability, comic counts, and last scan result.
+- Quick Scan, Scan this source, Retry issues, and Full rebuild, with live
+  progress.
+- Scan issues with the same recovery actions the web viewer offers.
+- Server settings the app can safely present: discovery state, version, cache
+  size.
 
-- Verify DSM 7.2 and 7.3 install, upgrade, stop/start, reboot, and uninstall.
-- Verify x86-64 on the DS1825+ and representative Intel/AMD Synology models.
-- Build and physically validate ARMv8 before declaring those models supported.
+### Release gates
+
+- A scan started from the iPad reports the same counts as the web viewer.
+- No destructive action is one tap away without confirmation.
+
+## 5. 0.4.12 — Offline shelf and cover cache — server
+
+### Goal
+
+Keep the visual library usable when a USB disk is asleep, disconnected, or slow
+to wake. Reading an unavailable archive stays disabled; looking at the shelf
+does not.
+
+### Scope
+
+- Consult the cover cache before opening the source archive. Today `cover()`
+  enumerates the archive's pages first, so a cached cover is unreachable exactly
+  when it matters most.
+- Persist each cached cover's filename, content type, dimensions, and source
+  fingerprint in the library index.
+- Serve cached covers for unavailable comics rather than omitting the image.
+- A background **Cache all covers** action with progress and cancellation, so
+  thumbnails are not generated one scroll at a time on NAS CPU.
+- Cache status and approximate storage use in Library settings.
+- Invalidate and regenerate a cover when the archive fingerprint changes.
+- Preserve the cache across service restarts and compatible upgrades.
+
+### Release gates
+
+- After a scan and cover warm-up, disconnecting the USB disk leaves covers and
+  metadata visible.
+- Serving a cached cover does not touch the comic archive.
+- Reconnecting the disk restores reading without creating duplicate comics.
+- A changed archive cannot indefinitely retain an unrelated old cover.
+- Cache cleanup never removes a source comic.
+
+## 6. 0.4.13 — Sync API hardening — server and iPad
+
+### Goal
+
+Turn the endpoints the app grew into a stable, versioned, authenticated
+contract, while OPDS stays a separate read-only catalog standard.
+
+### Scope
+
+- Version the JSON API for library views, comics, folders, chronology, pages,
+  and reading orders.
+- Device-token creation, revocation, expiry, and last-used reporting, so pairing
+  never means pasting a long-lived password.
+- An incremental library-change endpoint, so a client does not re-download the
+  whole catalog to learn that one comic moved.
+- Conflict-safe progress writes: keep the existing split where `PUT` and
+  `/batch` are deliberate server-stamped writes and `/merge` is reconciliation,
+  and document it, because a user action sent through `/merge` can be discarded
+  with a 200.
+- Stable comic and reading-order identifiers across safe rescans and moves.
+- Explicit unavailable-source and offline-cache states for clients.
+- API documentation and a small conformance suite.
+
+### Non-goals
+
+- No Komga API emulation, no third-party client impersonation.
+- No write-back into CBZ or CBR archives.
+
+### Release gates
+
+- Progress written by one authorized client appears consistently in the other.
+- A stale client write cannot silently replace newer progress.
+- Revoked credentials lose access immediately.
+- A rescan does not break client bookmarks for unchanged comics.
+
+## 7. 0.4.14 — Storylines and advanced library editing — server and web
+
+### Scope
+
+- Storyline builder from folders, metadata, or manual selection.
+- Custom covers and banners in PanelShelf's private data directory.
+- Bulk metadata editing and bulk storyline assignment.
+- Duplicate detection with reviewable merge suggestions.
+- A match review queue for low-confidence or ambiguous online results.
+- Reading-order import and export in a documented PanelShelf JSON format.
+- Manual order repair for missing, duplicate, or moved entries.
+- Metadata provenance display: filename, ComicInfo, provider, manual.
+
+### Release gates
+
+- Manual edits always override inferred and provider metadata.
+- Full rebuild does not erase manual edits, custom artwork, progress, or
+  reading orders.
+- Duplicate suggestions never delete or merge source files automatically.
+
+## 8. 0.5 — Accounts and secure client access — server and iPad
+
+### Scope
+
+- First-launch administrator setup.
+- Multiple users with separate progress, statuses, lists, and preferences.
+- Secure sessions, password reset, rate limiting, and device management.
+- Authentication for OPDS and every non-public endpoint.
+- Migration of existing guest state into a chosen account.
+- Responsive tablet and phone improvements on the web.
+- Trusted reverse-proxy and HTTPS documentation.
+- An exportable support bundle with sanitized configuration, versions, and logs
+  — never credentials or comic contents.
+
+### Release gates
+
+- With accounts enabled, no library, page, acquisition, or progress endpoint is
+  anonymously accessible.
+- Separate users never receive each other's reading state.
+- Backup and restore preserve accounts without exporting reusable secrets.
+
+## 9. iPad release readiness
+
+The iPad client is developed and released separately from the server.
+
+dependency.
+
+### Scope
+
+- iPhone layouts, if the shared components survive the width.
+- Secure pairing on top of 0.4.13 device tokens.
+- Background refresh and graceful handling of an unreachable NAS.
+- Accessibility pass: Dynamic Type, VoiceOver on the grid and reader, contrast.
+- App Store metadata, privacy nutrition labels, TestFlight cycle.
+
+### Later
+
+- Custom collections and storylines.
+- Annotations and bookmarks.
+- Remote-access onboarding.
+- Purchase, entitlement, and family-sharing model.
+
+## 10. 0.7 — Reliability, performance, and administration — server
+
+### Scope
+
+- Thumbnail generation queue limits and storage quotas.
+- Large-library profiling at 5,000, 25,000, and 100,000 comics.
+- Index migrations with automatic rollback checkpoints.
+- A source health dashboard for disconnected, slow, permission-denied, and
+  corrupted archives.
+- Scheduled scanning, metadata matching, and cache maintenance.
+- Log rotation and one-click sanitized diagnostics.
+- Dependency and package vulnerability review.
+- Upgrade, downgrade, restart, and unexpected-power-loss testing.
+
+## 11. 0.9 — Synology marketplace candidate
+
+### Scope
+
+- Validate DSM 7.2 and 7.3 install, upgrade, stop/start, reboot, and uninstall.
+- Validate x86-64 on the DS1825+ and representative Intel/AMD models.
+- Build and physically test ARMv8 before advertising support for those models.
 - Keep ARMv7 experimental unless a maintainable runtime passes hardware tests.
-- Package signing, upgrade migrations, backup/restore compatibility, and
-  rollback testing.
-- In-app version information, documentation, privacy policy, EULA, and support
-  contact.
-- Replace the current open-source license before any private commercial beta if
-  PanelShelf will remain proprietary.
-- Decide paid model: one-time NAS license, paid major upgrades, or subscription.
-- Add license activation with a reasonable offline grace period.
-- Publish a precise supported-model matrix rather than claiming all DSM models.
+- Package signing, migration, backup/restore, rollback, and recovery testing.
+- Supported-model matrix, documentation, privacy policy, EULA, support contact,
+  and a security-reporting process.
+- Decide between the Synology marketplace, direct signed SPK distribution, or
+  both.
+- Finalize the server's license before public
+  distribution.
 
-**Release gate**
+### Release gates
 
-- Fresh install and upgrade tests pass from the last public beta.
 - No package process runs as root.
-- No critical or high-severity production dependency vulnerability remains.
-- Recovery instructions exist for a failed upgrade.
-- A nontechnical tester can install, authorize a USB share, add a source, scan,
-  resolve an issue, and begin reading without developer help.
+- Fresh-install and upgrade tests pass from the previous public beta.
+- No unresolved critical or high-severity production dependency vulnerability.
+- A nontechnical tester can install PanelShelf, authorize a USB share, add a
+  source, scan, resolve an issue, and begin reading without developer help.
 
-### 1.0 — Commercial Release
+## 12. 1.0 — Public release
 
-- Marketplace-approved package where available
-- Direct signed SPK distribution as a supported fallback
-- Stable documentation and support process
-- License purchase, activation, transfer, and refund flow
-- Public changelog and security-reporting channel
-- At least one full release cycle tested through the updater
+- Stable signed SPK distribution and a supported upgrade path.
+- Marketplace listing where practical, direct distribution as a fallback.
+- Public documentation, changelog, privacy policy, and security channel.
+- Tested backup, restore, recovery, and uninstall behaviour.
+- Published compatibility matrix and clear support boundaries.
+- At least one full beta-to-release upgrade cycle tested on real hardware.
+- The iPad app shipping against a released server, not a development build.
+
+---
 
 ## Scanning test matrix
 
-Every 0.2 build must test at least these layouts:
+Any build that touches scanning, structure, or ordering must test at least these
+layouts:
 
 1. One loose CBZ at the source root
 2. Multiple loose CBZ/CBR files with natural numeric filenames
@@ -898,57 +924,61 @@ Every 0.2 build must test at least these layouts:
 Tests must verify discovery, grouping, ordering, issue reporting, data
 preservation, and read-only behavior—not only the number of files found.
 
-## Priorities
+## Completed release history
 
-### Must have before a paid beta
+| Version / build | Delivered outcome |
+| --- | --- |
+| 0.1 preview | Native DSM package, USB and internal sources, scanning, covers, search, browser reader |
+| 0.2 / 1007 | Versioned source records, organization profiles, hierarchy detection, validation, disconnected-source retention |
+| 0.3 / 1008 | Reading progress, reader modes, contextual Next Comic, manual reading orders |
+| 0.3.1 / 1009 | All Comics, Publisher, and Chronological library views |
+| 0.3.2 / 1010 | Chronology position chips, skipped branches, skipped filter |
+| 0.3.3 / 1011 | Cover-first collection cards and desktop hover previews |
+| 0.3.4 / 1012 | Unfiled shelf and per-comic status controls |
+| 0.3.5 / 1013 | Embedded `ComicInfo.xml` extraction and display |
+| 0.3.6 / 1014 | Quick, per-source, issue-retry, and full-rebuild scan actions |
+| 0.3.7 / 1016 | Optional Metron matching with explicit review and provider caching |
+| 0.3.8 / 1017 | Smart matching using GCD, optional Metron, and Open Library |
+| 0.3.9 / 1018 | Read-only OPDS 1.2 catalogs, range requests, and acquisition |
+| 0.4.0 / 1019 | Portable backup and restore; human sequence numbers in chronology chips |
+| 0.4.1 / 1021 | Durable metadata editor and mislabeled-archive signature detection |
+| 0.4.2 / 1022 | Timeline visualization and filename-year inference |
+| 0.4.3 / 1023 | Stable shelf rendering, branch actions, bulk metadata matching |
+| 0.4.3 / 1024 | Stable bulk-progress dialog hotfix |
+| 0.4.4 / 1025 | Server-side reading progress and mDNS service discovery |
+| 0.4.5 / 1026 | Discovery status endpoint |
+| 0.4.6 / 1027 | Unsolicited discovery announcements |
+| 0.4.7 / 1028 | Removing a source clears its comics from the index |
+| 0.4.8 / 1029 | The same fix applied to already-indexed comics |
+| 0.4.9 / 1030 | Compact library listing and per-comic detail route |
+| 0.4.10 / 1031 | Grid-sized cover thumbnails |
+| 0.4.11 / 1032 | Windowed shelf rendering and stable collection previews |
 
-- 0.2 Library Structures complete
-- reliable USB reconnect behavior
-- consistent Scan Issues and recovery actions
-- reading progress and manual chronologies
-- backup/export of PanelShelf configuration
-- no root execution and no source-folder writes
+## Cross-cutting quality rules
 
-### Must have before marketplace submission
+Every release must preserve these invariants:
 
-- accounts or an explicit safe first-run access model
-- signed, upgrade-safe packages
-- x86-64 hardware compatibility matrix
-- ARMv8 only if physically validated
-- documentation, privacy policy, EULA, licensing, and support bundle
-- installation testing by users who did not build the app
+- Source directories and archives are opened read-only.
+- A temporarily disconnected source does not disappear from configuration.
+- Scanner and metadata failures do not remove an otherwise readable comic.
+- Manual metadata and reading-order decisions survive rebuilds and upgrades.
+- Provider credentials are masked, permission-restricted, and excluded from
+  portable backups.
+- Online-provider outages never prevent local scanning or reading.
+- The same persisted scan record drives the toast, the Issues badge, and the
+  issue panel.
+- A client must never present a partial library as a complete one. Lenient
+  decoding needs a visible count of what it dropped.
+- Release artifacts stay reproducible and never include source archives, build
+  caches, or developer files.
 
-### Later differentiators
+## Deferred and explicit non-goals
 
-- additional metadata providers and assisted cover matching
-- recommendations and smart collections
-- alternate editions and language grouping
-- annotations and bookmarks
-- family/child profiles
-- native mobile clients
-- optional remote relay service
-
-## Immediate implementation order
-
-1. **Done:** Freeze and archive the latest working 0.1 SPK/source snapshot.
-2. **Done:** Add configuration schema v2 and migration tests.
-3. **Done:** Implement deterministic path tokenization, integer/dotted-rank parsing,
-   folder-role classification, and structure validation.
-4. **Done:** Add publisher/imprint aliases, confidence scoring, and hierarchy
-   classification.
-5. **Done:** Add minimal `ComicInfo.xml` parsing for structure inference.
-6. **Done:** Implement source records, supported-layout detection, the four organization
-   profiles, and the unordered fallback.
-7. **In progress:** Add more large-library fixtures and the full hardware
-   scanning test matrix.
-8. **Done:** Preserve last-known items when a source is unavailable.
-9. **Done:** Split Quick Scan from Full Rebuild and add per-source/retry actions.
-10. **Done:** Update source settings UI and Scan Issues to use the new source model.
-11. **In progress:** Continue upgrade, reboot, USB reconnect, and large-library
-    validation on the DS1825+.
-12. **Done:** Add portable configuration, reading-order, metadata-match, and
-    browser-state backup/restore with a preflight preview.
-
-Finish the remaining large-library fixtures and DS1825+ regression passes
-before a paid beta. Metadata editing, storylines, custom covers, bulk tools,
-and reading-order import/export remain in 0.4.
+- Modifying, renaming, or reorganizing source comics automatically
+- Inventing a global chronology from arbitrary unnumbered folders
+- Treating an online metadata provider as a reading-order authority
+- Permanent dependence on a single metadata provider
+- Komga API compatibility or third-party-client impersonation
+- Advertising untested Synology architectures as supported
+- Internet exposure before authentication and secure deployment guidance exist
+- An Android or macOS client before the iPad app has shipped once
