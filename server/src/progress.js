@@ -83,6 +83,29 @@ function mergeRecords(existingInput, incomingInput) {
   return merged;
 }
 
+// Deletions reconcile the same way records do, and for the same reason: a
+// client that marked a comic unread while offline is describing something that
+// happened at a particular moment, and a position read on another device since
+// then is newer than it. Applying the deletion unconditionally would throw that
+// position away with a 200, which is exactly what /merge exists to avoid.
+//
+// `deleted` is a map of comic id to the moment the user marked it unread, so it
+// carries the same information a record's `lastReadAt` does. /batch takes a
+// plain array instead, because a deliberate write consults nobody's clock.
+function applyDeletions(existing, deletedInput) {
+  const records = { ...existing };
+  if (!plainObject(deletedInput)) return records;
+  for (const [comicId, deletedAt] of Object.entries(deletedInput)) {
+    if (!COMIC_ID.test(comicId)) continue;
+    const current = records[comicId];
+    if (!current) continue;
+    if (incomingWins(current, { lastReadAt: text(deletedAt, MAX_TIMESTAMP) })) {
+      delete records[comicId];
+    }
+  }
+  return records;
+}
+
 async function atomicWriteJson(filePath, value) {
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
   const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
@@ -213,8 +236,18 @@ class ProgressStore {
     return this.exportData();
   }
 
+  // Reconciliation. Accepts either a bare map of records — what the web viewer
+  // and every client before deletions existed sends — or `{records, deleted}`.
+  // Records are merged first and deletions reconciled against the result, so a
+  // client that somehow sent both for one comic gets a defined outcome rather
+  // than one that depends on key order.
   async merge(input) {
-    this.records = mergeRecords(this.records, input);
+    const bare = plainObject(input) && !("records" in input) && !("deleted" in input);
+    const records = bare ? input : input?.records;
+    this.records = applyDeletions(
+      mergeRecords(this.records, records),
+      bare ? null : input?.deleted
+    );
     await this.persist();
     return this.exportData();
   }
@@ -231,6 +264,7 @@ class ProgressStore {
 
 module.exports = {
   ProgressStore,
+  applyDeletions,
   mergeRecords,
   normalizeRecord,
   normalizeRecords

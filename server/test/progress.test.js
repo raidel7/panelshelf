@@ -2,7 +2,11 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { normalizeRecord, normalizeRecords } = require("../src/progress");
+const {
+  applyDeletions,
+  normalizeRecord,
+  normalizeRecords
+} = require("../src/progress");
 
 const COMIC_A = "a".repeat(24);
 const COMIC_B = "b".repeat(24);
@@ -386,4 +390,117 @@ test("applyBatch stages the whole batch before applying any of it", async () => 
   const reopened = new ProgressStore(directory);
   await reopened.initialize();
   assert.equal(reopened.get(COMIC_A).pageIndex, 3, "and nothing reached disk");
+});
+
+test("a queued deletion loses to a position read after it", async () => {
+  // The iPad marked it unread offline at noon; a browser read to page 40 at
+  // one. Applying the deletion when the iPad reconnects would throw away the
+  // newer position and answer 200, which is the failure /merge exists to avoid.
+  const records = {
+    [COMIC_A]: {
+      pageIndex: 40,
+      pageCount: 100,
+      completed: false,
+      skipped: false,
+      lastReadAt: "2026-08-13T13:00:00.000Z",
+      orderId: null
+    }
+  };
+
+  assert.deepEqual(
+    applyDeletions(records, { [COMIC_A]: "2026-08-13T12:00:00.000Z" }),
+    records,
+    "the older deletion is discarded"
+  );
+
+  assert.deepEqual(
+    applyDeletions(records, { [COMIC_A]: "2026-08-13T14:00:00.000Z" }),
+    {},
+    "a deletion newer than the record applies"
+  );
+});
+
+test("a deletion with no usable timestamp cannot remove a dated record", () => {
+  const records = {
+    [COMIC_A]: {
+      pageIndex: 3,
+      pageCount: 10,
+      completed: false,
+      skipped: false,
+      lastReadAt: "2026-08-13T13:00:00.000Z",
+      orderId: null
+    }
+  };
+  for (const bad of [null, "", "not a date", 17, undefined]) {
+    assert.deepEqual(
+      applyDeletions(records, { [COMIC_A]: bad }),
+      records,
+      `a ${JSON.stringify(bad)} deletion must not delete anything`
+    );
+  }
+
+  // A record the server never dated is the other way round: there is nothing
+  // to weigh the deletion against, so the user's action stands.
+  const undated = { [COMIC_A]: { ...records[COMIC_A], lastReadAt: null } };
+  assert.deepEqual(applyDeletions(undated, { [COMIC_A]: "2026-08-13T12:00:00.000Z" }), {});
+});
+
+test("deletions ignore unknown comics and malformed ids", () => {
+  const records = {
+    [COMIC_A]: {
+      pageIndex: 1,
+      pageCount: 10,
+      completed: false,
+      skipped: false,
+      lastReadAt: "2026-08-13T13:00:00.000Z",
+      orderId: null
+    }
+  };
+  assert.deepEqual(
+    applyDeletions(records, {
+      [COMIC_B]: "2026-08-13T14:00:00.000Z",
+      "not-a-comic-id": "2026-08-13T14:00:00.000Z"
+    }),
+    records
+  );
+  // A merge that carries no deletions at all is unchanged.
+  for (const empty of [null, undefined, [], "nope"]) {
+    assert.deepEqual(applyDeletions(records, empty), records);
+  }
+});
+
+test("merge accepts a bare record map, records with deletions, or either alone", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-merge-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const store = new ProgressStore(directory);
+  await store.initialize();
+
+  const dated = (lastReadAt, pageIndex = 5) => ({
+    pageIndex,
+    pageCount: 100,
+    completed: false,
+    skipped: false,
+    lastReadAt,
+    orderId: null
+  });
+
+  // The web viewer's shape: a bare map, no envelope. It must keep working.
+  await store.merge({ [COMIC_A]: dated("2026-08-13T10:00:00.000Z") });
+  assert.equal(store.get(COMIC_A).pageIndex, 5);
+
+  // The app's shape, carrying both at once.
+  await store.merge({
+    records: { [COMIC_B]: dated("2026-08-13T11:00:00.000Z", 9) },
+    deleted: { [COMIC_A]: "2026-08-13T11:00:00.000Z" }
+  });
+  assert.equal(store.get(COMIC_A), null, "the deletion applied");
+  assert.equal(store.get(COMIC_B).pageIndex, 9, "the record applied");
+
+  // Deletions alone, with no records key at all.
+  await store.merge({ deleted: { [COMIC_B]: "2026-08-13T12:00:00.000Z" } });
+  assert.equal(store.get(COMIC_B), null);
+
+  // And an envelope that deletes something already gone is not an error.
+  await store.merge({ records: {}, deleted: { [COMIC_B]: "2026-08-13T13:00:00.000Z" } });
+  assert.equal(store.get(COMIC_B), null);
 });

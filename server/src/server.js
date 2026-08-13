@@ -410,7 +410,10 @@ async function startServer() {
 
       if (request.method === "POST" && pathname === "/api/progress/merge") {
         const body = await readJsonBody(request, MAX_BACKUP_BODY);
-        await library.mergeProgress(body.records || body);
+        // The whole body, so `deleted` reaches the store. A body that is just a
+        // map of records — what the web viewer sends — still works: the store
+        // recognises the bare form.
+        await library.mergeProgress(body);
         return sendJson(response, 200, library.listProgress());
       }
 
