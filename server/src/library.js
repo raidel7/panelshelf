@@ -138,6 +138,29 @@ function normalizeLibraryPath(candidate) {
   return normalized;
 }
 
+/// When a comic arrived, for the shelf's "Recently added" row.
+///
+/// `addedAt` is stamped the first time a comic enters the index and carried
+/// forward by every rescan. A library indexed before that field existed has
+/// none, and falls back to the archive's own modification time — otherwise the
+/// row would stay empty until the user scanned 26,000 comics, and would then
+/// show all of them as having arrived at the same instant.
+function addedTime(comic) {
+  const stamp = Date.parse(comic?.addedAt || comic?.modifiedAt || "");
+  return Number.isFinite(stamp) ? stamp : 0;
+}
+
+function recentlyAdded(comics, limit) {
+  const ordered = [...comics].sort((left, right) => {
+    const difference = addedTime(right) - addedTime(left);
+    if (difference !== 0) return difference;
+    // A library copied in one operation shares a timestamp to the second, and
+    // an unstable sort would reshuffle the row on every request.
+    return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+  });
+  return Number.isFinite(limit) && limit > 0 ? ordered.slice(0, limit) : ordered;
+}
+
 function sourceIdentifier(sourcePath) {
   return `src_${comicId(`source:${sourcePath}`)}`;
 }
@@ -1027,6 +1050,14 @@ class ComicLibrary {
       warnings: []
     };
     const previous = new Map(this.comics.map((comic) => [comic.path, comic]));
+    // Which sources this scan has seen before. A comic appearing in a source
+    // that already had comics genuinely arrived now; a comic found by a
+    // source's first scan is only as new as its file, and stamping the whole
+    // library with the moment it was first indexed would make Recently added
+    // an arbitrary slice of it on the launch where it matters most.
+    const indexedSources = new Set(
+      this.comics.map((comic) => comic.sourceId).filter(Boolean)
+    );
     const previousByFingerprint = new Map();
     for (const comic of this.comics) {
       if (!comic.fingerprint) continue;
@@ -1214,6 +1245,18 @@ class ComicLibrary {
           size: stat.size,
           mtimeMs: stat.mtimeMs,
           modifiedAt: stat.mtime.toISOString(),
+          // Stamped once, then carried by every later scan — including across a
+          // move, since `identity` is the same comic under a new path. A record
+          // from before this field existed inherits its own modification time
+          // rather than today's date, which would drop the whole library onto
+          // the Recently added row at once; so does a comic found by the first
+          // scan of its source, for the same reason.
+          addedAt:
+            identity?.addedAt ||
+            identity?.modifiedAt ||
+            (indexedSources.has(source.id)
+              ? new Date().toISOString()
+              : stat.mtime.toISOString()),
           pageCount: Number.isFinite(pageCount) ? pageCount : 0
         });
         this.scanState.foundComics = discovered.size;
@@ -1512,5 +1555,6 @@ module.exports = {
   inspectLibraryPath,
   inferFilenameMetadata,
   migrateConfig,
-  normalizeLibraryPath
+  normalizeLibraryPath,
+  recentlyAdded
 };

@@ -5,7 +5,11 @@ const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { ComicLibrary, inferFilenameMetadata } = require("../src/library");
+const {
+  ComicLibrary,
+  inferFilenameMetadata,
+  recentlyAdded
+} = require("../src/library");
 const { ONE_PIXEL_PNG, zipBuffer } = require("./helpers");
 
 test("filename metadata infers a parenthetical publication year", () => {
@@ -1157,4 +1161,156 @@ test("startup with nothing to drop leaves the index file untouched", async (t) =
   );
   assert.equal(await fsp.readFile(indexPath, "utf8"), contents);
   assert.equal(restarted.listComics().length, 1);
+});
+
+test("recently added orders by when a comic entered the index, not by filename", () => {
+  const comics = [
+    { id: "b", addedAt: "2026-01-02T00:00:00.000Z" },
+    { id: "a", addedAt: "2026-03-01T00:00:00.000Z" },
+    { id: "c", addedAt: "2026-02-01T00:00:00.000Z" }
+  ];
+  assert.deepEqual(recentlyAdded(comics).map((comic) => comic.id), ["a", "c", "b"]);
+  assert.deepEqual(recentlyAdded(comics, 2).map((comic) => comic.id), ["a", "c"]);
+  // A limit of zero or nonsense returns the whole ordered list rather than
+  // nothing: a client that forgets the parameter should see a shelf, not a gap.
+  assert.equal(recentlyAdded(comics, 0).length, 3);
+  assert.equal(recentlyAdded(comics, Number.NaN).length, 3);
+});
+
+test("recently added falls back to the archive's own timestamp before a rescan", () => {
+  // A library indexed before `addedAt` existed has none of them. The shelf has
+  // to work on upgrade, without making the user scan 26,000 comics first, so
+  // the file's modification time stands in.
+  const comics = [
+    { id: "old", modifiedAt: "2020-01-01T00:00:00.000Z" },
+    { id: "new", modifiedAt: "2026-01-01T00:00:00.000Z" },
+    { id: "stamped", addedAt: "2026-06-01T00:00:00.000Z", modifiedAt: "1999-01-01T00:00:00.000Z" }
+  ];
+  assert.deepEqual(
+    recentlyAdded(comics).map((comic) => comic.id),
+    ["stamped", "new", "old"],
+    "an explicit addedAt outranks the file's own mtime"
+  );
+});
+
+test("recently added is stable when timestamps tie", () => {
+  // A library copied in one operation shares a timestamp to the second. Without
+  // a tie-break the shelf reshuffles on every reload.
+  const sameInstant = "2026-01-01T00:00:00.000Z";
+  const comics = [
+    { id: "ccc", addedAt: sameInstant },
+    { id: "aaa", addedAt: sameInstant },
+    { id: "bbb", addedAt: sameInstant }
+  ];
+  const once = recentlyAdded(comics).map((comic) => comic.id);
+  const twice = recentlyAdded([...comics].reverse()).map((comic) => comic.id);
+  assert.deepEqual(once, ["aaa", "bbb", "ccc"]);
+  assert.deepEqual(once, twice);
+});
+
+test("recently added leaves the caller's array alone", () => {
+  const comics = [
+    { id: "b", addedAt: "2026-01-01T00:00:00.000Z" },
+    { id: "a", addedAt: "2026-02-01T00:00:00.000Z" }
+  ];
+  recentlyAdded(comics);
+  assert.deepEqual(comics.map((comic) => comic.id), ["b", "a"]);
+});
+
+test("a source's first scan dates comics by their files, not by the scan", async (t) => {
+  // Every comic in a first scan is discovered at the same moment. Stamping all
+  // of them with that moment would make Recently added an arbitrary slice of
+  // the library on the one launch where the shelf matters most, so a comic
+  // found by a source's first scan is only as new as its own file.
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-first-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const comicsDirectory = path.join(directory, "comics");
+  await fsp.mkdir(comicsDirectory, { recursive: true });
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const ages = { "Old.cbz": new Date("2019-03-04T05:06:07Z"), "Newer.cbz": new Date("2024-08-09T10:11:12Z") };
+  for (const [name, when] of Object.entries(ages)) {
+    const file = path.join(comicsDirectory, name);
+    await fsp.writeFile(file, zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }]));
+    await fsp.utimes(file, when, when);
+  }
+
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+  await library.saveConfig([comicsDirectory]);
+  await library.scan();
+
+  for (const comic of library.listComics()) {
+    assert.equal(
+      comic.addedAt,
+      comic.modifiedAt,
+      "a first scan dates a comic by its file"
+    );
+  }
+  assert.deepEqual(
+    recentlyAdded(library.listComics()).map((comic) => comic.title),
+    ["Newer", "Old"]
+  );
+
+  // A comic arriving into a source that has already been scanned is different:
+  // it really did turn up now, whatever its file claims.
+  const arrival = path.join(comicsDirectory, "Arrived.cbz");
+  await fsp.writeFile(arrival, zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }]));
+  const ancient = new Date("2001-01-01T00:00:00Z");
+  await fsp.utimes(arrival, ancient, ancient);
+  await library.scan();
+
+  const arrived = library.listComics().find((comic) => comic.title === "Arrived");
+  assert.ok(
+    Date.parse(arrived.addedAt) > Date.parse(arrived.modifiedAt),
+    "a comic that appears later is dated by its arrival, not by its file"
+  );
+  assert.equal(recentlyAdded(library.listComics(), 1)[0].title, "Arrived");
+});
+
+test("a scan stamps addedAt once and keeps it across rescans", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-added-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const comicsDirectory = path.join(directory, "comics");
+  await fsp.mkdir(comicsDirectory, { recursive: true });
+  await fsp.writeFile(
+    path.join(comicsDirectory, "First.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+  await library.saveConfig([comicsDirectory]);
+  await library.scan();
+
+  const [first] = library.listComics();
+  assert.ok(first.addedAt, "a newly indexed comic records when it arrived");
+  const stamped = first.addedAt;
+
+  // The archive is untouched, so a rescan reuses the record — and must not
+  // restamp it, or every scan would move the whole library to the top of the
+  // Recently added shelf.
+  await library.scan();
+  assert.equal(library.listComics()[0].addedAt, stamped);
+
+  // A second comic arriving later sorts above the first.
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Second.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+  await library.scan();
+  const recent = recentlyAdded(library.listComics(), 1);
+  assert.equal(recent.length, 1);
+  assert.equal(recent[0].title, "Second");
 });

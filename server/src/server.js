@@ -5,7 +5,7 @@ const fsp = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { URL } = require("node:url");
-const { ComicLibrary, browseFolders } = require("./library");
+const { ComicLibrary, browseFolders, recentlyAdded } = require("./library");
 const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
@@ -455,11 +455,19 @@ async function startServer() {
         const project = compact
           ? (comic) => library.compactComic(comic)
           : (comic) => library.publicComic(comic);
-        return sendJson(
-          response,
-          200,
-          library.listComics(requestUrl.searchParams.get("q") || "").map(project)
-        );
+        // `sort=added` and `limit` exist for the app's Home screen, which wants
+        // a dozen comics rather than a library. Both are ignored when absent or
+        // unusable: a client that fumbles a parameter should get the whole
+        // shelf, never an empty one.
+        const limit = Number.parseInt(requestUrl.searchParams.get("limit"), 10);
+        const bounded = Number.isFinite(limit) && limit > 0;
+        let comics = library.listComics(requestUrl.searchParams.get("q") || "");
+        if (requestUrl.searchParams.get("sort") === "added") {
+          comics = recentlyAdded(comics, limit);
+        } else if (bounded) {
+          comics = comics.slice(0, limit);
+        }
+        return sendJson(response, 200, comics.map(project));
       }
 
       // The full record for one comic, without opening its archive — which is

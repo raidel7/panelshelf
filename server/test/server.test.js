@@ -36,6 +36,100 @@ async function waitFor(url, predicate, timeout = 10_000) {
   throw lastError || new Error(`Timed out waiting for ${url}`);
 }
 
+/// Spawns a real server over a temporary data directory and tears it down with
+/// the test. Returns its base URL plus a live view of its logs, which every
+/// assertion below passes to `assert` so a failure prints what the server said.
+async function startServer(t, options = {}) {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-http-"));
+  const comicsDirectory = path.join(directory, "Comics");
+  const dataDirectory = path.join(directory, "Data");
+  await fsp.mkdir(comicsDirectory, { recursive: true });
+
+  const port = await freePort();
+  const child = spawn(process.execPath, [path.resolve(__dirname, "../src/server.js")], {
+    env: {
+      ...process.env,
+      PANELSHELF_ALLOW_ANY_PATH: "1",
+      PANELSHELF_DATA: dataDirectory,
+      PANELSHELF_HOST: "127.0.0.1",
+      PANELSHELF_PORT: String(port),
+      ...(options.env || {})
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const state = { logs: "" };
+  child.stdout.on("data", (chunk) => {
+    state.logs += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    state.logs += chunk;
+  });
+  t.after(async () => {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+    await fsp.rm(directory, { recursive: true, force: true });
+  });
+
+  const base = `http://127.0.0.1:${port}`;
+  await waitFor(`${base}/api/health`, (body) => body.status === "ok");
+  return { base, comicsDirectory, dataDirectory, directory, port, state };
+}
+
+test("the comics list sorts by arrival and honours a limit", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+
+  // The source is configured first, then scanned once per comic, because
+  // arrival is recorded when a scan finds a comic — everything discovered by
+  // one scan arrived at the same moment. Written in alphabetical order so that
+  // newest-first is the reverse of the default order: a route that ignored
+  // `sort` would return them the wrong way round rather than accidentally the
+  // right one.
+  let response = await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  assert.equal(response.status, 200, state.logs);
+
+  for (const [index, name] of ["Alpha", "Bravo", "Charlie"].entries()) {
+    await fsp.writeFile(
+      path.join(comicsDirectory, `${name}.cbz`),
+      zipBuffer([{ name: "page.png", data: ONE_PIXEL_PNG }])
+    );
+    await fetch(`${base}/api/scan`, { method: "POST" });
+    await waitFor(`${base}/api/comics`, (body) => body.length === index + 1);
+  }
+
+  response = await fetch(`${base}/api/comics?view=compact&sort=added&limit=2`);
+  assert.equal(response.status, 200, state.logs);
+  const recent = await response.json();
+  assert.deepEqual(
+    recent.map((comic) => comic.title),
+    ["Charlie", "Bravo"],
+    "newest first, and only as many as were asked for"
+  );
+  assert.deepEqual(
+    Object.keys(recent[0]).sort(),
+    ["available", "format", "id", "pageCount", "publisher", "series", "title"],
+    "the row is projected like any other compact list"
+  );
+
+  // A limit with no sort truncates the default order; an unusable one is
+  // ignored rather than emptying the shelf.
+  assert.equal((await (await fetch(`${base}/api/comics?limit=2`)).json()).length, 2);
+  assert.equal((await (await fetch(`${base}/api/comics?limit=0`)).json()).length, 3);
+  assert.equal(
+    (await (await fetch(`${base}/api/comics?limit=notanumber`)).json()).length,
+    3
+  );
+
+  // An unknown sort is the full list in its usual order — not an error, and not
+  // an empty shelf.
+  response = await fetch(`${base}/api/comics?sort=nonsense`);
+  assert.equal(response.status, 200, state.logs);
+  assert.equal((await response.json()).length, 3);
+});
+
 test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-http-"));
   const comicsDirectory = path.join(directory, "Comics");
