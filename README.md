@@ -94,7 +94,7 @@ allow packages from any publisher.
 ## Install on the DS1825+
 
 1. Open **DSM → Package Center → Manual Install**.
-2. Select `PanelShelf-x86_64-0.4.8-1029.spk`.
+2. Select `PanelShelf-x86_64-0.4.9-1030.spk`.
 3. Accept the warning for a third-party package.
 4. Start PanelShelf and click **Open**, or visit:
    `http://YOUR-NAS-IP:8251/`
@@ -189,6 +189,55 @@ OPDS access is read-only. Reader-app progress is not synchronized back to
 PanelShelf, because generic OPDS 1.2 does not define a universal progress
 protocol. This preview is intended for a trusted LAN and does not yet protect
 the OPDS catalog with user authentication.
+
+## Library API
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/comics` | Every comic in full, newest merged metadata included |
+| GET | `/api/comics?q=…` | The same records, filtered by a free-text search |
+| GET | `/api/comics?view=compact` | The same comics, reduced to what a browsing list draws |
+| GET | `/api/comics/:comicId` | One comic in full, without opening its archive |
+| GET | `/api/comics/:comicId/pages` | The comic in full plus its page list; opens the archive |
+
+`:comicId` is a 24-character lowercase hex id; any other shape falls through to
+the generic `404`. An id that is well formed but not in the library answers
+`404 NOT_FOUND`.
+
+### `?view=compact`
+
+The full record is about 2.8 KB per comic — 71 MB across a 26,625-comic
+library, most of it three metadata blocks that largely duplicate each other.
+A client that only needs to draw a shelf can ask for the compact form instead,
+which is roughly 5 MB across the same library:
+
+```json
+{
+  "id": "2fbd2c1f2a4f0a6c9d4e5b71",
+  "title": "Saga 01",
+  "series": "Saga",
+  "pageCount": 44,
+  "available": true,
+  "format": "cbz",
+  "publisher": { "name": "Image Comics" }
+}
+```
+
+Those seven fields are the whole record — there are no others. `title` and
+`series` are the same display values the full record computes, so a comic with
+a manual override or a confirmed online match reads the same on a shelf as on a
+detail screen, and `publisher` keeps only its `name`.
+
+**What compact omits:** `metadata`, `embeddedMetadata`, `sourceMetadata`,
+`inferredMetadata`, `metadataEntry`, `metadataSources`, `manualOverride`,
+`onlineMatch`, `hierarchy`, `orderPath`, `localTitle`, `localSeries`,
+`relativePath`, `libraryRoot`, `sourceId`, `sourceName`, `sourceProfile`,
+`size`, and `modifiedAt`. Fetch `GET /api/comics/:comicId` for any of them.
+
+`q` still filters, and it filters against the full record — the file path,
+summary, creators, genres and characters a compact response does not carry.
+Only the exact value `compact` opts in; `?view=full` and any other value return
+the full records, so an existing client cannot be shortened by accident.
 
 ## Reading progress API
 

@@ -328,6 +328,29 @@ test("embedded metadata and all four scan actions preserve unrelated sources", a
   assert.deepEqual(embedded.metadata.creators.writers, ["Writer One"]);
   assert.equal(library.publicComic(embedded).publisher.name, "Dargaud");
 
+  // The compact projection, checked on the one comic here that has an embedded
+  // ComicInfo — the case where the difference matters. Asserted as an exact key
+  // set: this comic's full record carries metadata, sourceMetadata,
+  // inferredMetadata, hierarchy and orderPath, and every one of them must be
+  // gone. A projection that forwarded them would still satisfy any assertion
+  // written only about the fields it keeps.
+  const compact = library.compactComic(embedded);
+  assert.deepEqual(
+    Object.keys(compact).sort(),
+    ["available", "format", "id", "pageCount", "publisher", "series", "title"]
+  );
+  assert.equal(compact.title, "Embedded title");
+  assert.equal(compact.series, "Metadata Series");
+  // The publisher survives as a bare name, because search filters on it.
+  assert.deepEqual(compact.publisher, { name: "Dargaud" });
+  const full = library.publicComic(embedded);
+  assert.ok(full.metadata && full.sourceMetadata, "the full record still has both");
+  assert.equal(
+    JSON.stringify(compact).length * 4 < JSON.stringify(full).length,
+    true,
+    "the compact record should be a small fraction of the full one"
+  );
+
   scan = await library.scan({ action: "quick" });
   assert.equal(scan.reusedFiles, 2);
   assert.equal(scan.openedArchives, 0);

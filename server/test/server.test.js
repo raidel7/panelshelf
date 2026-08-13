@@ -221,6 +221,55 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   assert.equal(correctedComic.metadata.year, 2026);
   assert.equal(correctedComic.manualOverride.metadata.source, "manual");
 
+  // The compact list is the iPad's shelf: exactly the fields a grid draws, and
+  // an exact key check rather than a spot check, because a projection that
+  // quietly forwarded the whole record would satisfy any assertion about the
+  // fields it does contain.
+  response = await fetch(`${base}/api/comics?view=compact`);
+  assert.equal(response.status, 200, logs);
+  const compact = await response.json();
+  assert.equal(compact.length, 1);
+  assert.deepEqual(
+    Object.keys(compact[0]).sort(),
+    ["available", "format", "id", "pageCount", "publisher", "series", "title"]
+  );
+  // The display title comes through the same merge the full record uses, so
+  // the shelf and the detail screen never disagree about a corrected comic.
+  assert.equal(compact[0].title, "Corrected Demo");
+  assert.equal(compact[0].series, "Corrected Series");
+  assert.equal(compact[0].id, comics[0].id);
+  assert.equal(compact[0].pageCount, 1);
+  assert.equal(compact[0].available, true);
+  assert.equal(compact[0].format, "cbz");
+  if (compact[0].publisher !== null) {
+    assert.deepEqual(Object.keys(compact[0].publisher), ["name"]);
+  }
+
+  // `q` still filters, and still filters on the full record's searchable text
+  // rather than on the seven fields that survive the projection.
+  response = await fetch(`${base}/api/comics?view=compact&q=Corrected`);
+  assert.equal(response.status, 200, logs);
+  assert.equal((await response.json()).length, 1);
+  response = await fetch(`${base}/api/comics?view=compact&q=nothingmatchesthis`);
+  assert.equal((await response.json()).length, 0);
+
+  // Anything other than the exact opt-in keeps the full record: an old client
+  // must not be shortened by a typo.
+  response = await fetch(`${base}/api/comics?view=full`);
+  assert.ok((await response.json())[0].orderPath, logs);
+
+  // One comic, in full, without opening the archive.
+  response = await fetch(`${base}/api/comics/${comics[0].id}`);
+  assert.equal(response.status, 200, logs);
+  const oneComic = await response.json();
+  assert.equal(oneComic.id, comics[0].id);
+  assert.equal(oneComic.title, "Corrected Demo");
+  assert.deepEqual(oneComic, correctedComic);
+
+  response = await fetch(`${base}/api/comics/${"0".repeat(24)}`);
+  assert.equal(response.status, 404, logs);
+  assert.equal((await response.json()).error.code, "NOT_FOUND");
+
   response = await fetch(`${base}/opds`);
   assert.equal(response.status, 200, logs);
   assert.match(

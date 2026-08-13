@@ -10,7 +10,7 @@ const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
 
-const VERSION = "0.4.8";
+const VERSION = "0.4.9";
 const HOST = process.env.PANELSHELF_HOST || "0.0.0.0";
 const PORT = Number(process.env.PANELSHELF_PORT || 8251);
 const DATA_DIRECTORY =
@@ -447,12 +447,30 @@ async function startServer() {
       }
 
       if (request.method === "GET" && pathname === "/api/comics") {
+        // `?view=compact` trades every metadata block, ordering path and
+        // hierarchy for the seven fields a browsing list draws. The default
+        // stays the full record: the web viewer and OPDS read it, and a client
+        // that does not ask for compact must not be handed a shorter comic.
+        const compact = requestUrl.searchParams.get("view") === "compact";
+        const project = compact
+          ? (comic) => library.compactComic(comic)
+          : (comic) => library.publicComic(comic);
         return sendJson(
           response,
           200,
-          library
-            .listComics(requestUrl.searchParams.get("q") || "")
-            .map((comic) => library.publicComic(comic))
+          library.listComics(requestUrl.searchParams.get("q") || "").map(project)
+        );
+      }
+
+      // The full record for one comic, without opening its archive — which is
+      // what asking `/pages` for it costs. The detail screen needs the metadata
+      // a compact list omits and nothing more.
+      const comicMatch = pathname.match(/^\/api\/comics\/([a-f0-9]{24})$/);
+      if (request.method === "GET" && comicMatch) {
+        return sendJson(
+          response,
+          200,
+          library.publicComic(library.getComic(comicMatch[1]))
         );
       }
 

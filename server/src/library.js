@@ -692,6 +692,35 @@ class ComicLibrary {
     return comic;
   }
 
+  // The fields a browsing list actually draws, and nothing else.
+  //
+  // `publicComic` is 2.8 KB per comic — 71 MB across this library's 26,625 —
+  // and three quarters of that is metadata blocks that largely duplicate each
+  // other, plus `orderPath` and `hierarchy`, which no client list renders. A
+  // grid of covers needs the id (which addresses the cover and the progress
+  // record), the display title and series, the page count, whether the file is
+  // reachable, the format, and the publisher's name — the last only because
+  // the iPad's search filters on it.
+  //
+  // Derived from `publicComic` rather than from the raw comic, so the title,
+  // series and publisher a list shows are the same ones the detail screen
+  // shows: those three are computed from merged metadata and an override, and
+  // a second implementation of that merge would drift.
+  compactComic(comic) {
+    const full = this.publicComic(comic);
+    return {
+      id: full.id,
+      title: full.title,
+      series: full.series,
+      pageCount: full.pageCount,
+      available: full.available,
+      format: full.format,
+      // The name alone: `kind`, `parent`, `alias` and `confidence` cost 1.4 MB
+      // across the library and no list draws them.
+      publisher: full.publisher?.name ? { name: full.publisher.name } : null
+    };
+  }
+
   publicComic(comic) {
     const hierarchy = Array.isArray(comic.hierarchy) ? comic.hierarchy : [];
     const source =

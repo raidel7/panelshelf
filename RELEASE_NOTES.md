@@ -1,3 +1,31 @@
+# PanelShelf 0.4.9-1030
+
+A compact library listing, for clients that only draw a shelf.
+
+## The comic list no longer sends everything to everyone
+
+- `GET /api/comics` sends every field of every comic. On a 26,625-comic library
+  that is 71.2 MB in one unpaginated array, and most of it is three metadata
+  blocks that largely duplicate each other, plus the ordering path and folder
+  hierarchy that no list on any screen draws.
+- `GET /api/comics?view=compact` sends the seven fields a browsing list
+  actually needs — id, title, series, page count, availability, format, and the
+  publisher's name. Measured against the same 26,625 comics: 5.0 MB, 14 times
+  smaller. The title, series and publisher are the same display values the full
+  record computes, so a corrected or online-matched comic reads the same on a
+  shelf as on a detail screen.
+- The default is unchanged. Without `view=compact` — or with any other value —
+  `/api/comics` answers exactly as it did, so the web viewer, OPDS readers and
+  any existing client are untouched. `q` still filters against the full record.
+- `GET /api/comics/:comicId` is new: one comic in full, without opening its
+  archive. Until now the only way to get a single comic's whole record was
+  `/api/comics/:comicId/pages`, which reads the file to enumerate its pages —
+  seconds, on a drive that has spun down.
+- The iPad app uses both: the shelf loads the compact list and caches it, and a
+  comic's detail screen fetches the full record when you open it. What it shows
+  while that is in flight, or if it fails, is a shorter table rather than a
+  broken one.
+
 # PanelShelf 0.4.8-1029
 
 Upgrading is enough to clear out removed folders.
