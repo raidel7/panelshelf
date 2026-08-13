@@ -800,3 +800,182 @@ test("progress survives a restart", async (t) => {
   assert.equal(record.pageIndex, 30);
   assert.equal(record.pageCount, 42);
 });
+
+// A source the user deleted from Library folders is not the same thing as a
+// source that is merely unplugged: its comics must leave the index outright,
+// both at once and on the next scan.
+test("removing a source from the config drops its comics and leaves the others alone", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-removed-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const marvel = path.join(directory, "Marvel");
+  const dc = path.join(directory, "DC");
+  await fsp.mkdir(marvel, { recursive: true });
+  await fsp.mkdir(dc, { recursive: true });
+  await fsp.writeFile(
+    path.join(marvel, "Marvel Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+  await fsp.writeFile(
+    path.join(dc, "DC Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const dataDirectory = path.join(directory, "data");
+  const library = new ComicLibrary(dataDirectory);
+  await library.initialize();
+  await library.saveConfig({
+    sources: [
+      { path: marvel, profile: "unordered", needsProfileConfirmation: false },
+      { path: dc, profile: "unordered", needsProfileConfirmation: false }
+    ]
+  });
+  await library.scan();
+  assert.equal(library.listComics().length, 2);
+
+  await library.saveConfig({
+    sources: [{ path: dc, profile: "unordered", needsProfileConfirmation: false }]
+  });
+
+  // Saving the config is enough: the user does not have to run a scan to see
+  // the comics they removed disappear.
+  assert.deepEqual(
+    library.listComics().map((comic) => comic.libraryRoot),
+    [dc]
+  );
+
+  // ...and it stays gone once the index is reloaded from disk.
+  const restarted = new ComicLibrary(dataDirectory);
+  await restarted.initialize();
+  assert.deepEqual(
+    restarted.listComics().map((comic) => comic.libraryRoot),
+    [dc]
+  );
+
+  const scan = await restarted.scan();
+  assert.equal(scan.foundComics, 1);
+  assert.equal(scan.retainedComics, 0);
+  assert.deepEqual(
+    restarted.listComics().map((comic) => comic.libraryRoot),
+    [dc]
+  );
+});
+
+// The orphans in the index predate the fix, so they arrive through the stored
+// index rather than through saveConfig. A scan has to shed them too.
+test("a scan drops comics whose source is no longer configured", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-orphan-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const dc = path.join(directory, "DC");
+  await fsp.mkdir(dc, { recursive: true });
+  await fsp.writeFile(
+    path.join(dc, "DC Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+  await library.saveConfig({
+    sources: [{ path: dc, profile: "unordered", needsProfileConfirmation: false }]
+  });
+  await library.scan();
+
+  // Forge the pre-fix state: an index carrying a source that the config has
+  // never heard of.
+  library.setComics([
+    ...library.listComics(),
+    {
+      ...library.listComics()[0],
+      id: "a".repeat(24),
+      title: "Orphaned Marvel issue",
+      path: path.join(directory, "Marvel", "Orphan.cbz"),
+      libraryRoot: path.join(directory, "Marvel"),
+      sourceId: "src_490062e863dab9360ec06035",
+      sourceName: "Marvel"
+    }
+  ]);
+  assert.equal(library.listComics().length, 2);
+
+  const scan = await library.scan();
+  assert.equal(scan.foundComics, 1);
+  assert.deepEqual(
+    library.listComics().map((comic) => comic.sourceName),
+    ["DC"]
+  );
+
+  const retry = await library.scan("retry");
+  assert.equal(retry.foundComics, 1);
+});
+
+test("removing a source leaves a manual reading order in a sane state", async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-order-removed-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const marvel = path.join(directory, "Marvel");
+  const dc = path.join(directory, "DC");
+  await fsp.mkdir(marvel, { recursive: true });
+  await fsp.mkdir(dc, { recursive: true });
+  await fsp.writeFile(
+    path.join(marvel, "Marvel Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+  await fsp.writeFile(
+    path.join(dc, "DC Issue 01.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+  await library.saveConfig({
+    sources: [
+      { path: marvel, profile: "unordered", needsProfileConfirmation: false },
+      { path: dc, profile: "unordered", needsProfileConfirmation: false }
+    ]
+  });
+  await library.scan();
+  const comics = library.listComics();
+  const marvelComic = comics.find((comic) => comic.libraryRoot === marvel);
+  const dcComic = comics.find((comic) => comic.libraryRoot === dc);
+  const order = await library.createReadingOrder({
+    name: "Crossover",
+    comicIds: [marvelComic.id, dcComic.id]
+  });
+  assert.deepEqual(order.missingComicIds, []);
+
+  await library.saveConfig({
+    sources: [{ path: dc, profile: "unordered", needsProfileConfirmation: false }]
+  });
+
+  const [reconciled] = library.getReadingOrders().manual;
+  assert.ok(reconciled, "the order must survive the removal");
+  assert.equal(reconciled.name, "Crossover");
+  assert.deepEqual(
+    reconciled.missingComicIds,
+    [marvelComic.id],
+    "the removed source's comic is reported missing, not silently readable"
+  );
+  assert.equal(reconciled.coverComicId, dcComic.id);
+  assert.ok(
+    !reconciled.unplacedComicIds.includes(marvelComic.id),
+    "a removed comic must not resurface as Unplaced"
+  );
+});

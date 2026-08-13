@@ -313,6 +313,21 @@ function sourceForIssue(sources, issuePath) {
     .sort((left, right) => right.path.length - left.path.length)[0] || null;
 }
 
+function comicBelongsToSource(comic, source) {
+  return (
+    comic.sourceId === source.id ||
+    (!comic.sourceId && comic.libraryRoot === source.path)
+  );
+}
+
+// A comic is only ours to keep while some configured source still claims it. A
+// source the user deleted from Library folders claims nothing, so its comics
+// are orphans; a source that is merely unplugged still claims its own, which is
+// what lets the unavailable-source retention below keep them.
+function comicIsConfigured(comic, sources) {
+  return sources.some((source) => comicBelongsToSource(comic, source));
+}
+
 function orderPathForComic(relativePath) {
   return relativePath.split(path.sep).map((segment, index, segments) => {
     const sortableName =
@@ -522,7 +537,28 @@ class ComicLibrary {
       sources
     };
     await atomicWriteJson(this.configPath, this.config);
+    await this.dropUnconfiguredComics();
     return this.getConfig();
+  }
+
+  // Removing a source from Library folders takes effect immediately: the user
+  // does not have to remember to scan before the comics they removed stop
+  // showing up. Mirrors the tail of scan() so nothing is left pointing at
+  // comics that no longer exist.
+  async dropUnconfiguredComics() {
+    const retained = this.comics.filter((comic) =>
+      comicIsConfigured(comic, this.config.sources)
+    );
+    if (retained.length === this.comics.length) return false;
+    this.setComics(retained);
+    await this.readingOrders.reconcile(this.comics);
+    await this.enrichment.reconcile(this.comics);
+    this.pageCache.clear();
+    await atomicWriteJson(this.indexPath, {
+      scannedAt: new Date().toISOString(),
+      comics: this.comics
+    });
+    return true;
   }
 
   createBackup(browserState, appVersion) {
@@ -594,6 +630,10 @@ class ComicLibrary {
       await this.progress.restoreData(previous.progress).catch(() => {});
       throw error;
     }
+    // The restored config may name a different set of sources than the index
+    // was built from; anything it no longer covers goes now rather than
+    // lingering until the next scan.
+    await this.dropUnconfiguredComics();
     return {
       restored: true,
       summary: backupSummary(backup),
@@ -942,21 +982,20 @@ class ComicLibrary {
     const selectedSourceIds = new Set(selectedSources.map((source) => source.id));
     const discovered = new Map();
 
-    const comicBelongsToSource = (comic, source) =>
-      comic.sourceId === source.id ||
-      (!comic.sourceId && comic.libraryRoot === source.path);
-
-    if (action === "retry") {
-      for (const comic of this.comics) discovered.set(comic.id, comic);
-    } else {
-      for (const comic of this.comics) {
-        const selected = this.config.sources.some(
-          (source) =>
-            selectedSourceIds.has(source.id) &&
-            comicBelongsToSource(comic, source)
-        );
-        if (!selected) discovered.set(comic.id, comic);
+    for (const comic of this.comics) {
+      // Orphans — comics whose source is gone from the config — are never
+      // carried forward. Before this check they were re-seeded on every scan
+      // and could never leave the index.
+      if (!comicIsConfigured(comic, this.config.sources)) continue;
+      if (action === "retry") {
+        discovered.set(comic.id, comic);
+        continue;
       }
+      const selected = this.config.sources.some(
+        (source) =>
+          selectedSourceIds.has(source.id) && comicBelongsToSource(comic, source)
+      );
+      if (!selected) discovered.set(comic.id, comic);
     }
 
     const removeDiscoveredPath = (filePath, source) => {
@@ -1199,7 +1238,13 @@ class ComicLibrary {
           this.scanState.retainedComics += retained.length;
         }
       }
-      this.setComics([...discovered.values()]);
+      // Re-checked against the config as it stands now: a source removed while
+      // the scan was running must not be written back into the index.
+      this.setComics(
+        [...discovered.values()].filter((comic) =>
+          comicIsConfigured(comic, this.config.sources)
+        )
+      );
       this.scanState.foundComics = this.comics.length;
       await this.readingOrders.reconcile(this.comics);
       await this.enrichment.reconcile(this.comics);

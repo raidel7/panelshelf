@@ -1,3 +1,31 @@
+# PanelShelf 0.4.7-1028
+
+Removing a library folder now actually removes its comics.
+
+## Removed sources leave the index
+
+- Removing a folder from Library folders left every comic it had contributed
+  sitting in the index forever. Scanning did not help: each scan deliberately
+  carries forward the comics belonging to sources it is not touching, and a
+  source that is no longer configured belongs to nothing, so its comics were
+  carried forward every time. Measured on a real NAS as one configured source
+  and 26,625 indexed comics, 1,786 of them from a folder removed weeks earlier.
+- A comic is now kept only while a configured source still claims it. Comics
+  from a removed source are dropped on the next scan, including a retry scan.
+- Removing a folder takes effect immediately. Saving Library folders prunes
+  that folder's comics right away rather than leaving them visible until you
+  remember to scan, and reading orders, saved metadata matches, and the page
+  cache are reconciled at the same time as they are after a scan.
+- Restoring a backup whose configuration names a different set of folders
+  prunes the same way.
+- A folder that is configured but temporarily unavailable — an unplugged USB
+  drive — is unaffected. Its comics are still retained and shown as
+  unavailable, exactly as before. Removed and unplugged are now different
+  things.
+- A manual reading order that spanned a removed folder survives. The comics
+  that left are reported as missing, the same as for a disconnected drive,
+  rather than vanishing from the order.
+
 # PanelShelf 0.4.6-1027
 
 Service discovery that actually works on a NAS.
