@@ -28,6 +28,12 @@ const {
 } = require("./util");
 const { ReadingOrderStore } = require("./reading-orders");
 const {
+  THUMBNAIL_EXTENSION,
+  THUMBNAIL_MIME,
+  UnsupportedImageError,
+  createThumbnail
+} = require("./thumbnail");
+const {
   BACKUP_FORMAT,
   BACKUP_SCHEMA_VERSION,
   backupSummary,
@@ -417,6 +423,9 @@ class ComicLibrary {
     this.comics = [];
     this.comicsById = new Map();
     this.pageCache = new Map();
+    // Comics whose cover cannot be shrunk, so a repeat request does not decode
+    // it again only to give up.
+    this.thumbnailFallbacks = new Set();
     this.scanState = emptyScanState();
     this.readingOrders = new ReadingOrderStore(dataDirectory);
     this.enrichment = new MetadataEnrichmentStore(dataDirectory, {
@@ -1345,7 +1354,7 @@ class ComicLibrary {
     };
   }
 
-  async cover(id) {
+  async cover(id, options = {}) {
     const comic = this.getComic(id);
     const pages = await this.pagesForComic(comic);
     if (pages.length === 0) {
@@ -1353,10 +1362,17 @@ class ComicLibrary {
     }
     const extension = path.extname(pages[0].name).toLowerCase() || ".jpg";
     const cachePath = path.join(this.coverDirectory, `${comic.id}${extension}`);
+
+    if (options.thumbnail) {
+      const cached = await this.cachedThumbnail(comic);
+      if (cached) return cached;
+    }
+
+    let full = null;
     try {
       const cached = await fsp.stat(cachePath);
       if (cached.mtimeMs >= comic.mtimeMs) {
-        return {
+        full = {
           buffer: await fsp.readFile(cachePath),
           mime: mimeForName(cachePath)
         };
@@ -1364,11 +1380,80 @@ class ComicLibrary {
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
-    const page = await this.page(id, 0);
-    await fsp.writeFile(cachePath, page.buffer, { mode: 0o600 });
+    if (!full) {
+      const page = await this.page(id, 0);
+      await fsp.writeFile(cachePath, page.buffer, { mode: 0o600 });
+      const now = new Date();
+      await fsp.utimes(cachePath, now, now);
+      full = { buffer: page.buffer, mime: page.mime };
+    }
+    if (!options.thumbnail) return full;
+    return (await this.writeThumbnail(comic, full)) || full;
+  }
+
+  // Thumbnails are generated on first request rather than during a scan. A
+  // library this size (tens of thousands of comics) would add an image decode
+  // and encode per comic to every scan, for covers most users never scroll
+  // past; generating on demand spreads that cost over the cards actually drawn
+  // and keeps it off the scan entirely.
+  async cachedThumbnail(comic) {
+    const cachePath = path.join(
+      this.coverDirectory,
+      `${comic.id}.thumb${THUMBNAIL_EXTENSION}`
+    );
+    try {
+      const cached = await fsp.stat(cachePath);
+      if (cached.mtimeMs >= comic.mtimeMs) {
+        return {
+          buffer: await fsp.readFile(cachePath),
+          mime: THUMBNAIL_MIME,
+          thumbnail: true
+        };
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    return null;
+  }
+
+  // Returns null when this cover cannot usefully be shrunk — it is already
+  // smaller than a card, or it is in a format the pure-JavaScript decoder does
+  // not read. The caller then serves the full-size cover. The comic is
+  // remembered so the next request does not pay for the attempt again.
+  async writeThumbnail(comic, full) {
+    if (this.thumbnailFallbacks.has(comic.id)) return null;
+    let thumbnail = null;
+    try {
+      thumbnail = createThumbnail(full.buffer);
+    } catch (error) {
+      if (!(error instanceof UnsupportedImageError)) {
+        console.warn(
+          `PanelShelf could not thumbnail the cover for ${comic.id}: ${error.message}`
+        );
+      }
+      thumbnail = null;
+    }
+    if (!thumbnail) {
+      this.thumbnailFallbacks.add(comic.id);
+      return null;
+    }
+    const cachePath = path.join(
+      this.coverDirectory,
+      `${comic.id}.thumb${THUMBNAIL_EXTENSION}`
+    );
+    // Two requests for the same uncached cover would otherwise have one
+    // reading the file while the other is still writing it, which serves a
+    // truncated JPEG. Rename is atomic within the directory.
+    const pending = `${cachePath}.${process.pid}.tmp`;
+    await fsp.writeFile(pending, thumbnail.buffer, { mode: 0o600 });
     const now = new Date();
-    await fsp.utimes(cachePath, now, now);
-    return { buffer: page.buffer, mime: page.mime };
+    await fsp.utimes(pending, now, now);
+    await fsp.rename(pending, cachePath);
+    return {
+      buffer: thumbnail.buffer,
+      mime: thumbnail.mime,
+      thumbnail: true
+    };
   }
 }
 

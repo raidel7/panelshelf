@@ -83,6 +83,7 @@ function comicEntry(comic, baseUrl, updated = null) {
   const creators = Object.values(metadata.creators || {}).flat().filter(Boolean);
   const acquisition = absolute(baseUrl, `/opds/comics/${comic.id}/file`);
   const cover = absolute(baseUrl, `/api/comics/${comic.id}/cover`);
+  const thumbnail = absolute(baseUrl, `/api/comics/${comic.id}/cover?size=thumb`);
   const summary = metadata.summary || comic.relativePath || "";
   return [
     "<entry>",
@@ -97,7 +98,7 @@ function comicEntry(comic, baseUrl, updated = null) {
     ...creators.map((creator) => `<dc:creator>${xml(creator)}</dc:creator>`),
     summary ? `<summary>${xml(summary)}</summary>` : "",
     `<link rel="http://opds-spec.org/image" href="${xml(cover)}"/>`,
-    `<link rel="http://opds-spec.org/image/thumbnail" href="${xml(cover)}"/>`,
+    `<link rel="http://opds-spec.org/image/thumbnail" href="${xml(thumbnail)}"/>`,
     `<link rel="http://opds-spec.org/acquisition/open-access" href="${xml(
       acquisition
     )}" type="${comicMime(comic)}"/>`,

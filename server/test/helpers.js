@@ -62,9 +62,64 @@ function zipBuffer(files) {
   return Buffer.concat([...localParts, centralDirectory, end]);
 }
 
+const CRC_TABLE = (() => {
+  const table = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c;
+  }
+  return table;
+})();
+
+function crc32(buffer) {
+  let c = -1;
+  for (const byte of buffer) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body));
+  return Buffer.concat([length, body, crc]);
+}
+
+// A real, full-size cover to shrink: a deterministic pattern with enough
+// detail that it does not compress away to nothing, which is what a page from
+// a scanned comic looks like to an encoder.
+function pngBuffer(width, height) {
+  const raw = Buffer.alloc(height * (width * 3 + 1));
+  let offset = 0;
+  let seed = 20250813;
+  for (let y = 0; y < height; y++) {
+    raw[offset++] = 0;
+    for (let x = 0; x < width; x++) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const noise = (seed >> 16) & 0x3f;
+      raw[offset++] = (x * 255) / width + noise;
+      raw[offset++] = (y * 255) / height + noise;
+      raw[offset++] = ((x ^ y) & 0xff) + noise;
+    }
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 2;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", zlib.deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0))
+  ]);
+}
+
 const ONE_PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64"
 );
 
-module.exports = { ONE_PIXEL_PNG, zipBuffer };
+module.exports = { ONE_PIXEL_PNG, pngBuffer, zipBuffer };

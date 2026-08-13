@@ -94,7 +94,7 @@ allow packages from any publisher.
 ## Install on the DS1825+
 
 1. Open **DSM → Package Center → Manual Install**.
-2. Select `PanelShelf-x86_64-0.4.9-1030.spk`.
+2. Select `PanelShelf-x86_64-0.4.10-1031.spk`.
 3. Accept the warning for a third-party package.
 4. Start PanelShelf and click **Open**, or visit:
    `http://YOUR-NAS-IP:8251/`
@@ -199,10 +199,49 @@ the OPDS catalog with user authentication.
 | GET | `/api/comics?view=compact` | The same comics, reduced to what a browsing list draws |
 | GET | `/api/comics/:comicId` | One comic in full, without opening its archive |
 | GET | `/api/comics/:comicId/pages` | The comic in full plus its page list; opens the archive |
+| GET | `/api/comics/:comicId/cover` | The comic's first page, full size |
+| GET | `/api/comics/:comicId/cover?size=thumb` | The same cover shrunk to grid size |
+| GET | `/api/comics/:comicId/pages/:index` | One page, full size |
 
 `:comicId` is a 24-character lowercase hex id; any other shape falls through to
 the generic `404`. An id that is well formed but not in the library answers
 `404 NOT_FOUND`.
+
+### `?size=thumb`
+
+A cover is a scanned comic page: the ones in a 26,625-comic library here run
+around 774 KB at 1074×1650. A shelf draws them into cards a couple of hundred
+pixels wide, so a screenful of twenty-four cards moves roughly 18 MB to paint
+about 1.5 MB worth of pixels.
+
+`?size=thumb` answers with the same cover scaled so its **longest edge is at
+most 480 pixels**, re-encoded as JPEG — around 54 KB for that same cover, a
+fourteenth of the bytes. 480 is chosen for the client that needs the most: an
+iPad grid card is roughly 140–180pt wide, so a Retina panel wants 280–360
+device pixels across, and a 2:3 cover 480 tall is 320 across.
+
+The size is fixed, not a parameter. A caller-chosen width would multiply the
+on-disk cache by every size anyone ever asked for and would let one client walk
+a NAS CPU through a thousand resizes. `size` accepts only `thumb` and `full`;
+anything else is `400 INVALID_SIZE`.
+
+Omitting `size` still returns the untouched original bytes with the original
+content type, so existing clients are unaffected. `size=thumb` is served as
+`image/jpeg`.
+
+Thumbnails are generated the first time one is asked for — not during a scan,
+which would add an image decode and encode per comic to every scan for covers
+most users never scroll past — and cached in the data directory next to the
+full-size covers. The first request for a given cover costs one decode and
+encode; every later one is a file read. A cover already smaller than a card, or
+in a format the server's pure-JavaScript image code cannot read, is served
+whole, so `size=thumb` can legitimately answer with the full-size image and its
+own content type.
+
+Resizing is done without a native image library, because the Synology package
+bundles its own Node runtime and is built for three architectures from one
+tree. The server decodes baseline and progressive JPEG and PNG itself, running
+the inverse DCT at the smallest scale that still covers the thumbnail.
 
 ### `?view=compact`
 

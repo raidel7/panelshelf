@@ -1922,6 +1922,13 @@ let openComicStatusMenu = null;
 const loadedImageUrls = new Set();
 let chronologyTimelineContext = null;
 
+// Every cover the viewer draws at card size asks for the server's fixed-size
+// thumbnail. Only the reader and the metadata comparison — where the point is
+// to judge the artwork itself — pull the full-size cover.
+function thumbnailUrl(comicId) {
+  return `/api/comics/${comicId}/cover?size=thumb`;
+}
+
 function coverImage(url, fallback = null) {
   const image = document.createElement("img");
   image.src = url;
@@ -2226,7 +2233,7 @@ function comicCard(comic, options = {}) {
   button.append(fallback);
 
   if (comic.available !== false) {
-    button.append(coverImage(`/api/comics/${comic.id}/cover`, fallback));
+    button.append(coverImage(thumbnailUrl(comic.id), fallback));
   }
 
   const format = document.createElement("span");
@@ -2544,7 +2551,7 @@ function showCollectionPreview(anchor, options) {
       elements.collectionPreviewFallback.hidden = false;
       elements.collectionPreviewImage.removeAttribute("src");
     };
-    elements.collectionPreviewImage.src = `/api/comics/${firstComic.id}/cover`;
+    elements.collectionPreviewImage.src = thumbnailUrl(firstComic.id);
   }
 
   elements.collectionPreviewEyebrow.textContent =
@@ -2722,7 +2729,7 @@ function collectionCard(options) {
     .filter((comic) => comic.available !== false)
     .slice(0, 1);
   covers.forEach((comic) => {
-    artwork.append(coverImage(`/api/comics/${comic.id}/cover`, fallback));
+    artwork.append(coverImage(thumbnailUrl(comic.id), fallback));
   });
   artwork.dataset.coverCount = String(covers.length);
 
@@ -3404,7 +3411,7 @@ function timelineCover(node, active, distance, matchingIds) {
   fallback.textContent = collectionInitials(node.displayName);
   art.append(fallback);
   if (firstComic) {
-    art.append(coverImage(`/api/comics/${firstComic.id}/cover`, fallback));
+    art.append(coverImage(thumbnailUrl(firstComic.id), fallback));
   }
   const number = document.createElement("span");
   number.className = "timeline-cover-number";
@@ -3488,7 +3495,7 @@ function timelineIssueStrip(node, matchingIds) {
     button.setAttribute("aria-label", `Read ${comic.title}`);
     const art = document.createElement("span");
     art.className = "timeline-issue-art";
-    const image = coverImage(`/api/comics/${comic.id}/cover`);
+    const image = coverImage(thumbnailUrl(comic.id));
     const sequence = document.createElement("span");
     sequence.textContent = String(index + 1);
     art.append(image, sequence);
@@ -3896,7 +3903,7 @@ function orderCard(order) {
   cover.className = "order-card-cover";
   if (order.coverComicId && comicById(order.coverComicId)?.available !== false) {
     const image = document.createElement("img");
-    image.src = `/api/comics/${order.coverComicId}/cover`;
+    image.src = thumbnailUrl(order.coverComicId);
     image.alt = "";
     image.loading = "lazy";
     cover.append(image);
@@ -3965,7 +3972,7 @@ function detailItem(comicIdValue, order, position) {
   cover.className = "order-item-cover";
   if (comic && comic.available !== false) {
     const image = document.createElement("img");
-    image.src = `/api/comics/${comic.id}/cover`;
+    image.src = thumbnailUrl(comic.id);
     image.alt = "";
     image.loading = "lazy";
     cover.append(image);
@@ -4029,7 +4036,7 @@ function openOrderDetail(orderId) {
   elements.orderDetailCover.hidden = true;
   elements.orderCoverFallback.hidden = false;
   if (order.coverComicId && comicById(order.coverComicId)?.available !== false) {
-    elements.orderDetailCover.src = `/api/comics/${order.coverComicId}/cover`;
+    elements.orderDetailCover.src = thumbnailUrl(order.coverComicId);
     elements.orderDetailCover.alt = `${order.name} cover`;
     elements.orderDetailCover.hidden = false;
     elements.orderCoverFallback.hidden = true;

@@ -1,3 +1,43 @@
+# PanelShelf 0.4.10-1031
+
+Cover thumbnails, so a shelf stops downloading full-size scanned pages.
+
+## A screenful of cards no longer costs 26 MB
+
+- A cover is the comic's first page at full scan resolution. Across a sample of
+  twelve real covers from a 26,625-comic library they average 1.09 MB, and the
+  grid draws them into cards about 140pt wide. Twenty-four cards moved roughly
+  26 MB to paint about a megabyte's worth of pixels.
+- `GET /api/comics/:comicId/cover?size=thumb` answers with the same cover
+  scaled so its longest edge is at most 480 pixels. Measured against the same
+  twelve covers: 13.04 MB becomes 0.49 MB, 26 times smaller. The 774 KB
+  1074x1650 cover this started from comes back as 50 KB at 312x480.
+- 480 is fixed, not a parameter. An iPad card is 140-180pt wide, so a Retina
+  panel wants 280-360 device pixels across and a 2:3 cover 480 tall is 320
+  across. A caller-chosen size would multiply the cache by every size anyone
+  ever asked for, and would let one client walk a NAS CPU through a thousand
+  resizes. `size` accepts only `thumb` and `full`; anything else is a 400.
+- The default is unchanged. Without `size=thumb`, the endpoint returns the
+  untouched original bytes with their original content type, so the reader,
+  OPDS readers and any existing client are untouched.
+- The iPad grid and the web viewer's shelf, collection artwork, timeline covers
+  and reading-order cards all ask for thumbnails now. Anything that shows a
+  cover at size — the reader, the detail hero, the metadata comparison where
+  the point is to judge the artwork — still gets the full image.
+- Thumbnails are generated the first time one is requested, not during a scan:
+  eager generation would add an image decode and encode per comic to every
+  scan, for covers most users never scroll past. They are cached beside the
+  full-size covers in the data directory, about 42 KB each. The first request
+  for a cover took 68-272 ms on a developer Mac; every later one is a file
+  read, about 1 ms.
+- Resizing needs no native image library, which would have meant per-
+  architecture binaries in a package built for x86_64, armv8 and armv7. The
+  server decodes baseline and progressive JPEG and PNG itself and runs the
+  inverse DCT at the smallest scale that still covers the thumbnail, so a
+  1074x1650 cover is reconstructed at 537x825 rather than in full. A cover
+  already smaller than a card, or in a format that decoder cannot read, is
+  served whole.
+
 # PanelShelf 0.4.9-1030
 
 A compact library listing, for clients that only draw a shelf.

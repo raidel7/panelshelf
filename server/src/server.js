@@ -10,7 +10,7 @@ const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
 
-const VERSION = "0.4.9";
+const VERSION = "0.4.10";
 const HOST = process.env.PANELSHELF_HOST || "0.0.0.0";
 const PORT = Number(process.env.PANELSHELF_PORT || 8251);
 const DATA_DIRECTORY =
@@ -606,7 +606,22 @@ async function startServer() {
 
       const coverMatch = pathname.match(/^\/api\/comics\/([a-f0-9]{24})\/cover$/);
       if (request.method === "GET" && coverMatch) {
-        const cover = await library.cover(coverMatch[1]);
+        // ?size=thumb is the only alternative to the full-size default. The
+        // size is fixed rather than caller-supplied so the on-disk cache stays
+        // one file per comic and nobody can walk a NAS CPU through a thousand
+        // widths.
+        const requested = requestUrl.searchParams.get("size");
+        if (requested !== null && requested !== "thumb" && requested !== "full") {
+          return sendJson(response, 400, {
+            error: {
+              code: "INVALID_SIZE",
+              message: "size must be thumb or full."
+            }
+          });
+        }
+        const cover = await library.cover(coverMatch[1], {
+          thumbnail: requested === "thumb"
+        });
         response.writeHead(200, {
           "Content-Type": cover.mime,
           "Content-Length": cover.buffer.length,
