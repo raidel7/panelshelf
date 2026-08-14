@@ -140,13 +140,13 @@ function normalizeLibraryPath(candidate) {
   return normalized;
 }
 
-/// When a comic arrived, for the shelf's "Recently added" row.
-///
-/// `addedAt` is stamped the first time a comic enters the index and carried
-/// forward by every rescan. A library indexed before that field existed has
-/// none, and falls back to the archive's own modification time — otherwise the
-/// row would stay empty until the user scanned 26,000 comics, and would then
-/// show all of them as having arrived at the same instant.
+// When a comic arrived, for the shelf's "Recently added" row.
+//
+// `addedAt` is stamped the first time a comic enters the index and carried
+// forward by every rescan. A library indexed before that field existed has
+// none, and falls back to the archive's own modification time — otherwise the
+// row would stay empty until the user scanned 26,000 comics, and would then
+// show all of them as having arrived at the same instant.
 function addedTime(comic) {
   const stamp = Date.parse(comic?.addedAt || comic?.modifiedAt || "");
   return Number.isFinite(stamp) ? stamp : 0;

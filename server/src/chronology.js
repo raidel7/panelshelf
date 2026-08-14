@@ -101,11 +101,11 @@ function compareComicsByOrderPath(left, right) {
   return naturalTextCompare(left.title, right.title);
 }
 
-/// When a branch is from, as a range. 83% of this library's comics carry a
-/// year and the raw spread across all of them is 1800 to 2048 — a filename
-/// parsed as "1800" would otherwise date the era it sits in. With enough dated
-/// comics to be confident, the outer tenth at each end is ignored; below that
-/// there is nothing to trim and the plain span is the honest answer.
+// When a branch is from, as a range. 83% of this library's comics carry a
+// year and the raw spread across all of them is 1800 to 2048 — a filename
+// parsed as "1800" would otherwise date the era it sits in. With enough dated
+// comics to be confident, the outer tenth at each end is ignored; below that
+// there is nothing to trim and the plain span is the honest answer.
 function yearRange(comics) {
   const years = [];
   for (const comic of comics) {
@@ -146,7 +146,6 @@ function sourceKeyFor(comic) {
 function buildChronology(comics) {
   const root = makeNode({ id: ROOT_ID, name: "Chronological", role: "root" });
   const byId = new Map([[root.id, root]]);
-  const stagingBySource = new Map();
 
   const attach = (parent, options) => {
     let child = parent.childMap.get(options.id);
@@ -181,7 +180,6 @@ function buildChronology(comics) {
         sourceProfile: comic.sourceProfile
       });
       stagingNode.directComics.push(comic);
-      stagingBySource.set(sourceKey, stagingNode);
       continue;
     }
 
@@ -214,7 +212,7 @@ function buildChronology(comics) {
   };
   finalize(root);
 
-  return { root, byId, stagingBySource };
+  return { root, byId };
 }
 
 // The chip the browser draws on a collection: a folder's position among its
@@ -277,8 +275,8 @@ function breadcrumbs(node) {
   return trail;
 }
 
-/// One screen of the chronology: where you are, how you got there, what is
-/// below you, and the comics filed at this level rather than deeper.
+// One screen of the chronology: where you are, how you got there, what is
+// below you, and the comics filed at this level rather than deeper.
 function chronologyView(tree, nodeId, projectComic, skippedIds = []) {
   const node = tree.byId.get(nodeId || ROOT_ID);
   if (!node) return null;

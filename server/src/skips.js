@@ -96,11 +96,11 @@ class SkipStore {
     return { nodeIds: [...this.nodeIds] };
   }
 
-  /// Skipping is a deliberate action on a named branch, and adding a branch
-  /// twice is the same as adding it once, so there is nothing here to
-  /// reconcile: additions and removals apply as sent. Both clients converge
-  /// because the set is the whole state — unlike a reading position, where
-  /// "page 40" from a stale device would undo "page 60" from a fresh one.
+  // Skipping is a deliberate action on a named branch, and adding a branch
+  // twice is the same as adding it once, so there is nothing here to
+  // reconcile: additions and removals apply as sent. Both clients converge
+  // because the set is the whole state — unlike a reading position, where
+  // "page 40" from a stale device would undo "page 60" from a fresh one.
   async apply(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw jsonError("Skip changes must be an object.", "INVALID_SKIPS");
