@@ -1,3 +1,27 @@
+# PanelShelf 0.4.14-1036
+
+Scrolling a comic in the browser got slower the longer you had browsed the
+library first. This fixes that.
+
+## Turning a page repainted every cover on the shelf
+
+- The shelf keeps every cover it has drawn rather than discarding the ones you
+  have scrolled past, and every page turn walked all of them to refresh a read
+  badge that had not changed. Measured on a 26,625-comic library with 12,096
+  covers drawn, scrolling through one comic did 312,026 cover updates in each
+  direction and blocked the browser for 379ms across 26 stalls.
+- A page turn now refreshes the comic you are reading and nothing else: 26
+  updates, 15ms. It no longer gets worse the further you had scrolled.
+- Marking a whole collection read still refreshes the shelf, and so does closing
+  the reader after a run through a reading order. Those change comics the shelf
+  cannot know about in advance.
+
+## Validation
+
+- 186 server tests pass, including five new ones that hold a page turn to
+  repainting a single comic on a 5,000-cover shelf while keeping the full sweep
+  for the paths that still need it.
+
 # PanelShelf 0.4.14-1035
 
 A crash fix. Install this one.
