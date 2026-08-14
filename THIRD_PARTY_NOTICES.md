@@ -4,6 +4,8 @@ PanelShelf distributions bundle the following components:
 
 - Node.js, Copyright Node.js contributors, used under the MIT License.
 - node-unrar-js, Copyright YuJianrong and contributors, used under the MIT License.
+- ZIPFoundation, Copyright Thomas Zoechling, used under the MIT License, by the
+  iPad app to read downloaded CBZ archives.
 - The UnRAR decompression source included by node-unrar-js is subject to the
   license terms shipped with that component. It is used only to decompress RAR
   archives and is not used to recreate the RAR compression algorithm.
