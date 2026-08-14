@@ -353,6 +353,114 @@ test("Continue Reading is drawn whole and follows its reading order", async () =
   assert.equal(sandbox.run("row.children[0].orderId"), "order-2");
 });
 
+// The status sweep is sliced out the same way. What it asks the document for
+// is the whole bug: it was named for visible cards but selected every card in
+// the page, and the shelf holds every card it has ever drawn. Reading a comic
+// in continuous mode runs it on every page turn, so a reader who had browsed a
+// while paid for the whole shelf on every page.
+const statusSource = (async () => {
+  const source = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+  const start = source.indexOf("\nfunction updateComicCardStatus(");
+  const end = source.indexOf("\n// Drawing one card per comic");
+  assert.ok(
+    start > 0 && end > start,
+    "app.js must keep the card status updaters between their usual anchors"
+  );
+  return source.slice(start, end);
+})();
+
+function statusSandbox(cardCount) {
+  const touched = [];
+  const selectors = [];
+  const nodes = Array.from({ length: cardCount }, (unused, index) => ({
+    dataset: { comicId: `c${index}f` }
+  }));
+  const context = {
+    CSS: { escape: (value) => String(value) },
+    comicById: (comicId) => ({ id: comicId }),
+    document: {
+      querySelectorAll(selector) {
+        selectors.push(selector);
+        if (selector === "[data-comic-id]") return nodes;
+        const wanted = new Set(
+          [...selector.matchAll(/\[data-comic-id="([^"]+)"\]/g)].map(
+            (match) => match[1]
+          )
+        );
+        return nodes.filter((node) => wanted.has(node.dataset.comicId));
+      }
+    }
+  };
+  vm.createContext(context);
+  return {
+    touched,
+    selectors,
+    ready: statusSource.then((source) => {
+      vm.runInContext(source, context);
+      // What each card is repainted with is the shelf tests' business; this one
+      // is about which cards are handed over at all.
+      context.updateComicCardStatus = (node) => touched.push(node.dataset.comicId);
+    }),
+    run: (expression) => vm.runInContext(expression, context)
+  };
+}
+
+test("a page turn repaints the comic being read, not the whole shelf", async () => {
+  const sandbox = statusSandbox(5000);
+  await sandbox.ready;
+
+  sandbox.run('updateVisibleComicStatuses("c4200f")');
+  assert.deepEqual(sandbox.touched, ["c4200f"], "one card, not five thousand");
+  assert.deepEqual(sandbox.selectors, ['[data-comic-id="c4200f"]']);
+});
+
+test("a change across several comics repaints exactly those", async () => {
+  const sandbox = statusSandbox(5000);
+  await sandbox.ready;
+
+  sandbox.run('updateVisibleComicStatuses(["c7f", "c4200f"])');
+  assert.deepEqual(sandbox.touched.sort(), ["c4200f", "c7f"]);
+});
+
+test("a sweep with nothing named still covers the shelf", async () => {
+  const sandbox = statusSandbox(120);
+  await sandbox.ready;
+
+  // Closing the reader after a run through a reading order, and marking a whole
+  // collection, both change an unknown set of comics and still need this.
+  sandbox.run("updateVisibleComicStatuses()");
+  assert.equal(sandbox.touched.length, 120);
+  assert.deepEqual(sandbox.selectors, ["[data-comic-id]"]);
+});
+
+test("naming no comics at all asks the document for nothing", async () => {
+  const sandbox = statusSandbox(5000);
+  await sandbox.ready;
+
+  sandbox.run("updateVisibleComicStatuses([])");
+  assert.deepEqual(sandbox.selectors, [], "an empty list is not a whole-shelf sweep");
+  assert.deepEqual(sandbox.touched, []);
+});
+
+test("the reading and shelf-status paths name the comic they changed", async () => {
+  const application = await fsp.readFile(
+    path.join(publicDirectory, "app.js"),
+    "utf8"
+  );
+  // Pinned at the call sites: the scoped sweep above stays green while these
+  // quietly go back to sweeping everything, and the stall comes back with them.
+  assert.match(
+    application,
+    /persistProgress\(comic\.id\);\s*updateVisibleComicStatuses\(comic\.id\);/,
+    "setComicProgress must repaint only the comic it just moved"
+  );
+  assert.match(
+    application,
+    /state\.statusFilter === "all"\) updateVisibleComicStatuses\(comic\.id\)/,
+    "setComicShelfStatus must repaint only the comic it just marked"
+  );
+});
+
 // app.js has no module system, so the progress block is sliced out of the
 // source and run in a sandbox with stubs for the handful of globals it uses.
 // Text matching cannot tell whether these requests are actually made, and the

@@ -1906,7 +1906,7 @@ function setComicProgress(comic, pageIndex, pageCount, options = {}) {
     orderId: options.orderId || state.reader.orderId || previous.orderId || null
   };
   persistProgress(comic.id);
-  updateVisibleComicStatuses();
+  updateVisibleComicStatuses(comic.id);
   if (previousStatus !== readingStatus(comic)) renderContinueReading();
 }
 
@@ -1974,7 +1974,7 @@ function setComicShelfStatus(comic, status) {
   persistProgress(comic.id);
   closeComicStatusMenu();
   renderContinueReading();
-  if (state.statusFilter === "all") updateVisibleComicStatuses();
+  if (state.statusFilter === "all") updateVisibleComicStatuses(comic.id);
   else renderComics();
   renderOrders();
   showToast(`${comic.title} marked ${statusLabel(status).toLocaleLowerCase()}.`);
@@ -2421,8 +2421,27 @@ function updateComicCardStatus(node, comic) {
   });
 }
 
-function updateVisibleComicStatuses() {
-  document.querySelectorAll("[data-comic-id]").forEach((node) => {
+// "Visible" was never true: the shelf keeps every card it has drawn, so this
+// swept tens of thousands of them. Reading a comic in continuous mode calls it
+// on every page turn — measured on a 26,625-comic library with 12,096 cards
+// drawn, scrolling one comic did 312,026 card updates per direction, blocked
+// the main thread for 379 ms across 26 stalls and dropped 35 frames. That is
+// the stutter you get scrolling a comic after browsing the library for a while,
+// and it gets worse the further you had scrolled.
+//
+// The comics that changed are known at every call site that matters, and a
+// selector for them touches those cards and nothing else. Called with nothing
+// it still sweeps everything, which is what the paths that change an unknown
+// number of comics need: closing the reader after a run through a reading
+// order, or marking a whole collection.
+function updateVisibleComicStatuses(changedComicIds = null) {
+  const ids =
+    changedComicIds == null ? null : [changedComicIds].flat().filter(Boolean);
+  if (ids && ids.length === 0) return;
+  const selector = ids
+    ? ids.map((comicId) => `[data-comic-id="${CSS.escape(comicId)}"]`).join(",")
+    : "[data-comic-id]";
+  document.querySelectorAll(selector).forEach((node) => {
     const comic = comicById(node.dataset.comicId);
     if (comic) updateComicCardStatus(node, comic);
   });
