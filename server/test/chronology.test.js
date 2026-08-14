@@ -7,7 +7,8 @@ const {
   chronologyView,
   compareChronologyNodes,
   compareRankValues,
-  orderNumber
+  orderNumber,
+  yearRange
 } = require("../src/chronology");
 
 // A Marvel-shaped library: numbered eras with a dotted insertion, an unnumbered
@@ -296,4 +297,38 @@ test("skips that name branches this library does not have are ignored", () => {
   const source = view(library(), null, ["chronology/source:gone/folder:x"]).children[0];
   assert.equal(source.skipped, false);
   assert.equal(source.inheritedSkip, false);
+});
+
+test("a year range ignores the outliers a bad filename produces", () => {
+  const dated = (year) => ({ metadata: Number.isFinite(year) ? { year } : null });
+
+  // Fewer than ten dated comics: there is nothing to trim and the plain span is
+  // the honest answer.
+  assert.deepEqual(yearRange([dated(1990), dated(1995)]), { from: 1990, to: 1995 });
+  assert.equal(yearRange([dated(null), dated(undefined)]), null, "no years at all");
+  assert.equal(yearRange([]), null);
+
+  // Twenty comics from one decade, plus one filename parsed as 1800 and one as
+  // 2048. Untrimmed this era would read as 1800-2048.
+  const era = [
+    dated(1800),
+    ...Array.from({ length: 20 }, (unused, index) => dated(1985 + (index % 10))),
+    dated(2048)
+  ];
+  assert.deepEqual(yearRange(era), { from: 1985, to: 1994 });
+
+  // A range is still a range when every comic shares a year.
+  assert.deepEqual(
+    yearRange(Array.from({ length: 12 }, () => dated(2001))),
+    { from: 2001, to: 2001 }
+  );
+});
+
+test("a branch carries the years of everything under it", () => {
+  const withYears = library().map((comic, index) => ({
+    ...comic,
+    metadata: { year: 1990 + index }
+  }));
+  const source = view(withYears, null).children[0];
+  assert.deepEqual(source.years, { from: 1990, to: 1994 });
 });

@@ -101,6 +101,23 @@ function compareComicsByOrderPath(left, right) {
   return naturalTextCompare(left.title, right.title);
 }
 
+/// When a branch is from, as a range. 83% of this library's comics carry a
+/// year and the raw spread across all of them is 1800 to 2048 — a filename
+/// parsed as "1800" would otherwise date the era it sits in. With enough dated
+/// comics to be confident, the outer tenth at each end is ignored; below that
+/// there is nothing to trim and the plain span is the honest answer.
+function yearRange(comics) {
+  const years = [];
+  for (const comic of comics) {
+    const year = comic.metadata?.year;
+    if (Number.isFinite(year)) years.push(year);
+  }
+  if (years.length === 0) return null;
+  years.sort((left, right) => left - right);
+  const trim = years.length >= 10 ? Math.floor(years.length / 10) : 0;
+  return { from: years[trim], to: years[years.length - 1 - trim] };
+}
+
 function makeNode(options) {
   return {
     id: options.id,
@@ -112,6 +129,7 @@ function makeNode(options) {
     sourceProfile: options.sourceProfile || null,
     directComics: [],
     comics: [],
+    years: null,
     childMap: new Map(),
     children: []
   };
@@ -189,6 +207,10 @@ function buildChronology(comics) {
       ...node.directComics,
       ...node.children.flatMap((child) => child.comics)
     ];
+    // Computed here, once per build, rather than per request: a level's
+    // children can hold thousands of comics between them and the tree is
+    // already kept for the life of the index.
+    node.years = yearRange(node.comics);
   };
   finalize(root);
 
@@ -230,6 +252,7 @@ function summarize(node, skips, inherited = false) {
     // Whatever a reader would reach first inside this branch, so a collection
     // card has a cover without the client fetching the branch to find one.
     coverComicId: node.comics[0]?.id || null,
+    years: node.years,
     skipped,
     // Skipping a parent applies to everything under it, so a child says why it
     // is set aside: its own choice, or one made further up. A client showing
@@ -279,5 +302,6 @@ module.exports = {
   compareChronologyNodes,
   compareComicsByOrderPath,
   compareRankValues,
-  orderNumber
+  orderNumber,
+  yearRange
 };

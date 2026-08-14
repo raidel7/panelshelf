@@ -781,9 +781,19 @@ class ComicLibrary {
       pageCount: full.pageCount,
       available: full.available,
       format: full.format,
-      // The name alone: `kind`, `parent`, `alias` and `confidence` cost 1.4 MB
-      // across the library and no list draws them.
-      publisher: full.publisher?.name ? { name: full.publisher.name } : null
+      // The name, plus the publisher it is an imprint of when that differs.
+      // `kind`, `alias` and `confidence` cost 1.4 MB across the library and no
+      // list draws them; `parent` costs 148 KB and is what keeps a Publishers
+      // view from filing WildStorm away from DC. Absent when a publisher is its
+      // own parent, which is most of them.
+      publisher: full.publisher?.name
+        ? {
+            name: full.publisher.name,
+            ...(full.publisher.parent && full.publisher.parent !== full.publisher.name
+              ? { parent: full.publisher.parent }
+              : {})
+          }
+        : null
     };
   }
 
