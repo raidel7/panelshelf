@@ -1,3 +1,56 @@
+# PanelShelf 0.4.13-1034
+
+Everything the iPad app needs to browse your library the way the web viewer
+does. Nothing here changes what the browser looks like, but two things move
+underneath it.
+
+## Skipped collections are shared between the browser and the app
+
+- Collections you set aside in Chronological were remembered by the browser
+  alone, so an iPad showed every branch you had hidden.
+- They now live on the server with your reading progress. Skip a collection in
+  either place and it is skipped in both.
+- Your existing skipped collections are handed over automatically the first time
+  you open the web viewer after upgrading. Nothing to do, and nothing is lost:
+  backups keep carrying them, and restoring a backup puts them back.
+
+## The library list answers three new questions
+
+None of these change an existing response, so nothing that already works
+changes behaviour.
+
+- **The chronology, one folder at a time.** `GET /api/chronology` returns where
+  you are, the way back, the collections below, and the comics filed at that
+  level. The browser builds this itself from the whole library; a phone or
+  tablet cannot afford to, so the server does it and keeps the result until the
+  next scan. Across 24,839 comics that takes under a second, once.
+- **Skipped collections.** `GET /api/skips` and `POST /api/skips`.
+- **The publisher an imprint belongs to.** The compact comic list now includes
+  it, so a Publishers view can file WildStorm under DC rather than beside it.
+  It adds about 3% to that response and only appears where a publisher actually
+  has a parent.
+
+## Collections carry the years they cover
+
+- A chronology folder now reports the span of the comics inside it, taken from
+  their metadata.
+- The outer tenth at each end is ignored once there are enough dated comics to
+  be confident about it. One filename parsed as "1800" would otherwise date a
+  whole era: the raw spread across this library is 1800 to 2048.
+- Measured against real folders: Modern Age Chronology (1985-2011) reports
+  1988-2011, and New 52 Chronology (2011-2016) reports 2012-2015.
+
+## Validation
+
+- 179 server tests and 116 iPad tests pass.
+- The browser's handover of skipped collections was checked end to end against
+  a real scan: a browser carrying a skipped branch hands it over once, and a
+  browser whose branches were unskipped elsewhere does not push its old copy
+  back.
+- The chronology's ordering rules were checked by breaking them on purpose.
+  A folder numbered 2 must come before one numbered 10 even when the numbers
+  are hidden and the names say otherwise.
+
 # PanelShelf 0.4.12-1033
 
 Groundwork for the iPad app's Home screen, and a progress fix that shows up in

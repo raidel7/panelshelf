@@ -4,8 +4,8 @@ Updated: 2026-08-13
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.4.12, build 1033 | Released and installed on the developer's NAS. |
-| **iPad app** | unreleased | In development. Browsing, reading, progress sync, Home, and chronology work end to end. |
+| **Server and web** | 0.4.13, build 1034 | Released. The developer's NAS runs 0.4.12. |
+| **iPad app** | unreleased | In development. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries,
 together with a first-party iPad client that reads from it. It preserves the
@@ -91,6 +91,7 @@ The current build provides:
 | 0.4.10 / 1031 | Grid-sized cover thumbnails — 774 KB per cover to 51 KB |
 | 0.4.11 / 1032 | Windowed shelf rendering and a preview that no longer blanks |
 | 0.4.12 / 1033 | Arrival dates with `sort=added`, and progress deletions that reconcile |
+| 0.4.13 / 1034 | Server-owned skipped collections, the chronology route, and imprint parents |
 
 ### iPad app
 
@@ -110,12 +111,19 @@ working:
   complete one
 - Home: a Resume hero, Continue reading, and Recently added
 - Chronology browsing over `GET /api/chronology` — breadcrumbs, position chips,
-  collections cover-first, and the comics filed at each level
+  year ranges, collections cover-first, and the comics filed at each level
+- Skipping and restoring collections, shared with the browser
+- Publishers, grouped by canonical publisher with imprints named
+- Reading orders, automatic and manual, opened into a numbered shelf
 - A sidebar that reopens on the section it was left in
 
-Not built yet, in the order below: skip state and the year rail on the
-chronology, Publishers and Reading orders, offline downloads, and library
-management.
+At parity with the web viewer for browsing and reading. Not built yet: offline
+downloads, and library management — scanning, sources, and metadata editing,
+which are still browser-only.
+
+The timeline visualization from 0.4.2 — the focused carousel with its numbered
+rail — is deliberately not reproduced; the app shows a branch's year range on
+its card instead.
 
 ### Known gaps in the foundation
 
@@ -591,11 +599,9 @@ server it talks to.
 | # | Milestone | Track | Status | Planning range |
 | --- | --- | --- | --- | --- |
 | — | Home and Resume | iPad | **Done** — 0.4.12 | — |
-| — | Chronology browsing | iPad + server | **Done** | — |
-| 1 | Chronology: skip state and the year rail | iPad + server | **Next** | 3–5 days |
-| 2 | Browse: Publishers and Reading orders | iPad | Planned | 1 week |
-| 3 | Offline downloads | iPad | Planned | 1–2 weeks |
-| 4 | Library management from the iPad | iPad + server | Planned | 1 week |
+| — | Chronology, skip state, Publishers, Reading orders | iPad + server | **Done** — 0.4.13 | — |
+| 1 | Offline downloads | iPad | **Next** | 1–2 weeks |
+| 2 | Library management from the iPad | iPad + server | Planned | 1 week |
 | 5 | 0.4.12 — Offline shelf and cover cache | Server | Planned | 1–2 weeks |
 | 6 | 0.4.13 — Sync API hardening | Both | Planned | 2–3 weeks |
 | 7 | 0.4.14 — Storylines and advanced library editing | Server and web | Planned | 3–5 weeks |
