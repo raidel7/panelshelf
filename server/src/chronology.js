@@ -206,7 +206,18 @@ function orderNumber(node) {
   return index >= 0 ? index + 1 : null;
 }
 
-function summarize(node) {
+// The browser's rule, and it is about honesty rather than convenience: a source
+// or a publisher is a container, not a step in the timeline, and setting aside
+// an empty branch would say something about nothing.
+function canSkip(node) {
+  return (
+    node.comics.length > 0 &&
+    !["root", "source", "publisher"].includes(node.role)
+  );
+}
+
+function summarize(node, skips, inherited = false) {
+  const skipped = skips.has(node.id);
   return {
     id: node.id,
     name: node.name,
@@ -218,8 +229,21 @@ function summarize(node) {
     childCount: node.children.length,
     // Whatever a reader would reach first inside this branch, so a collection
     // card has a cover without the client fetching the branch to find one.
-    coverComicId: node.comics[0]?.id || null
+    coverComicId: node.comics[0]?.id || null,
+    skipped,
+    // Skipping a parent applies to everything under it, so a child says why it
+    // is set aside: its own choice, or one made further up. A client showing
+    // both the same way would offer to restore a branch that would stay hidden.
+    inheritedSkip: inherited,
+    canSkip: canSkip(node)
   };
+}
+
+function skippedByAncestor(node, skips) {
+  for (let current = node.parent; current; current = current.parent) {
+    if (skips.has(current.id)) return true;
+  }
+  return false;
 }
 
 function breadcrumbs(node) {
@@ -232,19 +256,23 @@ function breadcrumbs(node) {
 
 /// One screen of the chronology: where you are, how you got there, what is
 /// below you, and the comics filed at this level rather than deeper.
-function chronologyView(tree, nodeId, projectComic) {
+function chronologyView(tree, nodeId, projectComic, skippedIds = []) {
   const node = tree.byId.get(nodeId || ROOT_ID);
   if (!node) return null;
+  const skips = skippedIds instanceof Set ? skippedIds : new Set(skippedIds);
+  const inherited = skippedByAncestor(node, skips);
+  const childInherited = inherited || skips.has(node.id);
   return {
-    node: summarize(node),
+    node: summarize(node, skips, inherited),
     breadcrumbs: breadcrumbs(node),
-    children: node.children.map(summarize),
+    children: node.children.map((child) => summarize(child, skips, childInherited)),
     comics: node.directComics.map(projectComic)
   };
 }
 
 module.exports = {
   CHRONOLOGY_PROFILES,
+  canSkip,
   ROOT_ID,
   buildChronology,
   chronologyView,

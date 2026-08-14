@@ -473,6 +473,19 @@ async function startServer() {
         return sendJson(response, 200, comics.map(project));
       }
 
+      // Which chronology branches the reader has set aside. Server-owned like
+      // reading progress: a branch hidden in the browser is hidden on the iPad.
+      if (request.method === "GET" && pathname === "/api/skips") {
+        return sendJson(response, 200, library.listSkips());
+      }
+
+      // Deliberate, and with nothing to reconcile: the set is the whole state,
+      // and adding a branch twice is the same as adding it once.
+      if (request.method === "POST" && pathname === "/api/skips") {
+        const body = await readJsonBody(request, MAX_BACKUP_BODY);
+        return sendJson(response, 200, await library.applySkips(body));
+      }
+
       // One screen of the chronology: where you are, how you got there, the
       // collections below you and the comics filed at this level. The browser
       // builds this itself from the full library; a client on the compact

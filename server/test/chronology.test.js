@@ -78,8 +78,13 @@ function library() {
   ];
 }
 
-const view = (comics, nodeId) =>
-  chronologyView(buildChronology(comics), nodeId, (c) => ({ id: c.id, title: c.title }));
+const view = (comics, nodeId, skips = []) =>
+  chronologyView(
+    buildChronology(comics),
+    nodeId,
+    (c) => ({ id: c.id, title: c.title }),
+    skips
+  );
 
 test("ranked branches sort by rank, and unranked ones fall in behind them", () => {
   const root = view(library(), null);
@@ -235,4 +240,60 @@ test("a folder's number outranks its name", () => {
     view(comics, source.id).children.map((node) => node.displayName),
     ["Zulu", "Alpha"]
   );
+});
+
+test("a skipped branch says so, and its children say who skipped them", () => {
+  const source = view(library(), null).children[0];
+  const eras = view(library(), source.id).children;
+  const secretWars = eras.find((node) => node.displayName.includes("Secret Wars"));
+
+  const skipped = view(library(), source.id, [secretWars.id]).children.find(
+    (node) => node.id === secretWars.id
+  );
+  assert.equal(skipped.skipped, true);
+  assert.equal(skipped.inheritedSkip, false, "this one was chosen directly");
+
+  // Standing inside it: the node itself is skipped, and nothing above it is.
+  const inside = view(library(), secretWars.id, [secretWars.id]);
+  assert.equal(inside.node.skipped, true);
+  assert.equal(inside.node.inheritedSkip, false);
+
+  // Standing inside a child of it: not chosen here, but hidden all the same.
+  // A client that could not tell the two apart would offer to restore a branch
+  // that would stay hidden anyway.
+  const withChild = [
+    ...library(),
+    comic({
+      id: "c6",
+      title: "Nested",
+      segments: [
+        era("0030", "0030 Secret Wars II"),
+        { name: "Tie-ins", role: "group" }
+      ]
+    })
+  ];
+  const nested = view(withChild, secretWars.id, [secretWars.id]).children[0];
+  assert.equal(nested.displayName, "Tie-ins");
+  assert.equal(nested.skipped, false);
+  assert.equal(nested.inheritedSkip, true);
+});
+
+test("only a branch with comics that is not a container can be set aside", () => {
+  const root = view(library(), null);
+  assert.equal(root.node.canSkip, false, "the root is not a step in a timeline");
+  const source = root.children[0];
+  assert.equal(source.canSkip, false, "nor is a source");
+
+  const eras = view(library(), source.id).children;
+  assert.deepEqual(
+    eras.filter((node) => node.canSkip).map((node) => node.displayName).sort(),
+    ["0001 Rocky Grimm", "0029.1 Daredevil", "0030 Secret Wars II", "Anita Blake Universe", "Unfiled"].sort(),
+    "every branch that holds comics can be"
+  );
+});
+
+test("skips that name branches this library does not have are ignored", () => {
+  const source = view(library(), null, ["chronology/source:gone/folder:x"]).children[0];
+  assert.equal(source.skipped, false);
+  assert.equal(source.inheritedSkip, false);
 });

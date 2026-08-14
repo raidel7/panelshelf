@@ -48,6 +48,7 @@ const {
   roleForFolder
 } = require("./structure");
 const { buildChronology, chronologyView } = require("./chronology");
+const { SkipStore } = require("./skips");
 
 const COMIC_EXTENSIONS = new Set([".cbr", ".cbz"]);
 const CONFIG_SCHEMA_VERSION = 2;
@@ -457,6 +458,7 @@ class ComicLibrary {
     });
     this.metadataOverrides = new MetadataOverrideStore(dataDirectory);
     this.progress = new ProgressStore(dataDirectory);
+    this.skips = new SkipStore(dataDirectory);
     this.bulkMetadata = new BulkMetadataMatcher(dataDirectory, {
       search: (input) => this.enrichment.search(input),
       confirm: (comicId, provider, recordId) =>
@@ -474,6 +476,7 @@ class ComicLibrary {
     await this.enrichment.initialize();
     await this.metadataOverrides.initialize();
     await this.progress.initialize();
+    await this.skips.initialize();
     const storedConfig = await readJson(this.configPath, defaultConfig());
     const migratedConfig = migrateConfig(storedConfig);
     this.config = migratedConfig.config;
@@ -536,8 +539,11 @@ class ComicLibrary {
     if (!this.chronologyTree) {
       this.chronologyTree = buildChronology(this.comics);
     }
-    return chronologyView(this.chronologyTree, nodeId, (comic) =>
-      this.compactComic(comic)
+    return chronologyView(
+      this.chronologyTree,
+      nodeId,
+      (comic) => this.compactComic(comic),
+      this.skips.list().nodeIds
     );
   }
 
@@ -643,7 +649,13 @@ class ComicLibrary {
         // caller's browserState. Any progress the caller sends is ignored.
         browser: normalizeBrowserState({
           ...browserState,
-          progress: this.progress.exportData()
+          progress: this.progress.exportData(),
+          // Skipped branches are server-owned too, so the caller's copy is
+          // ignored the same way its progress is.
+          chronologyPreferences: {
+            ...(browserState?.chronologyPreferences || {}),
+            skippedNodeIds: this.skips.exportData()
+          }
         })
       }
     };
@@ -679,7 +691,8 @@ class ComicLibrary {
       readingOrders: this.readingOrders.exportData(),
       metadataMatches: this.enrichment.exportMatches(),
       metadataOverrides: this.metadataOverrides.exportData(),
-      progress: this.progress.exportData()
+      progress: this.progress.exportData(),
+      skips: this.skips.exportData()
     };
     try {
       this.config = backup.data.config;
@@ -688,6 +701,9 @@ class ComicLibrary {
       await this.enrichment.restoreMatches(backup.data.metadataMatches);
       await this.metadataOverrides.restoreData(backup.data.metadataOverrides);
       await this.progress.restoreData(backup.data.browser.progress);
+      await this.skips.restoreData(
+        backup.data.browser.chronologyPreferences.skippedNodeIds
+      );
     } catch (error) {
       this.config = previous.config;
       await atomicWriteJson(this.configPath, this.config).catch(() => {});
@@ -695,6 +711,7 @@ class ComicLibrary {
       await this.enrichment.restoreMatches(previous.metadataMatches).catch(() => {});
       await this.metadataOverrides.restoreData(previous.metadataOverrides).catch(() => {});
       await this.progress.restoreData(previous.progress).catch(() => {});
+      await this.skips.restoreData(previous.skips).catch(() => {});
       throw error;
     }
     // The restored config may name a different set of sources than the index
@@ -982,6 +999,14 @@ class ComicLibrary {
 
   async mergeProgress(input) {
     return this.progress.merge(input);
+  }
+
+  listSkips() {
+    return this.skips.list();
+  }
+
+  async applySkips(input) {
+    return this.skips.apply(input);
   }
 
   async applyProgressBatch(input) {

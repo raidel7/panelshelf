@@ -2,6 +2,7 @@
 
 const PROGRESS_STORAGE_KEY = "panelshelf.progress.v1";
 const PROGRESS_MIGRATED_KEY = "panelshelf.progress.migrated.v1";
+const SKIPS_MIGRATED_KEY = "panelshelf.skips.migrated.v1";
 const READER_STORAGE_KEY = "panelshelf.reader.v1";
 const LIBRARY_VIEW_STORAGE_KEY = "panelshelf.libraryView.v1";
 const CHRONOLOGY_PREFERENCES_STORAGE_KEY =
@@ -1761,6 +1762,58 @@ function localRecordIsNewer(localRecord, remoteRecord) {
   return localAt > remoteAt;
 }
 
+function readSkipsMigrated() {
+  try {
+    return localStorage.getItem(SKIPS_MIGRATED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// In memory as well as in storage, for the same reason the progress flag is: a
+// browser that cannot write localStorage must still migrate once per session.
+let skipsMigrated = readSkipsMigrated();
+
+function markSkipsMigrated() {
+  skipsMigrated = true;
+  try {
+    localStorage.setItem(SKIPS_MIGRATED_KEY, "1");
+  } catch {
+    // Private browsing. The in-memory flag still holds for this session.
+  }
+}
+
+// Skipped branches moved to the server so the iPad sees the same ones. The
+// browser's stored set is handed over once and the server is the owner after
+// that.
+async function loadSkipsFromServer() {
+  try {
+    const local = [...state.skippedChronologyNodeIds];
+    if (!skipsMigrated && local.length > 0) {
+      const response = await fetch("/api/skips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ add: local })
+      });
+      if (!response.ok) throw new Error("Skip migration failed.");
+    }
+    const response = await fetch("/api/skips");
+    if (!response.ok) throw new Error("Skipped collections are unavailable.");
+    const remote = await response.json();
+    state.skippedChronologyNodeIds = new Set(
+      Array.isArray(remote.nodeIds) ? remote.nodeIds : []
+    );
+    // Marked after a successful read, not inside the branch above: a browser
+    // whose stored set is empty would otherwise never be marked, and would
+    // re-migrate whatever it had cached on some later load.
+    markSkipsMigrated();
+    persistChronologyPreferences();
+  } catch (error) {
+    // The chronology still browses; skipped branches simply do not hide.
+    console.warn(error);
+  }
+}
+
 async function loadProgressFromServer() {
   // Seeded and registered before the first await: a batch already in flight,
   // or one sent while the flush or the migration below is still running, raced
@@ -3370,13 +3423,35 @@ function isChronologyNodeSkipped(node) {
 
 function toggleChronologyNodeSkipped(node) {
   if (!canSkipChronologyNode(node) || skippedChronologyAncestor(node)) return;
-  if (isChronologyNodeExplicitlySkipped(node)) {
-    state.skippedChronologyNodeIds.delete(node.id);
-  } else {
+  const skipping = !isChronologyNodeExplicitlySkipped(node);
+  if (skipping) {
     state.skippedChronologyNodeIds.add(node.id);
+  } else {
+    state.skippedChronologyNodeIds.delete(node.id);
   }
   persistChronologyPreferences();
   renderComics();
+  // The shelf redraws first and the write follows: skipping a branch is a
+  // local decision that must not wait for the NAS.
+  fetch("/api/skips", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      skipping ? { add: [node.id] } : { remove: [node.id] }
+    )
+  })
+    .then((response) => {
+      if (response.ok) return;
+      throw new Error("The server did not record that.");
+    })
+    .catch(() => {
+      // Put it back rather than leave the two sides disagreeing silently.
+      if (skipping) state.skippedChronologyNodeIds.delete(node.id);
+      else state.skippedChronologyNodeIds.add(node.id);
+      persistChronologyPreferences();
+      renderComics();
+      showToast("That collection could not be updated on the server.");
+    });
 }
 
 function renderChronologySkipFilter(tree) {
@@ -4840,6 +4915,7 @@ async function refresh() {
   state.metadataSettings = metadataSettings;
   state.bulkMetadata = bulkMetadata;
   await loadProgressFromServer();
+  await loadSkipsFromServer();
   state.scanIssues = [
     ...(scanState.errors || []),
     ...(scanState.warnings || [])

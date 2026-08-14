@@ -516,6 +516,19 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   });
   assert.equal(response.status, 200, logs);
 
+  // Skipped branches are server-owned now, like progress: the export reads them
+  // from the store and ignores whatever the caller sends. Record one first, and
+  // send a different one below to prove the caller's copy is not what is kept.
+  response = await fetch(`${base}/api/skips`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ add: ["chronology/source:demo/folder:kept"] })
+  });
+  assert.equal(response.status, 200, logs);
+  assert.deepEqual((await response.json()).nodeIds, [
+    "chronology/source:demo/folder:kept"
+  ]);
+
   response = await fetch(`${base}/api/backup/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -548,6 +561,11 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
   assert.equal(Object.keys(backup.data.metadataOverrides).length, 1);
   assert.equal(backup.data.browser.libraryView, "chronological");
   assert.equal(backup.data.browser.chronologyPreferences.layout, "timeline");
+  assert.deepEqual(
+    backup.data.browser.chronologyPreferences.skippedNodeIds,
+    ["chronology/source:demo/folder:kept"],
+    "the store's set is exported, not the caller's"
+  );
   assert.doesNotMatch(
     JSON.stringify(backup),
     /server-test-secret|backup-must-not-contain-this-token/
@@ -580,6 +598,27 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
     restoredBackup.browser.chronologyPreferences.layout,
     "timeline"
   );
+  // A restore puts the backup's skipped branches back into the store, so a
+  // backup taken before they moved off the browser is not silently dropped.
+  assert.deepEqual((await (await fetch(`${base}/api/skips`)).json()).nodeIds, [
+    "chronology/source:demo/folder:kept"
+  ]);
+
+  // And a restore replaces the set rather than merging into it.
+  await fetch(`${base}/api/skips`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ add: ["chronology/source:demo/folder:added-later"] })
+  });
+  response = await fetch(`${base}/api/backup/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(backup)
+  });
+  assert.equal(response.status, 200, logs);
+  assert.deepEqual((await (await fetch(`${base}/api/skips`)).json()).nodeIds, [
+    "chronology/source:demo/folder:kept"
+  ]);
 
   response = await fetch(`${base}/api/comics/${comics[0].id}/metadata/override`, {
     method: "DELETE"
