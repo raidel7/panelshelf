@@ -1,3 +1,33 @@
+# PanelShelf 0.4.14-1035
+
+A crash fix. Install this one.
+
+## One bad request could stop the server
+
+- Asking for the file of a comic that is not in the index — a stale link, a
+  bookmark to a comic removed by a scan, a client retrying after a rescan —
+  stopped PanelShelf completely. Not that one request: the whole server, for
+  everybody, until it was started again from Package Center.
+- The route reported "comic not found" by raising an error, and the way it was
+  written that error escaped the request handler instead of becoming a 404.
+  Node ends the process when nothing handles an error like that.
+- It now answers 404 and carries on serving.
+- This has been present since OPDS shipped in 0.3.9, on
+  `/opds/comics/<id>/file`. It was found by asking for a comic id that does not
+  exist, which is exactly what a stale reader app does.
+
+## Downloading a comic has a first-party address
+
+- `GET /api/comics/<id>/file` serves the archive, with byte ranges and HEAD, so
+  an app can download a comic to read offline and resume an interrupted
+  transfer. It is the same file OPDS already served, under a path that does not
+  require reaching into the catalogue namespace.
+
+## Validation
+
+- 181 server tests pass, including one that asks both file routes for a comic
+  that does not exist and then checks the server is still answering.
+
 # PanelShelf 0.4.13-1034
 
 Everything the iPad app needs to browse your library the way the web viewer

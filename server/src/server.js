@@ -10,7 +10,7 @@ const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
 
-const VERSION = "0.4.13";
+const VERSION = "0.4.14";
 const HOST = process.env.PANELSHELF_HOST || "0.0.0.0";
 const PORT = Number(process.env.PANELSHELF_PORT || 8251);
 const DATA_DIRECTORY =
@@ -527,6 +527,34 @@ async function startServer() {
         }
       }
 
+      // The archive itself, for a client that downloads comics to read them
+      // offline. Byte ranges and all, because a 4 GB comic on a phone network
+      // has to be able to resume.
+      //
+      // The same file OPDS serves, under a first-party path: an app should not
+      // have to reach into the catalogue namespace to fetch what it is already
+      // authorized to read.
+      const comicFileMatch = pathname.match(
+        /^\/api\/comics\/([a-f0-9]{24})\/file$/
+      );
+      if (
+        (request.method === "GET" || request.method === "HEAD") &&
+        comicFileMatch
+      ) {
+        // `return await`, not `return`: returning a promise from inside a try
+        // does not route its rejection to the catch below. Asking for a comic
+        // that is not in the index throws NOT_FOUND, and without the await that
+        // rejection escaped the handler entirely — no response was ever
+        // written, and Node terminated the process on the unhandled rejection.
+        // One request for an unknown id took the whole server down.
+        return await serveComicArchive(
+          request,
+          response,
+          library,
+          comicFileMatch[1]
+        );
+      }
+
       const opdsComicMatch = pathname.match(
         /^\/opds\/comics\/([a-f0-9]{24})\/file$/
       );
@@ -534,7 +562,9 @@ async function startServer() {
         (request.method === "GET" || request.method === "HEAD") &&
         opdsComicMatch
       ) {
-        return serveComicArchive(
+        // Awaited for the reason above: this route has had the same hole
+        // since OPDS shipped in 0.3.9.
+        return await serveComicArchive(
           request,
           response,
           library,

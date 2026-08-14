@@ -733,3 +733,92 @@ test("the chronology is browsable one node at a time", async (t) => {
   assert.equal(response.status, 404, state.logs);
   assert.equal((await response.json()).error.code, "NOT_FOUND");
 });
+
+test("the archive is downloadable over a first-party path, with ranges", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+  const archive = zipBuffer([
+    { name: "001.png", data: ONE_PIXEL_PNG },
+    { name: "002.png", data: ONE_PIXEL_PNG }
+  ]);
+  await fsp.writeFile(path.join(comicsDirectory, "Downloadable.cbz"), archive);
+
+  let response = await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  assert.equal(response.status, 200, state.logs);
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  const comics = await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+  const id = comics[0].id;
+
+  // The whole file, byte for byte — this is what gets read offline, so a
+  // truncated or re-encoded copy would be a comic that opens to nothing.
+  response = await fetch(`${base}/api/comics/${id}/file`);
+  assert.equal(response.status, 200, state.logs);
+  assert.equal(response.headers.get("accept-ranges"), "bytes");
+  const downloaded = Buffer.from(await response.arrayBuffer());
+  assert.deepEqual(downloaded, archive, "the archive arrives unchanged");
+
+  // A HEAD tells a client how big the download is before it starts.
+  response = await fetch(`${base}/api/comics/${id}/file`, { method: "HEAD" });
+  assert.equal(response.status, 200, state.logs);
+  assert.equal(Number(response.headers.get("content-length")), archive.length);
+
+  // Ranges, so an interrupted download of a 4 GB comic can resume rather than
+  // start again.
+  response = await fetch(`${base}/api/comics/${id}/file`, {
+    headers: { Range: `bytes=10-19` }
+  });
+  assert.equal(response.status, 206, state.logs);
+  assert.equal(
+    response.headers.get("content-range"),
+    `bytes 10-19/${archive.length}`
+  );
+  assert.deepEqual(
+    Buffer.from(await response.arrayBuffer()),
+    archive.subarray(10, 20)
+  );
+
+  // An open-ended range is what a resume actually sends.
+  response = await fetch(`${base}/api/comics/${id}/file`, {
+    headers: { Range: `bytes=${archive.length - 5}-` }
+  });
+  assert.equal(response.status, 206, state.logs);
+  assert.deepEqual(
+    Buffer.from(await response.arrayBuffer()),
+    archive.subarray(archive.length - 5)
+  );
+
+  // A nonsense range is refused rather than answered with the whole file.
+  response = await fetch(`${base}/api/comics/${id}/file`, {
+    headers: { Range: "bytes=99999999-" }
+  });
+  assert.equal(response.status, 416, state.logs);
+
+  // And an id that is not a comic is a 404, not a path traversal.
+  response = await fetch(`${base}/api/comics/${"f".repeat(24)}/file`);
+  assert.equal(response.status, 404, state.logs);
+});
+
+test("asking for a comic file that does not exist answers rather than dying", async (t) => {
+  // This took the whole server down. `serveComicArchive` throws NOT_FOUND for
+  // an unknown id, and the route returned its promise from inside a try —
+  // which does not route a rejection to the catch. Nothing answered the
+  // request, Node saw an unhandled rejection, and the process exited: one
+  // request for an id that is not in the index stopped PanelShelf for
+  // everybody. The OPDS route has had the same hole since 0.3.9.
+  const { base, state } = await startServer(t);
+  const missing = "f".repeat(24);
+
+  for (const path of [`/api/comics/${missing}/file`, `/opds/comics/${missing}/file`]) {
+    const response = await fetch(`${base}${path}`);
+    assert.equal(response.status, 404, `${path}: ${state.logs}`);
+    assert.equal((await response.json()).error.code, "NOT_FOUND");
+  }
+
+  // Still serving afterwards, which is the whole point.
+  const health = await fetch(`${base}/api/health`);
+  assert.equal(health.status, 200, state.logs);
+  assert.equal((await health.json()).status, "ok");
+});
