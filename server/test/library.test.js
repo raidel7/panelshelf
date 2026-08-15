@@ -441,7 +441,7 @@ test("malformed ComicInfo is a durable warning and does not drop the comic", asy
   assert.equal(reloaded.getScanState().warnings.length, 1);
 });
 
-test("scan opens a ZIP mislabeled as CBR and reports a warning", async (t) => {
+test("scan opens a ZIP mislabeled as CBR without complaining about it", async (t) => {
   const directory = await fsp.mkdtemp(
     path.join(os.tmpdir(), "panelshelf-extension-mismatch-")
   );
@@ -463,7 +463,10 @@ test("scan opens a ZIP mislabeled as CBR and reports a warning", async (t) => {
   await library.saveConfig([source]);
   const scan = await library.scan({ action: "full" });
   assert.equal(scan.errors.length, 0);
-  assert.equal(scan.warnings[0].code, "ARCHIVE_EXTENSION_MISMATCH");
+  // Comics are misnamed constantly — a real library turned up 120 of them in
+  // 24,839 files. PanelShelf reads the archive by its contents and opens every
+  // one of them, so saying so is noise in a list meant for real problems.
+  assert.deepEqual(scan.warnings, []);
   assert.equal(library.listComics()[0].format, "cbz");
   assert.equal(library.listComics()[0].pageCount, 1);
 });

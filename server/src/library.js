@@ -1215,15 +1215,13 @@ class ComicLibrary {
             pageCount = inspection.pages.length;
             detectedFormat = inspection.format || detectedFormat;
             metadataEntry = inspection.comicInfoName || null;
-            if (inspection.extensionMismatch) {
-              addWarning(filePath, {
-                code: "ARCHIVE_EXTENSION_MISMATCH",
-                message:
-                  `The file extension indicates ${archiveType(filePath).toUpperCase()}, ` +
-                  `but its contents are ${detectedFormat.toUpperCase()}. ` +
-                  "PanelShelf opened it using the detected format."
-              });
-            }
+            // A misnamed extension is not a problem to report. Archives are
+            // opened by their contents, not their name, so a CBZ called .cbr
+            // reads exactly as well as one called .cbz — and comics are misnamed
+            // constantly: one real library had 120 of them in 24,839 files.
+            // Listing them buried the handful of files that genuinely would not
+            // open. `inspection.extensionMismatch` still reports the mismatch
+            // for anything that wants to offer a rename.
             if (inspection.comicInfoError) {
               addWarning(
                 filePath,
