@@ -471,6 +471,65 @@ test("scan opens a ZIP mislabeled as CBR without complaining about it", async (t
   assert.equal(library.listComics()[0].pageCount, 1);
 });
 
+test("clearing scan issues empties the report without touching the library", async (t) => {
+  const directory = await fsp.mkdtemp(
+    path.join(os.tmpdir(), "panelshelf-clear-issues-")
+  );
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "Comics");
+  const dataDirectory = path.join(directory, "data");
+  await fsp.mkdir(source, { recursive: true });
+  await fsp.writeFile(
+    path.join(source, "Damaged.cbz"),
+    Buffer.from("this is not an archive")
+  );
+  await fsp.writeFile(
+    path.join(source, "Fine.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const library = new ComicLibrary(dataDirectory);
+  await library.initialize();
+  await library.saveConfig([source]);
+  const scan = await library.scan({ action: "full" });
+  assert.equal(scan.errors.length, 1);
+
+  const cleared = await library.clearScanIssues();
+  assert.deepEqual(cleared.errors, []);
+  assert.deepEqual(cleared.warnings, []);
+  // Clearing dismisses the report, not the library: the file that would not
+  // open is still indexed, so a later scan can find it again.
+  assert.equal(library.listComics().length, 2);
+
+  const reloaded = new ComicLibrary(dataDirectory);
+  await reloaded.initialize();
+  assert.deepEqual(reloaded.getScanState().errors, []);
+  assert.equal(reloaded.listComics().length, 2);
+});
+
+test("scan issues cannot be cleared while a scan is running", async (t) => {
+  const directory = await fsp.mkdtemp(
+    path.join(os.tmpdir(), "panelshelf-clear-running-")
+  );
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+  library.scanState.running = true;
+  library.scanState.errors = [{ path: "/x.cbz", code: "DAMAGED_ARCHIVE", message: "bad" }];
+  await assert.rejects(
+    () => library.clearScanIssues(),
+    (error) => error.code === "SCAN_RUNNING"
+  );
+  // A scan in flight is still writing the report, so nothing was thrown away.
+  assert.equal(library.getScanState().errors.length, 1);
+});
+
 test("a previously configured disconnected source remains saved", async (t) => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-offline-"));
   t.after(() => fsp.rm(directory, { recursive: true, force: true }));

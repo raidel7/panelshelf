@@ -1363,6 +1363,11 @@ h2 {
   line-height: 1.5;
 }
 
+.issues-dialog .dialog-footer > div {
+  display: flex;
+  gap: 8px;
+}
+
 .issue-list {
   display: grid;
   margin-top: 20px;

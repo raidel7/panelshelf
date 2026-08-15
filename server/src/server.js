@@ -404,6 +404,10 @@ async function startServer() {
         return sendJson(response, 200, library.getScanState());
       }
 
+      if (request.method === "DELETE" && pathname === "/api/scan/issues") {
+        return sendJson(response, 200, await library.clearScanIssues());
+      }
+
       if (request.method === "GET" && pathname === "/api/progress") {
         return sendJson(response, 200, library.listProgress());
       }

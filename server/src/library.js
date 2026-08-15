@@ -1418,6 +1418,25 @@ class ComicLibrary {
     };
   }
 
+  // A report that cannot be dismissed stops being read. Some issues are not
+  // going to be fixed — a handful of damaged files in a library of thousands —
+  // and leaving them on screen forever means the next real problem arrives in a
+  // list nobody looks at any more. Clearing empties the report and nothing else:
+  // the comics that failed to open stay indexed, and the next scan reports them
+  // again if they are still broken.
+  async clearScanIssues() {
+    if (this.scanState.running) {
+      throw jsonError(
+        "A library scan is running. Wait for it to finish.",
+        "SCAN_RUNNING"
+      );
+    }
+    this.scanState.errors = [];
+    this.scanState.warnings = [];
+    await atomicWriteJson(this.scanReportPath, this.scanState);
+    return this.getScanState();
+  }
+
   async pagesForComic(comic) {
     const cached = this.pageCache.get(comic.id);
     if (

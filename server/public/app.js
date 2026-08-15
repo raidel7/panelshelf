@@ -305,6 +305,7 @@ const elements = {
   issuesSummary: document.querySelector("#issuesSummary"),
   issueList: document.querySelector("#issueList"),
   issuesSettingsButton: document.querySelector("#issuesSettingsButton"),
+  clearIssuesButton: document.querySelector("#clearIssuesButton"),
   permissionDialog: document.querySelector("#permissionDialog"),
   permissionShare: document.querySelector("#permissionShare"),
   permissionShareStep: document.querySelector("#permissionShareStep"),
@@ -6201,6 +6202,26 @@ elements.confirmComicPickerButton.addEventListener("click", () => {
 elements.issuesSettingsButton.addEventListener("click", () => {
   elements.issuesDialog.close();
   openSettings();
+});
+// The server owns the report, so clearing goes there rather than emptying the
+// list locally: every browser and the iPad see the same scan, and a page reload
+// would bring a locally hidden one straight back.
+elements.clearIssuesButton.addEventListener("click", async () => {
+  elements.clearIssuesButton.disabled = true;
+  try {
+    const scanState = await api("/api/scan/issues", { method: "DELETE" });
+    state.scanIssues = [
+      ...(scanState.errors || []),
+      ...(scanState.warnings || [])
+    ];
+    renderScanIssues();
+    elements.issuesDialog.close();
+    showToast("Scan issues cleared.");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    elements.clearIssuesButton.disabled = false;
+  }
 });
 elements.openDsmPermissionsButton.addEventListener("click", () => {
   window.open(dsmPermissionsUrl(), "_blank", "noopener");
