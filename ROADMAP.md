@@ -92,6 +92,14 @@ The current build provides:
 | 0.4.11 / 1032 | Windowed shelf rendering and a preview that no longer blanks |
 | 0.4.12 / 1033 | Arrival dates with `sort=added`, and progress deletions that reconcile |
 | 0.4.13 / 1034 | Server-owned skipped collections, the chronology route, and imprint parents |
+| 0.4.14 / 1035 | A request for a comic outside the index no longer stops the server |
+| 0.4.14 / 1036 | A page turn stopped repainting every cover the shelf had drawn |
+
+Unreleased on `main`: misnamed archive extensions are no longer reported as
+scan warnings, the scan-issue report can be cleared from the browser, and the
+iPad's cover grids line up along a row. The 0.4.14 heading covers 1035 and 1036
+as point fixes; the storyline and library-editing scope filed under 0.4.14 in
+section 7 has not been started.
 
 ### iPad app
 
@@ -116,10 +124,15 @@ working:
 - Publishers, grouped by canonical publisher with imprints named
 - Reading orders, automatic and manual, opened into a numbered shelf
 - A sidebar that reopens on the section it was left in
+- Offline downloads: a queue with per-comic state, cancel and remove, archives
+  stored outside the backup set, a Downloads sidebar item, and a local CBZ/CBR
+  reader
+- Signed for App Store Connect as `com.example.panelshelf`, with an app icon
+  and an export-compliance declaration, so the app can be archived and uploaded
 
-At parity with the web viewer for browsing and reading. Not built yet: offline
-downloads, and library management — scanning, sources, and metadata editing,
-which are still browser-only.
+At parity with the web viewer for browsing and reading. Not built yet: library
+management — scanning, sources, and metadata editing, which are still
+browser-only.
 
 The timeline visualization from 0.4.2 — the focused carousel with its numbered
 rail — is deliberately not reproduced; the app shows a branch's year range on
@@ -128,9 +141,13 @@ its card instead.
 ### Known gaps in the foundation
 
 - No user accounts, OPDS authentication, or device tokens.
-- A cover cannot be served while its source is unavailable: `cover()` opens the
-  archive to enumerate pages before it consults the cache, so a sleeping USB
-  disk empties the shelf visually even though the covers are on disk.
+- A cover cannot be served while its source is unavailable: `cover()` awaits
+  `pagesForComic` at `library.js:1471`, before it consults the thumbnail cache
+  at 1478, so a sleeping USB disk empties the shelf visually even though the
+  covers are on disk. The archive is opened only to read the first page's
+  extension for the full-size cache path — which the thumbnail branch does not
+  use, since thumbnails have a fixed extension. Hoisting the cache check above
+  that call fixes the thumbnail case outright.
 - Thumbnails are generated on first request, on NAS CPU, and there is no way to
   warm them deliberately or to see what the cache costs.
 - The web viewer still downloads the full library listing, because it needs
@@ -652,7 +669,11 @@ route that returns the most recent N comics.
 - A library with no progress shows an inviting Home, not an error.
 - Home does not fetch covers the grid has already cached.
 
-## 3. Offline downloads — iPad
+## Done: Offline downloads — iPad
+
+Delivered by `DownloadStore` and `DownloadsView`, covered by
+`DownloadStoreTests`. Storage accounting and a deliberate eviction path are the
+parts of the scope below that were not built.
 
 ### Goal
 
@@ -862,8 +883,19 @@ The iPad client is developed and released separately from the server.
 
 dependency.
 
+### Done
+
+- Signed for App Store Connect as `com.example.panelshelf` against team
+  REDACTED, automatic provisioning, with the simulator exempted so CI keeps
+  building without certificates.
+- `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` moved into build settings,
+  where a bump survives `xcodegen generate`.
+- An asset catalog and app icon, and an `ITSAppUsesNonExemptEncryption`
+  declaration so export compliance is answered in the build.
+
 ### Scope
 
+- Replace the placeholder icon with final artwork.
 - iPhone layouts, if the shared components survive the width.
 - Secure pairing on top of 0.4.13 device tokens.
 - Background refresh and graceful handling of an unreachable NAS.
@@ -992,6 +1024,10 @@ preservation, and read-only behavior—not only the number of files found.
 | 0.4.9 / 1030 | Compact library listing and per-comic detail route |
 | 0.4.10 / 1031 | Grid-sized cover thumbnails |
 | 0.4.11 / 1032 | Windowed shelf rendering and stable collection previews |
+| 0.4.12 / 1033 | Arrival dates with `sort=added`, and progress deletions that reconcile |
+| 0.4.13 / 1034 | Server-owned skipped collections, the chronology route, and imprint parents |
+| 0.4.14 / 1035 | A request for a comic outside the index no longer stops the server |
+| 0.4.14 / 1036 | A page turn stopped repainting every cover the shelf had drawn |
 
 ## Cross-cutting quality rules
 
