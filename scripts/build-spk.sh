@@ -85,25 +85,35 @@ cp "${PROJECT_DIR}/THIRD_PARTY_NOTICES.md" "${PAYLOAD_DIR}/licenses/"
 cp -a "${PROJECT_DIR}/synology/port_conf/." "${PAYLOAD_DIR}/port_conf/"
 cp -a "${PROJECT_DIR}/synology/ui/." "${PAYLOAD_DIR}/ui/"
 
-ICON_SOURCE="${BUILD_DIR}/panelshelf-icon-master.png"
-convert -size 256x256 xc:none \
-  -fill "#211d2b" -stroke none \
-  -draw "roundrectangle 0,0 255,255 68,68" \
-  -fill "#907cf3" \
-  -draw "roundrectangle 60,48 202,208 18,18" \
-  -fill none -stroke "#f7f4ff" -strokewidth 12 \
-  -draw "line 82,50 82,206 line 101,82 174,82 line 101,108 154,108" \
-  -stroke "#fff0a9" -strokewidth 12 \
-  -draw "polyline 150,158 164,172 194,137" \
-  "${ICON_SOURCE}"
+# The icon was drawn here from ImageMagick primitives; it is now real artwork,
+# shared with the iPad app, committed at `assets/panelshelf-icon.png`.
+#
+# DSM does not mask package icons the way iOS does, so the rounded corners have
+# to be in the file and the area outside them has to be genuinely transparent.
+# Rounding at each final size rather than shrinking one pre-rounded master keeps
+# the corner crisp at 16px, where a resampled curve turns to mush.
+#
+# `-compose CopyOpacity` and not the shorter `DstIn` form: DstIn silently
+# produced an opaque black corner instead of a transparent one. `convert` and
+# not `magick`: ImageMagick 6 has no `magick` binary, and the runner's version
+# is not pinned.
+ICON_MASTER="${PROJECT_DIR}/assets/panelshelf-icon.png"
+
+round_icon() {
+  local size="$1"
+  local out="$2"
+  local radius=$(( (size * 27 + 50) / 100 ))
+  convert "${ICON_MASTER}" -resize "${size}x${size}" \
+    \( -size "${size}x${size}" xc:none -fill white \
+       -draw "roundrectangle 0,0 $((size - 1)),$((size - 1)) ${radius},${radius}" \) \
+    -alpha Off -compose CopyOpacity -composite "${out}"
+}
+
 for size in 16 24 32 48 64 72 256; do
-  convert "${ICON_SOURCE}" -resize "${size}x${size}" \
-    "${PAYLOAD_DIR}/ui/images/panelshelf_${size}.png"
+  round_icon "${size}" "${PAYLOAD_DIR}/ui/images/panelshelf_${size}.png"
 done
-convert "${ICON_SOURCE}" -resize 64x64 \
-  "${OUTER_DIR}/PACKAGE_ICON.PNG"
-convert "${ICON_SOURCE}" -resize 256x256 \
-  "${OUTER_DIR}/PACKAGE_ICON_256.PNG"
+round_icon 64 "${OUTER_DIR}/PACKAGE_ICON.PNG"
+round_icon 256 "${OUTER_DIR}/PACKAGE_ICON_256.PNG"
 
 sed \
   -e "s/__VERSION__/${VERSION}/g" \
