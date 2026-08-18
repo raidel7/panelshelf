@@ -245,3 +245,81 @@ test("the cover endpoint serves a thumbnail only when it is asked for", async (t
   assert.equal(bogus.status, 400);
   assert.equal((await bogus.json()).error.code, "INVALID_SIZE");
 });
+
+// A source can go away while the library stays configured — a USB disk asleep
+// or unplugged, a network share unmounted. The covers are already on the NAS's
+// own disk at that point, so the shelf has no business going grey.
+//
+// `pageCache` is cleared rather than mocked because it is the only thing that
+// would otherwise hide the bug: a process that has already served this comic
+// has its page list in memory and never reaches the archive.
+
+test("a cached thumbnail outlives the archive it came from", async (t) => {
+  const { library, comic } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+
+  const cached = await library.cover(comic.id, { thumbnail: true });
+  assert.equal(cached.thumbnail, true);
+
+  await fsp.rm(comic.path);
+  library.pageCache.clear();
+
+  const served = await library.cover(comic.id, { thumbnail: true });
+  assert.deepEqual(served.buffer, cached.buffer);
+  assert.equal(served.thumbnail, true);
+});
+
+test("a cached full-size cover outlives the archive it came from", async (t) => {
+  const { library, comic } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+
+  const cached = await library.cover(comic.id);
+
+  await fsp.rm(comic.path);
+  library.pageCache.clear();
+
+  const served = await library.cover(comic.id);
+  assert.deepEqual(served.buffer, cached.buffer);
+  assert.equal(served.mime, cached.mime);
+});
+
+test("a thumbnail is still built from a cached cover once the archive is gone", async (t) => {
+  const { library, comic, dataDirectory } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+
+  // Full size only: the thumbnail has never been asked for, so nothing is
+  // cached under `.thumb.jpg` and the shrink has to run against the cover on
+  // disk rather than against the archive.
+  await library.cover(comic.id);
+  await fsp.rm(comic.path);
+  library.pageCache.clear();
+
+  const served = await library.cover(comic.id, { thumbnail: true });
+  assert.equal(served.thumbnail, true);
+  assert.equal(served.mime, "image/jpeg");
+  assert.deepEqual(
+    await fsp.readFile(path.join(dataDirectory, "covers", `${comic.id}.thumb.jpg`)),
+    served.buffer
+  );
+});
+
+test("a cover with nothing cached still reports the missing archive", async (t) => {
+  const { library, comic } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+
+  await fsp.rm(comic.path);
+  library.pageCache.clear();
+
+  // Serving a placeholder here would be worse than failing: the shelf would
+  // look complete while the library was not.
+  await assert.rejects(library.cover(comic.id, { thumbnail: true }));
+  await assert.rejects(library.cover(comic.id));
+});

@@ -19,6 +19,7 @@ const { parseComicInfo } = require("./metadata");
 const { MetadataOverrideStore } = require("./metadata-overrides");
 const { ProgressStore } = require("./progress");
 const {
+  IMAGE_EXTENSIONS,
   cleanTitle,
   comicId,
   fileFingerprint,
@@ -26,6 +27,16 @@ const {
   mimeForName,
   naturalCompare
 } = require("./util");
+
+// The order a cached cover's extension is guessed in when the archive that
+// would name it cannot be opened. Derived from `IMAGE_EXTENSIONS` so it cannot
+// drift, with the two extensions almost every comic page actually uses pulled
+// to the front so the common case costs one `stat` rather than five.
+const COVER_CACHE_EXTENSIONS = [
+  ".jpg",
+  ".png",
+  ...[...IMAGE_EXTENSIONS].filter((entry) => entry !== ".jpg" && entry !== ".png")
+];
 const { ReadingOrderStore } = require("./reading-orders");
 const {
   THUMBNAIL_EXTENSION,
@@ -1468,31 +1479,26 @@ class ComicLibrary {
 
   async cover(id, options = {}) {
     const comic = this.getComic(id);
-    const pages = await this.pagesForComic(comic);
-    if (pages.length === 0) {
-      throw jsonError("No image pages were found in this comic.", "NO_PAGES");
-    }
-    const extension = path.extname(pages[0].name).toLowerCase() || ".jpg";
-    const cachePath = path.join(this.coverDirectory, `${comic.id}${extension}`);
 
+    // Every cache lookup happens before the archive is opened, and that
+    // ordering is the whole point. `pagesForComic` opens the archive, so
+    // reaching it first meant a source that had gone away — a USB disk asleep,
+    // a share unmounted — emptied the shelf visually even though every cover
+    // was sitting on the NAS's own disk. Nothing below needs the archive until
+    // there is genuinely no cached copy to serve.
     if (options.thumbnail) {
       const cached = await this.cachedThumbnail(comic);
       if (cached) return cached;
     }
+    let full = await this.cachedCover(comic);
 
-    let full = null;
-    try {
-      const cached = await fsp.stat(cachePath);
-      if (cached.mtimeMs >= comic.mtimeMs) {
-        full = {
-          buffer: await fsp.readFile(cachePath),
-          mime: mimeForName(cachePath)
-        };
-      }
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
     if (!full) {
+      const pages = await this.pagesForComic(comic);
+      if (pages.length === 0) {
+        throw jsonError("No image pages were found in this comic.", "NO_PAGES");
+      }
+      const extension = path.extname(pages[0].name).toLowerCase() || ".jpg";
+      const cachePath = path.join(this.coverDirectory, `${comic.id}${extension}`);
       const page = await this.page(id, 0);
       await fsp.writeFile(cachePath, page.buffer, { mode: 0o600 });
       const now = new Date();
@@ -1501,6 +1507,33 @@ class ComicLibrary {
     }
     if (!options.thumbnail) return full;
     return (await this.writeThumbnail(comic, full)) || full;
+  }
+
+  // The cached cover keeps the extension of the page it was taken from, and
+  // the only record of that extension is inside the archive — so finding the
+  // file without opening the archive means trying the extensions a page is
+  // allowed to have. The list is derived from `IMAGE_EXTENSIONS` rather than
+  // repeated, so a format added there cannot silently stop being found here.
+  //
+  // This runs only when a thumbnail is not already cached, and it is a handful
+  // of `stat` calls against a request that is otherwise about to open an
+  // archive and decode an image.
+  async cachedCover(comic) {
+    for (const extension of COVER_CACHE_EXTENSIONS) {
+      const cachePath = path.join(this.coverDirectory, `${comic.id}${extension}`);
+      try {
+        const cached = await fsp.stat(cachePath);
+        if (cached.mtimeMs >= comic.mtimeMs) {
+          return {
+            buffer: await fsp.readFile(cachePath),
+            mime: mimeForName(cachePath)
+          };
+        }
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+    return null;
   }
 
   // Thumbnails are generated on first request rather than during a scan. A
