@@ -370,3 +370,24 @@ test("a cover is not reused when the archive changed underneath it", async (t) =
     "serves the archive's current cover, not the one cached before it changed"
   );
 });
+
+test("a comic that leaves the library takes its cached cover with it", async (t) => {
+  const { library, comic, dataDirectory } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+  await library.cover(comic.id, { thumbnail: true });
+
+  const covers = path.join(dataDirectory, "covers");
+  assert.ok((await fsp.readdir(covers)).length > 0, "something was cached");
+
+  await fsp.rm(comic.path);
+  await library.scan();
+
+  assert.deepEqual(library.listComics(), [], "the comic is gone from the index");
+  assert.deepEqual(
+    await fsp.readdir(covers),
+    [],
+    "and its cover files went with it, rather than occupying the NAS forever"
+  );
+});

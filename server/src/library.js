@@ -507,6 +507,7 @@ class ComicLibrary {
     await this.readingOrders.initialize(this.comics);
     if (droppedOrphans) {
       await this.enrichment.reconcile(this.comics);
+      await this.pruneCoverCache();
       await atomicWriteJson(this.indexPath, {
         scannedAt: saved.scannedAt || null,
         comics: this.comics
@@ -634,6 +635,7 @@ class ComicLibrary {
     this.setComics(retained);
     await this.readingOrders.reconcile(this.comics);
     await this.enrichment.reconcile(this.comics);
+    await this.pruneCoverCache();
     this.pageCache.clear();
     await atomicWriteJson(this.indexPath, {
       scannedAt: new Date().toISOString(),
@@ -1405,6 +1407,7 @@ class ComicLibrary {
       this.scanState.foundComics = this.comics.length;
       await this.readingOrders.reconcile(this.comics);
       await this.enrichment.reconcile(this.comics);
+      await this.pruneCoverCache();
       this.pageCache.clear();
       await atomicWriteJson(this.indexPath, {
         scannedAt: new Date().toISOString(),
@@ -1537,6 +1540,17 @@ class ComicLibrary {
     if (entry && (entry.thumbnail || entry.thumbnailUnsupported)) return false;
     await this.cover(comic.id, { thumbnail: true });
     return true;
+  }
+
+  // Cover files are named for their comic, so a comic that is gone leaves files
+  // nothing will ever ask for again. `force` because a file already deleted by
+  // hand is the outcome being aimed at, not an error.
+  async pruneCoverCache() {
+    const orphaned = await this.coverCache.reconcile(this.comics);
+    for (const file of orphaned) {
+      await fsp.rm(path.join(this.coverDirectory, file), { force: true });
+    }
+    return orphaned.length;
   }
 
   coverCacheStatus() {

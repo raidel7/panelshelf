@@ -134,6 +134,24 @@ class CoverCacheStore {
     await this.persist();
   }
 
+  // Drops what belongs to comics the library no longer has, and reports the
+  // files that leaves behind so the caller can delete them. Called wherever the
+  // enrichment store is reconciled, for the same reason: derived state that
+  // outlives its comic is a slow leak, and here it is one the settings panel
+  // would report as occupied disk.
+  async reconcile(comics) {
+    const live = new Set(comics.map((comic) => comic.id));
+    const orphaned = [];
+    for (const [comicId, entry] of this.entries) {
+      if (live.has(comicId)) continue;
+      if (entry.cover) orphaned.push(entry.cover.file);
+      if (entry.thumbnail) orphaned.push(entry.thumbnail.file);
+      this.entries.delete(comicId);
+    }
+    if (orphaned.length > 0) await this.persist();
+    return orphaned;
+  }
+
   // What Library settings reports, so the cache is not an unexplained lump of
   // disk. Sizes are what was written, not a fresh stat of every file.
   stats() {

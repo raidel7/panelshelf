@@ -97,10 +97,13 @@ The current build provides:
 | 0.4.14 / 1036 | A page turn stopped repainting every cover the shelf had drawn |
 
 Unreleased on `main`: misnamed archive extensions are no longer reported as
-scan warnings, the scan-issue report can be cleared from the browser, and a
-cached cover is served even when its source archive has gone away. The 0.4.14
-heading covers 1035 and 1036 as point fixes; the storyline and library-editing
-scope filed under 0.4.17 in section 7 has not been started.
+scan warnings, the scan-issue report can be cleared from the browser, and all of
+0.4.15 — the cover cache now records what it holds and what each entry was built
+from, invalidates on the archive's content fingerprint rather than its mtime,
+can be warmed in one deliberate pass, reports what it costs in Library settings,
+and drops entries for comics that have left the library. The 0.4.14 heading
+covers 1035 and 1036 as point fixes; the storyline and library-editing scope
+filed under 0.4.17 in section 7 has not been started.
 
 ### Companion iPad app
 
@@ -578,7 +581,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 
 | # | Milestone | Status | Planning range |
 | --- | --- | --- | --- |
-| 5 | 0.4.15 — Offline shelf and cover cache | Planned | 1 week |
+| 5 | 0.4.15 — Offline shelf and cover cache | **Done** — unreleased | — |
 | 6 | 0.4.16 — Sync API hardening | Planned | 2–3 weeks |
 | 7 | 0.4.17 — Storylines and advanced library editing | Planned | 3–5 weeks |
 | 8 | 0.5 — Accounts and secure client access | Planned | 3–4 weeks |
@@ -598,18 +601,28 @@ does not.
 
 ### Scope
 
-Two items of this scope landed ahead of the milestone, in 55079b0, and are
-unreleased on `main`: both cache lookups now happen before the archive is
-opened, so a cached cover is served when its source has gone away. Four tests
-in `thumbnail.test.js` hold that behaviour down. What remains:
+Complete and unreleased on `main`.
 
+- Consult the cover cache before opening the source archive — 55079b0.
 - Persist each cached cover's filename, content type, dimensions, and source
-  fingerprint in the library index.
+  fingerprint. In `covers.json` rather than the library index: the scan rebuilds
+  comic records from disk, so index-resident cache state has to be carried
+  across every scan by hand, and forgetting once silently regenerates every
+  cover.
+- Serve cached covers for unavailable comics rather than omitting the image —
+  55079b0.
 - A background **Cache all covers** action with progress and cancellation, so
   thumbnails are not generated one scroll at a time on NAS CPU.
 - Cache status and approximate storage use in Library settings.
-- Invalidate and regenerate a cover when the archive fingerprint changes.
-- Preserve the cache across service restarts and compatible upgrades.
+- Invalidate and regenerate a cover when the archive fingerprint changes. The
+  scan already fingerprints each file's contents to detect moves, so this costs
+  a string comparison against a value already in memory — no stat, no archive.
+- Preserve the cache across service restarts and compatible upgrades. Restarts
+  by construction; upgrades because the data lives in `SYNOPKG_PKGVAR`, which
+  DSM preserves, and all three upgrade scripts are no-ops.
+- Drop cache entries and files for comics that have left the library, wherever
+  the enrichment store is reconciled. Not in the original scope; without it the
+  storage figure above counts covers for comics that are gone.
 
 ### Release gates
 
@@ -617,7 +630,9 @@ in `thumbnail.test.js` hold that behaviour down. What remains:
   metadata visible.
 - Serving a cached cover does not touch the comic archive. **Met** in 55079b0.
 - Reconnecting the disk restores reading without creating duplicate comics.
-- A changed archive cannot indefinitely retain an unrelated old cover.
+- A changed archive cannot indefinitely retain an unrelated old cover. **Met**:
+  the integration test replaces an archive in place and restores its original
+  mtime, so nothing but the fingerprint can catch it.
 - Cache cleanup never removes a source comic.
 
 ## 6. 0.4.16 — Sync API hardening — server

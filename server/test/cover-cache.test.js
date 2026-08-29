@@ -103,6 +103,36 @@ test("forgetting a comic drops its entry", async (t) => {
   assert.equal(created.get("abc", "fp1_aaa"), null);
 });
 
+test("reconciling drops entries for comics that have left the library", async (t) => {
+  // Without this the record grows forever: a comic deleted from disk keeps its
+  // entry and its files, and the storage figure in settings counts covers for
+  // comics that are gone.
+  const { created } = await store(t);
+  await created.record("abc", "fp1_aaa", ENTRY);
+  await created.record("def", "fp1_bbb", {
+    cover: { file: "def.jpg", mime: "image/jpeg", width: 10, height: 10, bytes: 10 },
+    thumbnail: { file: "def.thumb.jpg", mime: "image/jpeg", width: 5, height: 5, bytes: 5 }
+  });
+
+  const orphaned = await created.reconcile([{ id: "abc" }]);
+
+  assert.deepEqual(
+    orphaned.sort(),
+    ["def.jpg", "def.thumb.jpg"],
+    "reports every file the caller should now delete"
+  );
+  assert.equal(created.get("def", "fp1_bbb"), null, "the departed comic is forgotten");
+  assert.ok(created.get("abc", "fp1_aaa"), "the surviving comic is untouched");
+  assert.equal(created.stats().comics, 1);
+});
+
+test("reconciling a library that lost nothing rewrites nothing", async (t) => {
+  const { created } = await store(t);
+  await created.record("abc", "fp1_aaa", ENTRY);
+
+  assert.deepEqual(await created.reconcile([{ id: "abc" }]), []);
+});
+
 const { CoverWarmup } = require("../src/cover-cache");
 
 function comics(count) {
