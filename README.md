@@ -55,6 +55,8 @@ names it serves, comma separated.
 The folder browser exposes only mounted Synology volume paths. PanelShelf never
 offers browsing of DSM system directories.
 
+Found a vulnerability? Please report it privately rather than as an issue —
+see [SECURITY.md](SECURITY.md).
 
 ## Version 0.4 preview features
 

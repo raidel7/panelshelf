@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest something PanelShelf should do
+title: "[idea] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check `ROADMAP.md` first — a good deal is already planned there,
+        and saying "this one, sooner" on an existing item is useful too.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: The situation you are in, rather than the feature itself.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead

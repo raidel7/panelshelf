@@ -1,0 +1,64 @@
+name: Compatibility report
+description: Tell us how PanelShelf behaved on your Synology model — working or not
+title: "[compat] "
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        PanelShelf is developed against a single NAS (DS1825+, x86-64, DSM 7.2).
+        The ARM packages are cross-built and have not been run on representative
+        hardware. Reports that it *worked* are just as useful as reports that it
+        did not — please file either.
+  - type: input
+    id: model
+    attributes:
+      label: Synology model
+      placeholder: DS220+, DS1522+, DS118 ...
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Package architecture you installed
+      options: ["x86_64", "armv8", "armv7", "not sure"]
+    validations:
+      required: true
+  - type: input
+    id: dsm
+    attributes:
+      label: DSM version
+      placeholder: "7.2.2-72806 Update 3"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PanelShelf version
+      description: From `http://<nas>:8251/api/health`, or the Package Center entry.
+      placeholder: "0.4.14"
+    validations:
+      required: true
+  - type: checkboxes
+    id: worked
+    attributes:
+      label: What worked
+      options:
+        - label: The package installed
+        - label: The web interface loaded
+        - label: A library source could be added and scanned
+        - label: Covers and thumbnails rendered
+        - label: A comic opened and pages turned
+        - label: Reading position carried between browser sessions
+  - type: textarea
+    id: detail
+    attributes:
+      label: What happened
+      description: Anything that failed, looked wrong, or was slower than expected.
+    validations:
+      required: true
+  - type: input
+    id: size
+    attributes:
+      label: Roughly how many comics
+      placeholder: "about 1,800"

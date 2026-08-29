@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in the server or browser reader behaves wrongly
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security issue, do not open an issue — see
+        [SECURITY.md](https://github.com/raidel7/panelshelf/blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add a source at ...
+        2. Run a quick scan
+        3. Open ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PanelShelf version
+      description: From `http://<nas>:8251/api/health`.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: DSM version and model
+      placeholder: "DSM 7.2.2 on DS1825+"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did you see it
+      options:
+        - Browser reader
+        - Server / API
+        - Package install or upgrade
+        - Scanning or metadata
+        - OPDS
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: From `/var/packages/PanelShelf/var/` on DSM. Redact paths you would rather not share.
+      render: shell
