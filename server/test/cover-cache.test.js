@@ -1,0 +1,104 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const fsp = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const test = require("node:test");
+const { CoverCacheStore } = require("../src/cover-cache");
+
+async function store(t) {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-covers-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const created = new CoverCacheStore(directory);
+  await created.initialize();
+  return { created, directory };
+}
+
+const ENTRY = {
+  cover: { file: "abc.jpg", mime: "image/jpeg", width: 1988, height: 3056, bytes: 774_000 }
+};
+
+test("a comic with nothing cached has no entry", async (t) => {
+  const { created } = await store(t);
+  assert.equal(created.get("abc", "fp1_aaa"), null);
+});
+
+test("a recorded entry comes back for the fingerprint it was built from", async (t) => {
+  const { created } = await store(t);
+  await created.record("abc", "fp1_aaa", ENTRY);
+
+  const found = created.get("abc", "fp1_aaa");
+  assert.equal(found.cover.file, "abc.jpg");
+  assert.equal(found.cover.mime, "image/jpeg");
+  assert.equal(found.cover.width, 1988);
+  assert.equal(found.cover.height, 3056);
+});
+
+test("an entry built from a different fingerprint is not served", async (t) => {
+  // The whole point of recording the fingerprint. An archive that was replaced
+  // in place — same path, same name, possibly the same mtime after a copy —
+  // must not keep showing the cover of the comic it replaced.
+  const { created } = await store(t);
+  await created.record("abc", "fp1_aaa", ENTRY);
+
+  assert.equal(created.get("abc", "fp1_bbb"), null);
+});
+
+test("entries survive a restart", async (t) => {
+  // Item 5 of the milestone: the cache is worthless if a service restart makes
+  // the NAS redecode every cover it already has on disk.
+  const { created, directory } = await store(t);
+  await created.record("abc", "fp1_aaa", ENTRY);
+
+  const reopened = new CoverCacheStore(directory);
+  await reopened.initialize();
+  assert.equal(reopened.get("abc", "fp1_aaa").cover.file, "abc.jpg");
+});
+
+test("a corrupt cache file resets rather than refusing to start", async (t) => {
+  const { created, directory } = await store(t);
+  await created.record("abc", "fp1_aaa", ENTRY);
+  await fsp.writeFile(path.join(directory, "covers.json"), "{ not json");
+
+  const reopened = new CoverCacheStore(directory);
+  await reopened.initialize();
+  assert.equal(reopened.get("abc", "fp1_aaa"), null, "starts empty rather than throwing");
+
+  const preserved = (await fsp.readdir(directory)).filter((name) =>
+    name.startsWith("covers.json.corrupt-")
+  );
+  assert.equal(preserved.length, 1, "the bad file is kept for inspection");
+});
+
+test("stats report what the cache is costing", async (t) => {
+  // What Library settings shows: how many covers are cached and roughly what
+  // they occupy, so the cache is not an unexplained lump of disk.
+  const { created } = await store(t);
+  await created.record("abc", "fp1_aaa", ENTRY);
+  await created.record("def", "fp1_bbb", {
+    cover: { file: "def.jpg", mime: "image/jpeg", width: 10, height: 10, bytes: 1_000 },
+    thumbnail: { file: "def.thumb.jpg", mime: "image/jpeg", width: 5, height: 5, bytes: 500 }
+  });
+
+  assert.deepEqual(created.stats(), { comics: 2, covers: 2, thumbnails: 1, bytes: 775_500 });
+});
+
+test("a comic that cannot be thumbnailed is remembered across a restart", async (t) => {
+  // Today this lives in an in-memory Set, so every restart re-attempts a decode
+  // that is already known to fail, for every such comic, on NAS CPU.
+  const { created, directory } = await store(t);
+  await created.record("abc", "fp1_aaa", { ...ENTRY, thumbnailUnsupported: true });
+
+  const reopened = new CoverCacheStore(directory);
+  await reopened.initialize();
+  assert.equal(reopened.get("abc", "fp1_aaa").thumbnailUnsupported, true);
+});
+
+test("forgetting a comic drops its entry", async (t) => {
+  const { created } = await store(t);
+  await created.record("abc", "fp1_aaa", ENTRY);
+  await created.forget("abc");
+
+  assert.equal(created.get("abc", "fp1_aaa"), null);
+});

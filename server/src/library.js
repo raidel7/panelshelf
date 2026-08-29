@@ -19,7 +19,6 @@ const { parseComicInfo } = require("./metadata");
 const { MetadataOverrideStore } = require("./metadata-overrides");
 const { ProgressStore } = require("./progress");
 const {
-  IMAGE_EXTENSIONS,
   cleanTitle,
   comicId,
   fileFingerprint,
@@ -28,22 +27,14 @@ const {
   naturalCompare
 } = require("./util");
 
-// The order a cached cover's extension is guessed in when the archive that
-// would name it cannot be opened. Derived from `IMAGE_EXTENSIONS` so it cannot
-// drift, with the two extensions almost every comic page actually uses pulled
-// to the front so the common case costs one `stat` rather than five.
-const COVER_CACHE_EXTENSIONS = [
-  ".jpg",
-  ".png",
-  ...[...IMAGE_EXTENSIONS].filter((entry) => entry !== ".jpg" && entry !== ".png")
-];
 const { ReadingOrderStore } = require("./reading-orders");
 const {
   THUMBNAIL_EXTENSION,
-  THUMBNAIL_MIME,
   UnsupportedImageError,
-  createThumbnail
+  createThumbnail,
+  imageSize
 } = require("./thumbnail");
+const { CoverCacheStore } = require("./cover-cache");
 const {
   BACKUP_FORMAT,
   BACKUP_SCHEMA_VERSION,
@@ -459,9 +450,10 @@ class ComicLibrary {
     this.comics = [];
     this.comicsById = new Map();
     this.pageCache = new Map();
-    // Comics whose cover cannot be shrunk, so a repeat request does not decode
-    // it again only to give up.
-    this.thumbnailFallbacks = new Set();
+    // What is cached in `covers/`, and what each entry was built from. Also
+    // carries the comics whose cover cannot be shrunk, so a repeat request —
+    // or a restart — does not decode one again only to give up.
+    this.coverCache = new CoverCacheStore(dataDirectory);
     this.scanState = emptyScanState();
     this.readingOrders = new ReadingOrderStore(dataDirectory);
     this.enrichment = new MetadataEnrichmentStore(dataDirectory, {
@@ -488,6 +480,7 @@ class ComicLibrary {
     await this.metadataOverrides.initialize();
     await this.progress.initialize();
     await this.skips.initialize();
+    await this.coverCache.initialize();
     const storedConfig = await readJson(this.configPath, defaultConfig());
     const migratedConfig = migrateConfig(storedConfig);
     this.config = migratedConfig.config;
@@ -1498,42 +1491,68 @@ class ComicLibrary {
         throw jsonError("No image pages were found in this comic.", "NO_PAGES");
       }
       const extension = path.extname(pages[0].name).toLowerCase() || ".jpg";
-      const cachePath = path.join(this.coverDirectory, `${comic.id}${extension}`);
+      const file = `${comic.id}${extension}`;
+      const cachePath = path.join(this.coverDirectory, file);
       const page = await this.page(id, 0);
       await fsp.writeFile(cachePath, page.buffer, { mode: 0o600 });
       const now = new Date();
       await fsp.utimes(cachePath, now, now);
+      const size = imageSize(page.buffer);
+      await this.recordCoverCache(comic, {
+        cover: {
+          file,
+          mime: page.mime,
+          width: size ? size.width : 0,
+          height: size ? size.height : 0,
+          bytes: page.buffer.length
+        }
+      });
       full = { buffer: page.buffer, mime: page.mime };
     }
     if (!options.thumbnail) return full;
     return (await this.writeThumbnail(comic, full)) || full;
   }
 
-  // The cached cover keeps the extension of the page it was taken from, and
-  // the only record of that extension is inside the archive — so finding the
-  // file without opening the archive means trying the extensions a page is
-  // allowed to have. The list is derived from `IMAGE_EXTENSIONS` rather than
-  // repeated, so a format added there cannot silently stop being found here.
-  //
-  // This runs only when a thumbnail is not already cached, and it is a handful
-  // of `stat` calls against a request that is otherwise about to open an
-  // archive and decode an image.
+  // Which version of a comic a cached image belongs to. The scan already
+  // fingerprints each file's contents to detect moves, so that is the honest
+  // answer. An index written before fingerprinting falls back to size and
+  // mtime — the signal the cache used to rely on entirely — and upgrades
+  // itself the first time a scan fingerprints the comic.
+  cacheKey(comic) {
+    if (comic.fingerprint) return comic.fingerprint;
+    if (!Number.isFinite(comic.mtimeMs)) return null;
+    return `sm1_${Number(comic.size) || 0}_${Math.round(comic.mtimeMs)}`;
+  }
+
+  // Merges into the entry for this comic's current contents. `get` returns
+  // nothing once the contents have changed, so a stale entry is never extended
+  // — the record starts again with the cover that replaced it.
+  async recordCoverCache(comic, patch) {
+    const key = this.cacheKey(comic);
+    if (!key) return;
+    const existing = this.coverCache.get(comic.id, key) || {};
+    await this.coverCache.record(comic.id, key, { ...existing, ...patch });
+  }
+
+  // The cached cover keeps the extension of the page it was taken from, which
+  // is knowable only from inside the archive — so this used to try every
+  // extension a page is allowed to have, and decide validity by comparing
+  // mtimes. Both are now answered by the record: the exact filename, and the
+  // fingerprint the file was built from.
   async cachedCover(comic) {
-    for (const extension of COVER_CACHE_EXTENSIONS) {
-      const cachePath = path.join(this.coverDirectory, `${comic.id}${extension}`);
-      try {
-        const cached = await fsp.stat(cachePath);
-        if (cached.mtimeMs >= comic.mtimeMs) {
-          return {
-            buffer: await fsp.readFile(cachePath),
-            mime: mimeForName(cachePath)
-          };
-        }
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-      }
+    const entry = this.coverCache.get(comic.id, this.cacheKey(comic));
+    if (!entry || !entry.cover) return null;
+    try {
+      return {
+        buffer: await fsp.readFile(path.join(this.coverDirectory, entry.cover.file)),
+        mime: entry.cover.mime
+      };
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      // The record outlived the file. Regenerating is correct, and the write
+      // replaces the record on its way through.
+      return null;
     }
-    return null;
   }
 
   // Thumbnails are generated on first request rather than during a scan. A
@@ -1542,23 +1561,18 @@ class ComicLibrary {
   // past; generating on demand spreads that cost over the cards actually drawn
   // and keeps it off the scan entirely.
   async cachedThumbnail(comic) {
-    const cachePath = path.join(
-      this.coverDirectory,
-      `${comic.id}.thumb${THUMBNAIL_EXTENSION}`
-    );
+    const entry = this.coverCache.get(comic.id, this.cacheKey(comic));
+    if (!entry || !entry.thumbnail) return null;
     try {
-      const cached = await fsp.stat(cachePath);
-      if (cached.mtimeMs >= comic.mtimeMs) {
-        return {
-          buffer: await fsp.readFile(cachePath),
-          mime: THUMBNAIL_MIME,
-          thumbnail: true
-        };
-      }
+      return {
+        buffer: await fsp.readFile(path.join(this.coverDirectory, entry.thumbnail.file)),
+        mime: entry.thumbnail.mime,
+        thumbnail: true
+      };
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+      return null;
     }
-    return null;
   }
 
   // Returns null when this cover cannot usefully be shrunk — it is already
@@ -1566,7 +1580,8 @@ class ComicLibrary {
   // not read. The caller then serves the full-size cover. The comic is
   // remembered so the next request does not pay for the attempt again.
   async writeThumbnail(comic, full) {
-    if (this.thumbnailFallbacks.has(comic.id)) return null;
+    const known = this.coverCache.get(comic.id, this.cacheKey(comic));
+    if (known && known.thumbnailUnsupported) return null;
     let thumbnail = null;
     try {
       thumbnail = createThumbnail(full.buffer);
@@ -1579,13 +1594,11 @@ class ComicLibrary {
       thumbnail = null;
     }
     if (!thumbnail) {
-      this.thumbnailFallbacks.add(comic.id);
+      await this.recordCoverCache(comic, { thumbnailUnsupported: true });
       return null;
     }
-    const cachePath = path.join(
-      this.coverDirectory,
-      `${comic.id}.thumb${THUMBNAIL_EXTENSION}`
-    );
+    const file = `${comic.id}.thumb${THUMBNAIL_EXTENSION}`;
+    const cachePath = path.join(this.coverDirectory, file);
     // Two requests for the same uncached cover would otherwise have one
     // reading the file while the other is still writing it, which serves a
     // truncated JPEG. Rename is atomic within the directory.
@@ -1594,6 +1607,16 @@ class ComicLibrary {
     const now = new Date();
     await fsp.utimes(pending, now, now);
     await fsp.rename(pending, cachePath);
+    const size = imageSize(thumbnail.buffer);
+    await this.recordCoverCache(comic, {
+      thumbnail: {
+        file,
+        mime: thumbnail.mime,
+        width: size ? size.width : 0,
+        height: size ? size.height : 0,
+        bytes: thumbnail.buffer.length
+      }
+    });
     return {
       buffer: thumbnail.buffer,
       mime: thumbnail.mime,

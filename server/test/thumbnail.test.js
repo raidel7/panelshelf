@@ -150,7 +150,17 @@ test("a cover that cannot be shrunk falls back to the full size once", async (t)
     /ENOENT/,
     "nothing is cached for a cover that was served whole"
   );
-  assert.ok(library.thumbnailFallbacks.has(comic.id));
+  // Remembered across a restart, not merely within one process. This was an
+  // in-memory Set, so every restart re-attempted a decode already known to
+  // fail, once per such comic, on NAS CPU.
+  const reopened = new ComicLibrary(dataDirectory);
+  await reopened.initialize();
+  const [same] = reopened.listComics();
+  assert.equal(
+    reopened.coverCache.get(same.id, reopened.cacheKey(same)).thumbnailUnsupported,
+    true,
+    "the failed attempt survives a restart"
+  );
 });
 
 async function freePort() {
@@ -322,4 +332,41 @@ test("a cover with nothing cached still reports the missing archive", async (t) 
   // look complete while the library was not.
   await assert.rejects(library.cover(comic.id, { thumbnail: true }));
   await assert.rejects(library.cover(comic.id));
+});
+
+test("a cover is not reused when the archive changed underneath it", async (t) => {
+  // Validity used to be decided by comparing the cache file's mtime against the
+  // comic's. A file copied into place carries its source's mtime, so an archive
+  // replaced without advancing the clock could serve the cover of the comic it
+  // replaced, indefinitely. The scan already fingerprints each file's contents
+  // for move detection, so the cover records which fingerprint it was built
+  // from and a mismatch regenerates it.
+  const { library, comic } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+
+  const first = await library.cover(comic.id);
+
+  const before = await fsp.stat(comic.path);
+  await fsp.writeFile(
+    comic.path,
+    zipBuffer([{ name: "001.png", data: pngBuffer(600, 900) }])
+  );
+  // Put the timestamps back exactly as they were: mtime must not be what saves
+  // this, or the test proves nothing about the fingerprint.
+  await fsp.utimes(comic.path, before.atime, before.mtime);
+
+  await library.scan();
+  library.pageCache.clear();
+
+  const [rescanned] = library.listComics();
+  assert.equal(rescanned.id, comic.id, "still the same comic, replaced in place");
+
+  const second = await library.cover(rescanned.id);
+  assert.notDeepEqual(
+    second.buffer,
+    first.buffer,
+    "serves the archive's current cover, not the one cached before it changed"
+  );
 });
