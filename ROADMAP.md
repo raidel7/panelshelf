@@ -4,7 +4,7 @@ Updated: 2026-08-29
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.4.14, build 1036 | Released. The developer's NAS runs 0.4.14. |
+| **Server and web** | 0.4.15, build 1037 | Released. The developer's NAS runs 0.4.14. |
 | **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
@@ -95,15 +95,11 @@ The current build provides:
 | 0.4.13 / 1034 | Server-owned skipped collections, the chronology route, and imprint parents |
 | 0.4.14 / 1035 | A request for a comic outside the index no longer stops the server |
 | 0.4.14 / 1036 | A page turn stopped repainting every cover the shelf had drawn |
+| 0.4.15 / 1037 | A cover cache that records itself, can be warmed in one pass, and is cleaned up |
 
-Unreleased on `main`: misnamed archive extensions are no longer reported as
-scan warnings, the scan-issue report can be cleared from the browser, and all of
-0.4.15 — the cover cache now records what it holds and what each entry was built
-from, invalidates on the archive's content fingerprint rather than its mtime,
-can be warmed in one deliberate pass, reports what it costs in Library settings,
-and drops entries for comics that have left the library. The 0.4.14 heading
-covers 1035 and 1036 as point fixes; the storyline and library-editing scope
-filed under 0.4.17 in section 7 has not been started.
+Nothing is unreleased on `main`. The 0.4.14 heading covers 1035 and 1036 as
+point fixes; the storyline and library-editing scope filed under 0.4.17 in
+section 7 has not been started.
 
 ### Companion iPad app
 
@@ -574,14 +570,14 @@ and Franco-Belgian publishers.
 
 ## Delivery sequence
 
-Server milestones continue from 0.4.14. The numbers 0.4.4 through 0.4.14 are
-spent; anything planned takes 0.4.15 or later. Section numbers are stable
+Server milestones continue from 0.4.15. The numbers 0.4.4 through 0.4.15 are
+spent; anything planned takes 0.4.16 or later. Section numbers are stable
 identifiers and are referenced elsewhere in this document, so the gaps below
 are deliberate — those milestones belong to the iPad client and moved with it.
 
 | # | Milestone | Status | Planning range |
 | --- | --- | --- | --- |
-| 5 | 0.4.15 — Offline shelf and cover cache | **Done** — unreleased | — |
+| 5 | 0.4.15 — Offline shelf and cover cache | **Done** — 0.4.15 | — |
 | 6 | 0.4.16 — Sync API hardening | Planned | 2–3 weeks |
 | 7 | 0.4.17 — Storylines and advanced library editing | Planned | 3–5 weeks |
 | 8 | 0.5 — Accounts and secure client access | Planned | 3–4 weeks |
@@ -601,7 +597,7 @@ does not.
 
 ### Scope
 
-Complete and unreleased on `main`.
+Complete, released as 0.4.15-1037.
 
 - Consult the cover cache before opening the source archive — 55079b0.
 - Persist each cached cover's filename, content type, dimensions, and source

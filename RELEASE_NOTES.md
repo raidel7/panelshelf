@@ -1,3 +1,48 @@
+# PanelShelf 0.4.15-1037
+
+A shelf whose USB disk is asleep stays a shelf, covers are built once rather
+than a card at a time, and the cache finally says what it is holding.
+
+## The cover cache knows what it has
+
+- Every cached cover now records its filename, content type, dimensions, byte
+  size, and the fingerprint of the archive it came from. Finding one used to
+  mean a filesystem check per possible extension, because the extension lives
+  inside the archive that a sleeping disk will not open.
+- Whether a cover is still current is decided by the archive's content
+  fingerprint, which a scan already computes to detect moves, rather than by
+  comparing timestamps. A file copied into place carries its source's timestamp,
+  so an archive replaced without advancing the clock could keep showing the
+  cover of the comic it replaced.
+- Covers that cannot be shrunk are remembered across restarts. That verdict used
+  to live in memory, so every restart re-attempted a decode already known to
+  fail, once per such comic, on NAS CPU.
+
+## Cache all covers
+
+- Library settings has a Cover cache panel: how many covers and thumbnails are
+  held and roughly what they occupy, and a button to build the rest in one pass.
+  Progress and the comic in hand are shown while it runs, and it can be stopped.
+- A pass skips anything already cached, so running it twice costs almost
+  nothing, and one interrupted by a restart is resumed by starting it again.
+- A comic that cannot be read is counted and the pass continues. One unreadable
+  archive in a library of thousands does not abandon the rest.
+
+## Covers no longer outlive their comics
+
+- Deleting a comic now removes its cached cover and thumbnail. They used to
+  remain on the NAS indefinitely, and would have been counted in the storage
+  figure above.
+
+## Validation
+
+- 217 server tests pass, twenty of them new. One replaces an archive in place
+  and restores its original timestamp, so nothing but the content fingerprint
+  can catch the change; another caches a cover, deletes the comic, rescans, and
+  requires the cover directory to be empty.
+- Verified end to end in a browser against a running server: the panel warms a
+  library, reports what it cached, and logs no errors.
+
 # PanelShelf 0.4.14-1036
 
 Scrolling a comic in the browser got slower the longer you had browsed the
