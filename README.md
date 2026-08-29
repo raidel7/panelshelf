@@ -28,6 +28,34 @@ Built packages are published as GitHub releases:
 Packages are unsigned; install through **Package Center → Manual Install** and
 allow packages from any publisher.
 
+## Security scope
+
+**Read this before exposing PanelShelf to anything.**
+
+PanelShelf has no user accounts. Whatever can reach port 8251 can read the
+library and change its settings, so do not forward that port to the internet.
+If you want remote access, put it behind an authenticated HTTPS reverse proxy
+or a VPN.
+
+Being "only on the LAN" is not by itself a boundary. Every browser on the
+network can be driven by whichever page it happens to be showing, which makes
+it a usable route in from outside. PanelShelf therefore refuses:
+
+- a request whose `Origin` is not its own, so a page on the internet cannot
+  drive the API through a browser that is already indoors
+- a request whose `Host` it does not answer to, which is what DNS rebinding
+  turns on
+- a request body that is not `application/json`, which closes the one mutating
+  request a browser will send cross-origin without asking permission first
+
+Native clients send no `Origin` and are unaffected. Behind a reverse proxy,
+which legitimately rewrites both headers, set `PANELSHELF_ALLOWED_HOSTS` to the
+names it serves, comma separated.
+
+The folder browser exposes only mounted Synology volume paths. PanelShelf never
+offers browsing of DSM system directories.
+
+
 ## Version 0.4 preview features
 
 - Native DSM package with start, stop, status, desktop shortcut, and firewall
@@ -499,16 +527,6 @@ PanelShelf does not need it.
 
 If a configured USB drive is disconnected, its source stays in PanelShelf and
 is shown as unavailable. Reconnect it at the same mount path and rescan.
-
-## Security scope
-
-This preview is intended for a trusted home LAN. It does not yet provide user
-accounts or its own TLS termination. Do not forward port 8251 directly to the
-internet. If remote access is needed, place it behind a properly authenticated
-HTTPS reverse proxy or VPN.
-
-The folder browser exposes only mounted Synology volume paths. PanelShelf never
-offers browsing of DSM system directories.
 
 ## Local development
 

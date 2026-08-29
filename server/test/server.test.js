@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const fsp = require("node:fs/promises");
+const http = require("node:http");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
@@ -821,4 +822,135 @@ test("asking for a comic file that does not exist answers rather than dying", as
   const health = await fetch(`${base}/api/health`);
   assert.equal(health.status, 200, state.logs);
   assert.equal((await health.json()).status, "ok");
+});
+
+/// A raw request, because `fetch` derives `Host` from the URL and refuses to
+/// let a caller forge it. DNS rebinding turns on exactly that header, so a
+/// test for it has to be able to lie.
+function rawRequest(port, options = {}) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: options.path,
+        method: options.method || "GET",
+        headers: options.headers || {}
+      },
+      (response) => {
+        let body = "";
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () =>
+          resolve({ status: response.statusCode, body })
+        );
+      }
+    );
+    request.on("error", reject);
+    if (options.body) request.write(options.body);
+    request.end();
+  });
+}
+
+test("a request announcing a foreign origin is refused", async (t) => {
+  // PanelShelf has no accounts, so it trusts whoever can reach it. On a LAN
+  // that includes every page the household's browsers visit: a page on the
+  // public internet can post to 192.168.x.x and the browser will deliver it,
+  // from inside the network, unprompted. Nothing is stolen along the way —
+  // there is no session to steal — the attacker just borrows a browser that
+  // is already indoors. The origin is the only thing that separates the
+  // shelf's own page from a hostile one, so a foreign one loses here, before
+  // any route runs.
+  const { base, port, state } = await startServer(t);
+
+  const response = await rawRequest(port, {
+    method: "PUT",
+    path: "/api/config",
+    headers: {
+      Origin: "http://evil.example",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ libraryPaths: [] })
+  });
+
+  assert.equal(response.status, 403, state.logs);
+  assert.equal(JSON.parse(response.body).error.code, "FORBIDDEN_ORIGIN");
+
+  // Still answering afterwards: the guard refuses a request, not the server.
+  const health = await fetch(`${base}/api/health`);
+  assert.equal(health.status, 200, state.logs);
+});
+
+test("a request carrying no origin is allowed, so native clients still work", async (t) => {
+  // The iPad app and every OPDS reader are not browsers and send no Origin at
+  // all. Refusing on a missing origin would lock out precisely the clients
+  // that were never the threat.
+  const { comicsDirectory, port, state } = await startServer(t);
+
+  const response = await rawRequest(port, {
+    method: "PUT",
+    path: "/api/config",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+
+  assert.equal(response.status, 200, state.logs);
+});
+
+test("the shelf's own page is still allowed to drive the API", async (t) => {
+  // The guard is worthless if it also blocks the browser reader PanelShelf
+  // serves itself.
+  const { comicsDirectory, port, state } = await startServer(t);
+
+  const response = await rawRequest(port, {
+    method: "PUT",
+    path: "/api/config",
+    headers: {
+      Origin: `http://127.0.0.1:${port}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+
+  assert.equal(response.status, 200, state.logs);
+});
+
+test("a POST that dodges preflight with a safelisted content type is refused", async (t) => {
+  // POST is the one mutating method a browser will send cross-origin without
+  // asking permission first, and only while its content type is one of the
+  // three CORS-safelisted ones. `fetch(url, {method:"POST", mode:"no-cors",
+  // body:"{}"})` defaults to text/plain, sends no preflight, and the body is
+  // still valid JSON on arrival — which is the whole trick. Requiring the
+  // JSON content type takes that door away: anything else has to preflight,
+  // and preflight is answered by nobody.
+  const { port, state } = await startServer(t);
+
+  const response = await rawRequest(port, {
+    method: "POST",
+    path: "/api/skips",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ add: [] })
+  });
+
+  assert.equal(response.status, 415, state.logs);
+  assert.equal(JSON.parse(response.body).error.code, "UNSUPPORTED_MEDIA_TYPE");
+});
+
+test("a forged host header is refused, which is what rebinding rests on", async (t) => {
+  // DNS rebinding: a page on evil.example, whose record has just been pointed
+  // at the NAS, is same-origin with the NAS as far as the browser is
+  // concerned — so the attacker can read replies, not merely fire writes. The
+  // request still has to arrive claiming to be for evil.example, so checking
+  // the host it claims is what closes it.
+  const { port, state } = await startServer(t);
+
+  const response = await rawRequest(port, {
+    method: "GET",
+    path: "/api/config",
+    headers: { Host: "evil.example" }
+  });
+
+  assert.equal(response.status, 403, state.logs);
+  assert.equal(JSON.parse(response.body).error.code, "FORBIDDEN_HOST");
 });

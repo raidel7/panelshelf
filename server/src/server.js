@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const http = require("node:http");
+const net = require("node:net");
 const path = require("node:path");
 const { URL } = require("node:url");
 const { ComicLibrary, browseFolders, recentlyAdded } = require("./library");
@@ -18,6 +19,12 @@ const DATA_DIRECTORY =
 const PUBLIC_DIRECTORY = path.resolve(__dirname, "..", "public");
 const MAX_JSON_BODY = 256 * 1024;
 const MAX_BACKUP_BODY = 20 * 1024 * 1024;
+// A deployment behind a reverse proxy legitimately arrives under a name
+// this server has no other way to learn. Comma separated, host[:port].
+const ALLOWED_HOSTS = (process.env.PANELSHELF_ALLOWED_HOSTS || "")
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 
 function setSecurityHeaders(response) {
   response.setHeader("X-Content-Type-Options", "nosniff");
@@ -27,6 +34,75 @@ function setSecurityHeaders(response) {
     "Content-Security-Policy",
     "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self';"
   );
+}
+
+/// True for a host that a rebinding attack has no way to forge its way into.
+/// Rebinding needs a name the attacker controls in DNS: a bare address has no
+/// record to re-point, and `.local` is answered by mDNS on the LAN rather than
+/// by a resolver anybody outside it can influence.
+function isTrustedHost(host) {
+  if (!host) return false;
+  const lowered = String(host).toLowerCase();
+  if (ALLOWED_HOSTS.includes(lowered)) return true;
+  const name = lowered.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+  if (ALLOWED_HOSTS.includes(name)) return true;
+  if (name === "localhost" || name.endsWith(".local")) return true;
+  return net.isIP(name) !== 0;
+}
+
+/// PanelShelf has no accounts, so whatever can reach the port is trusted. On a
+/// home LAN that trust reaches further than it looks: every browser on the
+/// network is a usable proxy for whichever page it happens to be showing, so
+/// "only on the LAN" is not by itself a boundary. These three checks are what
+/// make it one, and they run before any route does.
+function guardRequest(request) {
+  if (!isTrustedHost(request.headers.host)) {
+    throw jsonError(
+      "This server does not answer to that host name.",
+      "FORBIDDEN_HOST"
+    );
+  }
+
+  // Browsers attach Origin to exactly the requests that matter here. Native
+  // clients — the iPad app, any OPDS reader — attach none, and were never the
+  // threat, so a missing origin is not one either.
+  const origin = request.headers.origin;
+  if (origin && origin !== "null") {
+    let originHost = null;
+    try {
+      originHost = new URL(origin).host.toLowerCase();
+    } catch {
+      originHost = null;
+    }
+    const host = String(request.headers.host || "").toLowerCase();
+    if (originHost !== host && !ALLOWED_HOSTS.includes(originHost)) {
+      throw jsonError(
+        "Requests from another origin are not accepted.",
+        "FORBIDDEN_ORIGIN"
+      );
+    }
+  }
+
+  // POST is the one mutating method a browser sends cross-origin without
+  // asking permission first, and only while its content type is one of the
+  // three CORS-safelisted ones. Requiring JSON forces a preflight that nothing
+  // here answers. Checked only when a body is actually present, so a bodyless
+  // DELETE is left alone.
+  const hasBody =
+    Number(request.headers["content-length"] || 0) > 0 ||
+    Boolean(request.headers["transfer-encoding"]);
+  if (hasBody) {
+    const type = String(request.headers["content-type"] || "")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    if (type !== "application/json") {
+      throw jsonError(
+        "Request bodies must be sent as application/json.",
+        "UNSUPPORTED_MEDIA_TYPE"
+      );
+    }
+  }
 }
 
 function sendJson(response, status, value) {
@@ -64,7 +140,10 @@ function sendError(response, error) {
     INVALID_BACKUP: 400,
     METADATA_NOT_CONFIGURED: 400,
     PROVIDER_INVALID_REQUEST: 400,
-    PROVIDER_INVALID_RESPONSE: 502
+    PROVIDER_INVALID_RESPONSE: 502,
+    FORBIDDEN_ORIGIN: 403,
+    FORBIDDEN_HOST: 403,
+    UNSUPPORTED_MEDIA_TYPE: 415
   };
   const status = statusByCode[error.code] || 500;
   sendJson(response, status, {
@@ -220,6 +299,8 @@ async function startServer() {
     const pathname = decodeURIComponent(requestUrl.pathname);
 
     try {
+      guardRequest(request);
+
       if (request.method === "GET" && pathname === "/api/health") {
         return sendJson(response, 200, {
           status: "ok",
