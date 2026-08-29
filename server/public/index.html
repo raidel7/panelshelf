@@ -367,6 +367,24 @@
               <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
             </div>
           </section>
+          <section class="cover-cache-callout">
+            <div>
+              <span class="result-label">Covers</span>
+              <strong>Cover cache</strong>
+              <p id="coverCacheSummary">
+                Covers are built the first time a shelf draws them. Caching them
+                in one pass does that work now instead of a card at a time.
+              </p>
+            </div>
+            <div class="cover-cache-actions">
+              <button id="warmCoverCacheButton" class="button button-secondary" type="button">
+                Cache all covers
+              </button>
+              <button id="cancelCoverCacheButton" class="button button-secondary" type="button" hidden>
+                Stop
+              </button>
+            </div>
+          </section>
           <p id="settingsError" class="form-error" hidden></p>
         </div>
         <footer class="dialog-footer">

@@ -38,6 +38,13 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(document, /data-status="skipped"/);
   assert.match(document, /id="collectionPreview"/);
   assert.match(document, /id="collectionPreviewImage"/);
+  assert.match(document, /id="coverCacheSummary"/);
+  assert.match(document, /id="warmCoverCacheButton"/);
+  assert.match(document, /id="cancelCoverCacheButton"/);
+  // The callout borrows the backup callout's rules rather than restating them,
+  // so a rename there must take this with it.
+  assert.match(styles, /\.cover-cache-callout \{/);
+  assert.match(styles, /\.cover-cache-actions \{/);
   assert.match(document, /id="metadataSettingsDialog"/);
   assert.match(document, /id="metadataDialog"/);
   assert.match(document, /id="metadataEditorDialog"/);

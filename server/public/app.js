@@ -59,6 +59,7 @@ const state = {
   scanState: null,
   bulkMetadata: null,
   bulkMetadataPollTimer: null,
+  coverCachePollTimer: null,
   bulkMetadataRefreshJobId: null,
   metadataSettings: null,
   metadata: {
@@ -156,6 +157,9 @@ const elements = {
   manualPath: document.querySelector("#manualPath"),
   addPathButton: document.querySelector("#addPathButton"),
   exportBackupButton: document.querySelector("#exportBackupButton"),
+  coverCacheSummary: document.querySelector("#coverCacheSummary"),
+  warmCoverCacheButton: document.querySelector("#warmCoverCacheButton"),
+  cancelCoverCacheButton: document.querySelector("#cancelCoverCacheButton"),
   importBackupButton: document.querySelector("#importBackupButton"),
   backupFileInput: document.querySelector("#backupFileInput"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
@@ -677,6 +681,54 @@ async function refreshComicsAfterBulk(job) {
   renderContinueReading();
   renderComics();
   renderOrders();
+}
+
+// The settings panel is the only place the cover cache is visible, so polling
+// runs while that dialog is open and a warm-up is going, and stops otherwise.
+function renderCoverCache(status) {
+  const cache = status.cache || {};
+  const warmup = status.warmup || {};
+  const running = warmup.status === "running";
+
+  elements.warmCoverCacheButton.hidden = running;
+  elements.cancelCoverCacheButton.hidden = !running;
+
+  if (running) {
+    const of = warmup.total ? ` of ${warmup.total}` : "";
+    const title = warmup.currentTitle ? ` — ${warmup.currentTitle}` : "";
+    elements.coverCacheSummary.textContent =
+      `Caching covers: ${warmup.processed}${of}${title}`;
+    return;
+  }
+
+  const held = cache.covers
+    ? `${cache.covers} covers and ${cache.thumbnails} thumbnails cached, about ${formatSize(cache.bytes)}.`
+    : "No covers cached yet.";
+  const failed = warmup.failed
+    ? ` ${warmup.failed} could not be read.`
+    : "";
+  const finished =
+    warmup.status === "complete"
+      ? ` Last pass built ${warmup.generated} and skipped ${warmup.alreadyCached}.${failed}`
+      : warmup.status === "cancelled"
+        ? " Last pass was stopped."
+        : "";
+  elements.coverCacheSummary.textContent = `${held}${finished}`;
+}
+
+async function pollCoverCache() {
+  clearTimeout(state.coverCachePollTimer);
+  state.coverCachePollTimer = null;
+  if (!elements.settingsDialog.open) return;
+  try {
+    const status = await api("/api/covers/cache");
+    renderCoverCache(status);
+    if (status.warmup?.status === "running") {
+      state.coverCachePollTimer = setTimeout(pollCoverCache, 1000);
+    }
+  } catch (error) {
+    if (elements.settingsDialog.open) showFormError(elements.settingsError, error);
+  }
 }
 
 async function pollBulkMetadata() {
@@ -5015,8 +5067,14 @@ function renderSources() {
   );
 }
 
+function stopCoverCachePolling() {
+  clearTimeout(state.coverCachePollTimer);
+  state.coverCachePollTimer = null;
+}
+
 function openSettings() {
   clearFormError(elements.settingsError);
+  pollCoverCache();
   state.editingLibraries = state.libraries.map((source) => ({ ...source }));
   renderSources();
   elements.settingsDialog.showModal();
@@ -6084,6 +6142,34 @@ elements.manualPath.addEventListener("keydown", (event) => {
   }
 });
 elements.saveSettingsButton.addEventListener("click", saveSettings);
+elements.settingsDialog.addEventListener("close", stopCoverCachePolling);
+
+elements.warmCoverCacheButton.addEventListener("click", async () => {
+  elements.warmCoverCacheButton.disabled = true;
+  try {
+    renderCoverCache({ warmup: await api("/api/covers/cache/warm", { method: "POST" }) });
+    pollCoverCache();
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  } finally {
+    elements.warmCoverCacheButton.disabled = false;
+  }
+});
+
+elements.cancelCoverCacheButton.addEventListener("click", async () => {
+  elements.cancelCoverCacheButton.disabled = true;
+  try {
+    await api("/api/covers/cache/warm/cancel", { method: "POST" });
+    // The run stops between comics, so the state that matters is the one after
+    // it has actually stopped rather than the one at the moment of asking.
+    pollCoverCache();
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  } finally {
+    elements.cancelCoverCacheButton.disabled = false;
+  }
+});
+
 elements.exportBackupButton.addEventListener("click", exportBackup);
 elements.importBackupButton.addEventListener("click", () =>
   elements.backupFileInput.click()
