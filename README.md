@@ -11,7 +11,7 @@ archives.
 server/     Node.js server, browser reader UI, and tests
 synology/   DSM package metadata, scripts, and UI descriptor
 scripts/    SPK and source-archive build scripts
-ios/        Native iOS client (placeholder, not started — see ios/README.md)
+assets/     Package icon and screenshots
 .github/    Nightly and tagged-release build workflows
 ```
 
@@ -280,8 +280,8 @@ the full records, so an existing client cannot be shortened by accident.
 
 ## Reading progress API
 
-Reading progress lives on the server, so every browser — and a future iPad
-app — shares one reading position per comic.
+Reading progress lives on the server, so every browser — and the companion
+iPad app — shares one reading position per comic.
 
 | Method | Path | Purpose |
 |---|---|---|

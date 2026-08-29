@@ -96,10 +96,10 @@ The current build provides:
 | 0.4.14 / 1036 | A page turn stopped repainting every cover the shelf had drawn |
 
 Unreleased on `main`: misnamed archive extensions are no longer reported as
-scan warnings, the scan-issue report can be cleared from the browser, and the
-iPad's cover grids line up along a row. The 0.4.14 heading covers 1035 and 1036
-as point fixes; the storyline and library-editing scope filed under 0.4.14 in
-section 7 has not been started.
+scan warnings, the scan-issue report can be cleared from the browser, and a
+cached cover is served even when its source archive has gone away. The 0.4.14
+heading covers 1035 and 1036 as point fixes; the storyline and library-editing
+scope filed under 0.4.14 in section 7 has not been started.
 
 ### iPad app
 
@@ -141,13 +141,6 @@ its card instead.
 ### Known gaps in the foundation
 
 - No user accounts, OPDS authentication, or device tokens.
-- A cover cannot be served while its source is unavailable: `cover()` awaits
-  `pagesForComic` at `library.js:1471`, before it consults the thumbnail cache
-  at 1478, so a sleeping USB disk empties the shelf visually even though the
-  covers are on disk. The archive is opened only to read the first page's
-  extension for the full-size cache path — which the thumbnail branch does not
-  use, since thumbnails have a fixed extension. Hoisting the cache check above
-  that call fixes the thumbnail case outright.
 - Thumbnails are generated on first request, on NAS CPU, and there is no way to
   warm them deliberately or to see what the cache costs.
 - The web viewer still downloads the full library listing, because it needs
@@ -895,9 +888,8 @@ dependency.
 
 ### Scope
 
-- Replace the placeholder icon with final artwork.
 - iPhone layouts, if the shared components survive the width.
-- Secure pairing on top of 0.4.13 device tokens.
+- Secure pairing, once the server grows device tokens (section 8).
 - Background refresh and graceful handling of an unreachable NAS.
 - Accessibility pass: Dynamic Type, VoiceOver on the grid and reader, contrast.
 - App Store metadata, privacy nutrition labels, TestFlight cycle.
