@@ -1,19 +1,29 @@
 # PanelShelf
 
+**Your comics, quietly organized.**
+
 PanelShelf is a lightweight comic library and browser reader packaged natively
 for Synology DSM 7.2 or newer. It scans CBZ and CBR files in one or more
 folders, extracts covers, and serves comic pages without modifying the original
 archives.
 
-## Repository layout
+![PanelShelf browsing a chronology by publication year](assets/screenshots/chronology-timeline.png)
 
-```
-server/     Node.js server, browser reader UI, and tests
-synology/   DSM package metadata, scripts, and UI descriptor
-scripts/    SPK and source-archive build scripts
-assets/     Package icon and screenshots
-.github/    Nightly and tagged-release build workflows
-```
+> **This is a preview.** PanelShelf has no user accounts and terminates no TLS
+> of its own. It is built to sit on a home LAN. Please read
+> [Security scope](#security-scope) before installing it, and do not forward
+> its port to the internet.
+
+<details>
+<summary>More screenshots</summary>
+
+<br>
+
+**The reader**, in double-page mode with fit-to-width:
+
+![A double-page spread in the browser reader](assets/screenshots/reader-double-page.png)
+
+</details>
 
 ## Downloads
 
@@ -529,6 +539,16 @@ PanelShelf does not need it.
 
 If a configured USB drive is disconnected, its source stays in PanelShelf and
 is shown as unavailable. Reconnect it at the same mount path and rescan.
+
+## Repository layout
+
+```
+server/     Node.js server, browser reader UI, and tests
+synology/   DSM package metadata, scripts, and UI descriptor
+scripts/    SPK and source-archive build scripts
+assets/     Package icon and screenshots
+.github/    Nightly and tagged-release build workflows
+```
 
 ## Local development
 
