@@ -12,5 +12,9 @@ dist/
 # Runtime data: extracted covers, thumbnails, and scratch space
 data/
 
+# The iPad client lives in its own repository. Xcode will recreate this path
+# if it still has the old workspace open, and it must never be committed here.
+ios/
+
 # Brainstorming companion
 .superpowers/
