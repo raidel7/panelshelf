@@ -123,7 +123,18 @@ cp -a "${PROJECT_DIR}/synology/scripts/." "${OUTER_DIR}/scripts/"
 cp -a "${PROJECT_DIR}/synology/conf/." "${OUTER_DIR}/conf/"
 chmod 0755 "${OUTER_DIR}/scripts/"*
 
-tar --warning=no-file-changed --ignore-failed-read \
+# GNU tar exits non-zero if a file changes while it is being read, which a live
+# data directory can do, and both flags exist to tolerate that. bsdtar — which
+# macOS ships — accepts neither and does not need them, so the build has to ask
+# which tar it has rather than assume the Linux one. Unquoted on purpose: the
+# flags have to word-split, and an empty value must vanish.
+TAR_TOLERANT_FLAGS=""
+if tar --version 2>/dev/null | head -1 | grep -qi "gnu tar"; then
+  TAR_TOLERANT_FLAGS="--warning=no-file-changed --ignore-failed-read"
+fi
+
+# shellcheck disable=SC2086
+tar ${TAR_TOLERANT_FLAGS} \
   -czf "${OUTER_DIR}/package.tgz" -C "${PAYLOAD_DIR}" .
 
 SPK_NAME="PanelShelf-${ARCH}-${VERSION}.spk"
