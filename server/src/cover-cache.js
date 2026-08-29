@@ -3,6 +3,7 @@
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { jsonError } = require("./util");
 
 // What each cached cover on disk actually is, and what it was built from.
 //
@@ -162,4 +163,101 @@ class CoverCacheStore {
   }
 }
 
-module.exports = { CoverCacheStore };
+// Generating thumbnails on first request spreads their cost over the cards a
+// reader actually scrolls past, which is the right default and stays the
+// default. It is the wrong shape for a library that has just been scanned,
+// where the first browse pays a decode per card on NAS CPU. This walks the
+// library once, deliberately, and can be stopped.
+//
+// Nothing here is persisted. A warm-up interrupted by a restart costs only the
+// covers it had not reached yet, because a second run skips everything already
+// cached — so resuming is the same operation as starting.
+class CoverWarmup {
+  constructor({ listComics, warm }) {
+    this.listComics = listComics;
+    this.warm = warm;
+    this.runner = null;
+    this.reset();
+  }
+
+  reset() {
+    this.status = "idle";
+    this.total = 0;
+    this.processed = 0;
+    this.generated = 0;
+    this.alreadyCached = 0;
+    this.failed = 0;
+    this.currentTitle = "";
+    this.startedAt = null;
+    this.finishedAt = null;
+    this.cancelled = false;
+  }
+
+  state() {
+    return {
+      status: this.status,
+      total: this.total,
+      processed: this.processed,
+      generated: this.generated,
+      alreadyCached: this.alreadyCached,
+      failed: this.failed,
+      currentTitle: this.currentTitle,
+      startedAt: this.startedAt,
+      finishedAt: this.finishedAt
+    };
+  }
+
+  start() {
+    if (this.status === "running") {
+      throw jsonError(
+        "A cover warm-up is already running.",
+        "COVER_WARMUP_RUNNING"
+      );
+    }
+    // The queue is taken once, so a scan finishing mid-run cannot grow the work
+    // under the progress the caller is already watching.
+    const queue = this.listComics();
+    this.reset();
+    this.status = "running";
+    this.total = queue.length;
+    this.startedAt = new Date().toISOString();
+    this.runner = this.run(queue);
+    return this.state();
+  }
+
+  cancel() {
+    if (this.status === "running") this.cancelled = true;
+    return this.state();
+  }
+
+  // The current run, for a caller that needs to wait for it — a shutdown, or a
+  // test. Resolved when nothing is running.
+  settled() {
+    return this.runner || Promise.resolve();
+  }
+
+  async run(queue) {
+    for (const comic of queue) {
+      // Checked between comics rather than within one: a half-written cover is
+      // worse than a few hundred extra milliseconds before stopping.
+      if (this.cancelled) break;
+      this.currentTitle = comic.title || "";
+      try {
+        const generated = await this.warm(comic);
+        if (generated) this.generated += 1;
+        else this.alreadyCached += 1;
+      } catch {
+        // One unreadable archive in a library of thousands must not abandon the
+        // rest. The count is the report; the shelf shows which covers are
+        // missing far better than a list here would.
+        this.failed += 1;
+      }
+      this.processed += 1;
+    }
+    this.status = this.cancelled ? "cancelled" : "complete";
+    this.currentTitle = "";
+    this.finishedAt = new Date().toISOString();
+  }
+}
+
+module.exports = { CoverCacheStore, CoverWarmup };

@@ -34,7 +34,7 @@ const {
   createThumbnail,
   imageSize
 } = require("./thumbnail");
-const { CoverCacheStore } = require("./cover-cache");
+const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const {
   BACKUP_FORMAT,
   BACKUP_SCHEMA_VERSION,
@@ -454,6 +454,10 @@ class ComicLibrary {
     // carries the comics whose cover cannot be shrunk, so a repeat request —
     // or a restart — does not decode one again only to give up.
     this.coverCache = new CoverCacheStore(dataDirectory);
+    this.coverWarmup = new CoverWarmup({
+      listComics: () => this.listComics(),
+      warm: (comic) => this.warmCover(comic)
+    });
     this.scanState = emptyScanState();
     this.readingOrders = new ReadingOrderStore(dataDirectory);
     this.enrichment = new MetadataEnrichmentStore(dataDirectory, {
@@ -1522,6 +1526,29 @@ class ComicLibrary {
     if (comic.fingerprint) return comic.fingerprint;
     if (!Number.isFinite(comic.mtimeMs)) return null;
     return `sm1_${Number(comic.size) || 0}_${Math.round(comic.mtimeMs)}`;
+  }
+
+  // Generates this comic's cover and thumbnail unless the record already says
+  // there is nothing left to do. A comic whose cover cannot be shrunk counts as
+  // warm: the record says so, and re-attempting that decode is precisely the
+  // cost this job exists to avoid paying twice.
+  async warmCover(comic) {
+    const entry = this.coverCache.get(comic.id, this.cacheKey(comic));
+    if (entry && (entry.thumbnail || entry.thumbnailUnsupported)) return false;
+    await this.cover(comic.id, { thumbnail: true });
+    return true;
+  }
+
+  coverCacheStatus() {
+    return { cache: this.coverCache.stats(), warmup: this.coverWarmup.state() };
+  }
+
+  startCoverWarmup() {
+    return this.coverWarmup.start();
+  }
+
+  cancelCoverWarmup() {
+    return this.coverWarmup.cancel();
   }
 
   // Merges into the entry for this comic's current contents. `get` returns

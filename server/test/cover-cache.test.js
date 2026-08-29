@@ -102,3 +102,117 @@ test("forgetting a comic drops its entry", async (t) => {
 
   assert.equal(created.get("abc", "fp1_aaa"), null);
 });
+
+const { CoverWarmup } = require("../src/cover-cache");
+
+function comics(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `comic-${index}`,
+    title: `Issue ${index}`
+  }));
+}
+
+function warmup(options = {}) {
+  const warmed = [];
+  const job = new CoverWarmup({
+    listComics: options.listComics || (() => comics(3)),
+    warm:
+      options.warm ||
+      (async (comic) => {
+        warmed.push(comic.id);
+        return true;
+      })
+  });
+  return { job, warmed };
+}
+
+test("a warm-up that has never run reports idle", () => {
+  const { job } = warmup();
+  const state = job.state();
+  assert.equal(state.status, "idle");
+  assert.equal(state.total, 0);
+  assert.equal(state.processed, 0);
+});
+
+test("a warm-up generates every cover and reports what it did", async () => {
+  const { job, warmed } = warmup();
+
+  job.start();
+  await job.settled();
+
+  assert.deepEqual(warmed, ["comic-0", "comic-1", "comic-2"]);
+  const state = job.state();
+  assert.equal(state.status, "complete");
+  assert.equal(state.total, 3);
+  assert.equal(state.processed, 3);
+  assert.equal(state.generated, 3);
+  assert.equal(state.failed, 0);
+});
+
+test("covers already cached are counted apart from ones generated", async () => {
+  // The distinction the settings panel needs: a second run over a warm library
+  // should report that it found nothing to do, not that it did the work again.
+  const { job } = warmup({ warm: async () => false });
+
+  job.start();
+  await job.settled();
+
+  const state = job.state();
+  assert.equal(state.generated, 0);
+  assert.equal(state.alreadyCached, 3);
+  assert.equal(state.processed, 3);
+});
+
+test("a comic that cannot be read does not stop the run", async () => {
+  // One unreadable archive in a library of thousands must not abandon the rest.
+  const { job } = warmup({
+    warm: async (comic) => {
+      if (comic.id === "comic-1") throw new Error("archive is unreadable");
+      return true;
+    }
+  });
+
+  job.start();
+  await job.settled();
+
+  const state = job.state();
+  assert.equal(state.status, "complete");
+  assert.equal(state.processed, 3);
+  assert.equal(state.generated, 2);
+  assert.equal(state.failed, 1);
+});
+
+test("starting a warm-up that is already running is refused", async () => {
+  const { job } = warmup({
+    listComics: () => comics(50),
+    warm: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      return true;
+    }
+  });
+
+  job.start();
+  assert.throws(() => job.start(), /already running/i);
+  job.cancel();
+  await job.settled();
+});
+
+test("cancelling stops a warm-up partway through", async () => {
+  let seen = 0;
+  const { job } = warmup({
+    listComics: () => comics(500),
+    warm: async () => {
+      seen += 1;
+      if (seen === 5) job.cancel();
+      return true;
+    }
+  });
+
+  job.start();
+  await job.settled();
+
+  const state = job.state();
+  assert.equal(state.status, "cancelled");
+  assert.ok(state.processed < 500, `stopped early, processed ${state.processed}`);
+  assert.ok(state.processed >= 5, "did the work it had already started");
+});

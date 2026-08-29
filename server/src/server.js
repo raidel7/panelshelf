@@ -120,6 +120,7 @@ function sendError(response, error) {
     NOT_FOUND: 404,
     PROVIDER_RECORD_NOT_FOUND: 404,
     SCAN_RUNNING: 409,
+    COVER_WARMUP_RUNNING: 409,
     METADATA_JOB_RUNNING: 409,
     PROVIDER_AUTH_FAILED: 401,
     PROVIDER_PERMISSION_REQUIRED: 403,
@@ -487,6 +488,21 @@ async function startServer() {
 
       if (request.method === "DELETE" && pathname === "/api/scan/issues") {
         return sendJson(response, 200, await library.clearScanIssues());
+      }
+
+      if (request.method === "GET" && pathname === "/api/covers/cache") {
+        return sendJson(response, 200, library.coverCacheStatus());
+      }
+
+      if (request.method === "POST" && pathname === "/api/covers/cache/warm") {
+        return sendJson(response, 200, library.startCoverWarmup());
+      }
+
+      if (
+        request.method === "POST" &&
+        pathname === "/api/covers/cache/warm/cancel"
+      ) {
+        return sendJson(response, 200, library.cancelCoverWarmup());
       }
 
       if (request.method === "GET" && pathname === "/api/progress") {

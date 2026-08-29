@@ -318,6 +318,30 @@ summary, creators, genres and characters a compact response does not carry.
 Only the exact value `compact` opts in; `?view=full` and any other value return
 the full records, so an existing client cannot be shortened by accident.
 
+### Cover cache
+
+Covers and thumbnails are generated on first request, which suits browsing and
+does not suit a library that was just scanned — the first pass through the shelf
+pays an image decode per card on NAS CPU. Warming the cache does that work
+deliberately instead.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/covers/cache` | What the cache holds, and whether a warm-up is running |
+| POST | `/api/covers/cache/warm` | Start a warm-up over every comic |
+| POST | `/api/covers/cache/warm/cancel` | Stop the running warm-up |
+
+`GET` answers with `cache` — the number of comics recorded, covers and
+thumbnails held, and their total bytes — and `warmup`, carrying `status`
+(`idle`, `running`, `complete` or `cancelled`), `total`, `processed`,
+`generated`, `alreadyCached`, `failed` and the title in hand. Starting one while
+another is running answers `409 COVER_WARMUP_RUNNING`.
+
+A warm-up skips any comic already cached, so running it twice costs almost
+nothing and an interrupted one is resumed simply by starting it again. Covers
+whose format cannot be shrunk count as warm: that verdict is recorded, and not
+repeating it is most of the point.
+
 ## Reading progress API
 
 Reading progress lives on the server, so every browser — and the companion

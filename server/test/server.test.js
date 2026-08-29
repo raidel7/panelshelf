@@ -954,3 +954,66 @@ test("a forged host header is refused, which is what rebinding rests on", async 
   assert.equal(response.status, 403, state.logs);
   assert.equal(JSON.parse(response.body).error.code, "FORBIDDEN_HOST");
 });
+
+test("the cover cache reports what it holds and whether a warm-up is running", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+
+  const response = await fetch(`${base}/api/covers/cache`);
+  assert.equal(response.status, 200, state.logs);
+  const body = await response.json();
+  assert.deepEqual(
+    body.cache,
+    { comics: 0, covers: 0, thumbnails: 0, bytes: 0 },
+    "an empty library has cached nothing"
+  );
+  assert.equal(body.warmup.status, "idle");
+});
+
+test("warming the cache fills it for every comic, once", async (t) => {
+  // Thumbnails are generated on first request, which is right for browsing and
+  // wrong for a library that was just scanned — the first browse pays a decode
+  // per card on NAS CPU. This is the deliberate version of that work.
+  const { base, comicsDirectory, state } = await startServer(t);
+
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  for (const name of ["Alpha", "Bravo"]) {
+    await fsp.writeFile(
+      path.join(comicsDirectory, `${name}.cbz`),
+      zipBuffer([{ name: "page.png", data: ONE_PIXEL_PNG }])
+    );
+  }
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 2);
+
+  const started = await fetch(`${base}/api/covers/cache/warm`, { method: "POST" });
+  assert.equal(started.status, 200, state.logs);
+
+  const done = await waitFor(
+    `${base}/api/covers/cache`,
+    (body) => body.warmup.status === "complete"
+  );
+  assert.equal(done.warmup.total, 2, state.logs);
+  assert.equal(done.warmup.generated, 2);
+  assert.equal(done.warmup.failed, 0);
+  assert.equal(done.cache.comics, 2, "the cache now records both comics");
+
+  // A second pass over a warm library finds nothing to do, rather than doing it
+  // all again.
+  await fetch(`${base}/api/covers/cache/warm`, { method: "POST" });
+  const again = await waitFor(
+    `${base}/api/covers/cache`,
+    (body) => body.warmup.status === "complete" && body.warmup.startedAt !== done.warmup.startedAt
+  );
+  assert.equal(again.warmup.generated, 0, state.logs);
+  assert.equal(again.warmup.alreadyCached, 2);
+});
