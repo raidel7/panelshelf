@@ -100,7 +100,7 @@ Unreleased on `main`: misnamed archive extensions are no longer reported as
 scan warnings, the scan-issue report can be cleared from the browser, and a
 cached cover is served even when its source archive has gone away. The 0.4.14
 heading covers 1035 and 1036 as point fixes; the storyline and library-editing
-scope filed under 0.4.14 in section 7 has not been started.
+scope filed under 0.4.17 in section 7 has not been started.
 
 ### Companion iPad app
 
@@ -571,16 +571,16 @@ and Franco-Belgian publishers.
 
 ## Delivery sequence
 
-Server milestones continue from 0.4.11. The numbers 0.4.4 through 0.4.11 are
-spent; anything planned takes 0.4.12 or later. Section numbers are stable
+Server milestones continue from 0.4.14. The numbers 0.4.4 through 0.4.14 are
+spent; anything planned takes 0.4.15 or later. Section numbers are stable
 identifiers and are referenced elsewhere in this document, so the gaps below
 are deliberate — those milestones belong to the iPad client and moved with it.
 
 | # | Milestone | Status | Planning range |
 | --- | --- | --- | --- |
-| 5 | 0.4.12 — Offline shelf and cover cache | Planned | 1–2 weeks |
-| 6 | 0.4.13 — Sync API hardening | Planned | 2–3 weeks |
-| 7 | 0.4.14 — Storylines and advanced library editing | Planned | 3–5 weeks |
+| 5 | 0.4.15 — Offline shelf and cover cache | Planned | 1 week |
+| 6 | 0.4.16 — Sync API hardening | Planned | 2–3 weeks |
+| 7 | 0.4.17 — Storylines and advanced library editing | Planned | 3–5 weeks |
 | 8 | 0.5 — Accounts and secure client access | Planned | 3–4 weeks |
 | 10 | 0.7 — Reliability, performance, administration | Planned | 3–5 weeks |
 | 11 | 0.9 — Synology marketplace candidate | Planned | 3–6 weeks plus review |
@@ -588,7 +588,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 
 ---
 
-## 5. 0.4.12 — Offline shelf and cover cache — server
+## 5. 0.4.15 — Offline shelf and cover cache — server
 
 ### Goal
 
@@ -598,12 +598,13 @@ does not.
 
 ### Scope
 
-- Consult the cover cache before opening the source archive. Today `cover()`
-  enumerates the archive's pages first, so a cached cover is unreachable exactly
-  when it matters most.
+Two items of this scope landed ahead of the milestone, in 55079b0, and are
+unreleased on `main`: both cache lookups now happen before the archive is
+opened, so a cached cover is served when its source has gone away. Four tests
+in `thumbnail.test.js` hold that behaviour down. What remains:
+
 - Persist each cached cover's filename, content type, dimensions, and source
   fingerprint in the library index.
-- Serve cached covers for unavailable comics rather than omitting the image.
 - A background **Cache all covers** action with progress and cancellation, so
   thumbnails are not generated one scroll at a time on NAS CPU.
 - Cache status and approximate storage use in Library settings.
@@ -614,12 +615,12 @@ does not.
 
 - After a scan and cover warm-up, disconnecting the USB disk leaves covers and
   metadata visible.
-- Serving a cached cover does not touch the comic archive.
+- Serving a cached cover does not touch the comic archive. **Met** in 55079b0.
 - Reconnecting the disk restores reading without creating duplicate comics.
 - A changed archive cannot indefinitely retain an unrelated old cover.
 - Cache cleanup never removes a source comic.
 
-## 6. 0.4.13 — Sync API hardening — server
+## 6. 0.4.16 — Sync API hardening — server
 
 ### Goal
 
@@ -654,7 +655,7 @@ contract, while OPDS stays a separate read-only catalog standard.
 - Revoked credentials lose access immediately.
 - A rescan does not break client bookmarks for unchanged comics.
 
-## 7. 0.4.14 — Storylines and advanced library editing — server and web
+## 7. 0.4.17 — Storylines and advanced library editing — server and web
 
 ### Scope
 
