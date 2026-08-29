@@ -1,22 +1,23 @@
 # PanelShelf Roadmap
 
-Updated: 2026-08-13
+Updated: 2026-08-29
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.4.13, build 1034 | Released. The developer's NAS runs 0.4.12. |
-| **iPad app** | unreleased | In development. At parity with the web viewer for browsing and reading. |
+| **Server and web** | 0.4.14, build 1036 | Released. The developer's NAS runs 0.4.14. |
+| **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
-PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries,
-together with a first-party iPad client that reads from it. It preserves the
-owner's folder structure and reading orders, supports internal and external USB
-storage, and keeps everything it generates inside the package's private data
-directory without altering the source comics.
+PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
+preserves the owner's folder structure and reading orders, supports internal and
+external USB storage, and keeps everything it generates inside the package's
+private data directory without altering the source comics.
 
-This document covers both. They are planned together because they block each
-other in both directions: the iPad app is the reason the server grew a progress
-API, a compact library listing, and cover thumbnails, and each of those was
-built because a real iPad hit a real wall.
+This document covers the server, the browser reader, and the DSM package. A
+first-party iPad client reads from the same server and is developed in its own
+repository. It appears here only where it explains a server decision, because
+the two blocked each other in both directions: the app is the reason the server
+grew a progress API, a compact library listing, and cover thumbnails, and each
+of those was built because a real iPad hit a real wall.
 
 Time ranges are planning estimates for one primary developer, not release
 commitments. Physical testing on Synology hardware remains the largest source of
@@ -101,42 +102,14 @@ cached cover is served even when its source archive has gone away. The 0.4.14
 heading covers 1035 and 1036 as point fixes; the storyline and library-editing
 scope filed under 0.4.14 in section 7 has not been started.
 
-### iPad app
+### Companion iPad app
 
-iPad-only, iOS 26, SwiftUI and SwiftData, generated with XcodeGen. Built and
-working:
-
-- Connection by typed address validated against `/api/health`, plus Bonjour
-  discovery of `_panelshelf._tcp`
-- Split-view shell with a collapsible sidebar whose state survives relaunch
-- All comics: cover grid and dense list, search over title, series, publisher
-- Comic detail with the full metadata record and status actions
-- Reader with single, double, manga, and continuous modes, and fit width/height
-- Reading progress shared with the web viewer, debounced, with an offline queue
-  that survives a force-quit and reconciles through `/api/progress/merge`
-- A decoded-cover cache — memory over disk, downsampled, prefetched
-- A visible notice when comics were dropped, so a short shelf cannot pass for a
-  complete one
-- Home: a Resume hero, Continue reading, and Recently added
-- Chronology browsing over `GET /api/chronology` — breadcrumbs, position chips,
-  year ranges, collections cover-first, and the comics filed at each level
-- Skipping and restoring collections, shared with the browser
-- Publishers, grouped by canonical publisher with imprints named
-- Reading orders, automatic and manual, opened into a numbered shelf
-- A sidebar that reopens on the section it was left in
-- Offline downloads: a queue with per-comic state, cancel and remove, archives
-  stored outside the backup set, a Downloads sidebar item, and a local CBZ/CBR
-  reader
-- Signed for App Store Connect as `com.example.panelshelf`, with an app icon
-  and an export-compliance declaration, so the app can be archived and uploaded
-
-At parity with the web viewer for browsing and reading. Not built yet: library
-management — scanning, sources, and metadata editing, which are still
-browser-only.
-
-The timeline visualization from 0.4.2 — the focused carousel with its numbered
-rail — is deliberately not reproduced; the app shows a branch's year range on
-its card instead.
+A native iPad client is developed separately, in its own repository, and is not
+part of this project's source. It speaks to this server over the documented
+HTTP API and the OPDS catalog, and shares reading position through
+`/api/progress/merge` — which is why that endpoint's contract is treated here
+as public surface rather than an internal detail. Its own roadmap is tracked
+alongside the app.
 
 ### Known gaps in the foundation
 
@@ -598,170 +571,22 @@ and Franco-Belgian publishers.
 
 ## Delivery sequence
 
-The iPad milestones come first: the app is the least finished part of the
-product and the server work it needs most is already done.
-
-Chronology moved ahead of offline downloads on the owner's call, and the reason
-is worth recording: the chronology is the feature PanelShelf has that other
-comic servers do not, so an iPad app without it is missing the point of the
-server it talks to.
-
-| # | Milestone | Track | Status | Planning range |
-| --- | --- | --- | --- | --- |
-| — | Home and Resume | iPad | **Done** — 0.4.12 | — |
-| — | Chronology, skip state, Publishers, Reading orders | iPad + server | **Done** — 0.4.13 | — |
-| 1 | Offline downloads | iPad | **Next** | 1–2 weeks |
-| 2 | Library management from the iPad | iPad + server | Planned | 1 week |
-| 5 | 0.4.12 — Offline shelf and cover cache | Server | Planned | 1–2 weeks |
-| 6 | 0.4.13 — Sync API hardening | Both | Planned | 2–3 weeks |
-| 7 | 0.4.14 — Storylines and advanced library editing | Server and web | Planned | 3–5 weeks |
-| 8 | 0.5 — Accounts and secure client access | Both | Planned | 3–4 weeks |
-| 9 | iPad release readiness | iPad | Planned | 4–6 weeks |
-| 10 | 0.7 — Reliability, performance, administration | Server | Planned | 3–5 weeks |
-| 11 | 0.9 — Synology marketplace candidate | Server | Planned | 3–6 weeks plus review |
-| 12 | 1.0 — Public release | Both | Planned | After the gates above |
-
 Server milestones continue from 0.4.11. The numbers 0.4.4 through 0.4.11 are
-spent; anything planned takes 0.4.12 or later. The iPad app is unversioned until
-it is ready to leave TestFlight.
+spent; anything planned takes 0.4.12 or later. Section numbers are stable
+identifiers and are referenced elsewhere in this document, so the gaps below
+are deliberate — those milestones belong to the iPad client and moved with it.
+
+| # | Milestone | Status | Planning range |
+| --- | --- | --- | --- |
+| 5 | 0.4.12 — Offline shelf and cover cache | Planned | 1–2 weeks |
+| 6 | 0.4.13 — Sync API hardening | Planned | 2–3 weeks |
+| 7 | 0.4.14 — Storylines and advanced library editing | Planned | 3–5 weeks |
+| 8 | 0.5 — Accounts and secure client access | Planned | 3–4 weeks |
+| 10 | 0.7 — Reliability, performance, administration | Planned | 3–5 weeks |
+| 11 | 0.9 — Synology marketplace candidate | Planned | 3–6 weeks plus review |
+| 12 | 1.0 — Public release | Planned | After the gates above |
 
 ---
-
-## Done: Home and Resume — iPad
-
-### Goal
-
-Give the app the screen it currently pretends to have. Tapping Home shows the
-All comics grid today, which is the sidebar telling the user something untrue.
-
-### Scope
-
-- Resume hero for the most recently read in-progress comic: cover, series and
-  title, page position, and a single Resume action that opens the reader at the
-  saved page.
-- Continue reading shelf — every in-progress comic, most recent first, excluding
-  completed and skipped.
-- Recently added shelf.
-- Empty states that distinguish a library with nothing in progress from a
-  library that has not loaded.
-- A horizontal shelf component reused by all three, sharing the existing cover
-  cache and prefetch window.
-
-### Dependencies
-
-`ProgressTracker` already holds every record in memory, so Resume and Continue
-reading need no new server work. Recently added has nothing to sort by: the
-compact listing drops `modifiedAt` deliberately. Adding one ISO timestamp back
-costs roughly 700 KB across a 26,625-comic library on top of 4.35 MB, which is
-worth measuring before committing to it — the alternative is a small dedicated
-route that returns the most recent N comics.
-
-### Release gates
-
-- Resume opens the exact page the web viewer last recorded, and vice versa.
-- A library with no progress shows an inviting Home, not an error.
-- Home does not fetch covers the grid has already cached.
-
-## Done: Offline downloads — iPad
-
-Delivered by `DownloadStore` and `DownloadsView`, covered by
-`DownloadStoreTests`. Storage accounting and a deliberate eviction path are the
-parts of the scope below that were not built.
-
-### Goal
-
-Read on a plane. The download must be the archive file, not a bag of rendered
-page images.
-
-### Scope
-
-- Download queue with per-comic progress, pause, resume, and cancel.
-- Downloads stored outside the backup set, excluded from iCloud.
-- A local archive reader for CBZ and CBR — ZIPFoundation and UnrarKit — whose
-  entry ordering reproduces the server's `isImage` filter and `naturalCompare`
-  sort exactly, so a page index means the same thing offline and online.
-- A Downloads sidebar item: what is stored, how much space it uses, and how to
-  remove it.
-- Reading a downloaded comic while the NAS is unreachable, with progress queued
-  and flushed on reconnect.
-- Storage accounting and an eviction path that never deletes silently.
-
-### Dependencies
-
-The server already serves whole archives with byte ranges at
-`/opds/comics/:id/file`. A first-party `GET /api/comics/:id/file` alias belongs
-with this milestone so the app does not have to reach into the OPDS namespace.
-
-### Release gates
-
-- A downloaded comic opens with the NAS powered off.
-- Page N offline is page N online, verified against a CBR with mixed-case
-  extensions and non-image entries.
-- Deleting a download never touches the source archive.
-
-## 1. Chronology: skip state and the year rail — iPad and server
-
-### Goal
-
-Finish the chronology. Browsing landed with `GET /api/chronology`; what is
-missing is the state that says which branches a reader has set aside, and the
-year rail that makes an era legible at a glance.
-
-### Scope
-
-- Move skipped-branch state to the server, keyed on the node ids the tree
-  already has, the way reading progress moved in 0.4.4. It is browser-local
-  today, so the iPad shows branches the reader has hidden in the browser.
-- Migrate the web viewer's stored skip set once, behind a flag, and keep the
-  backup format working.
-- Skip and restore from the iPad, with the muted, struck-through presentation
-  the web uses.
-- The year or year range for a branch, and the timeline rail above the grid.
-
-### Release gates
-
-- A branch skipped on either client reads as skipped on the other.
-- A restore from a pre-migration backup does not lose skip state.
-- Chronology order matches the web viewer exactly for the same source.
-
-## 2. Browse: Publishers and Reading orders — iPad
-
-### Goal
-
-The other two views the web viewer has had since 0.3.1.
-
-### Scope
-
-- Publishers: collection cards grouped by canonical publisher and imprint.
-- Reading orders: automatic and manual orders, opened into an ordered shelf.
-- One grid component behind these and the chronology, fed by different queries.
-- Next-comic navigation inside the active reading context, matching the server's
-  boundary rules rather than guessing across unnumbered branches.
-
-### Release gates
-
-- Switching sidebar items never loses the shelf's scroll position.
-- An automatic order on the iPad contains exactly what it contains on the web.
-
-## 4. Library management from the iPad — iPad and server
-
-### Goal
-
-Stop making the user open a browser to fix the library.
-
-### Scope
-
-- Sources list with availability, comic counts, and last scan result.
-- Quick Scan, Scan this source, Retry issues, and Full rebuild, with live
-  progress.
-- Scan issues with the same recovery actions the web viewer offers.
-- Server settings the app can safely present: discovery state, version, cache
-  size.
-
-### Release gates
-
-- A scan started from the iPad reports the same counts as the web viewer.
-- No destructive action is one tap away without confirmation.
 
 ## 5. 0.4.12 — Offline shelf and cover cache — server
 
@@ -794,7 +619,7 @@ does not.
 - A changed archive cannot indefinitely retain an unrelated old cover.
 - Cache cleanup never removes a source comic.
 
-## 6. 0.4.13 — Sync API hardening — server and iPad
+## 6. 0.4.13 — Sync API hardening — server
 
 ### Goal
 
@@ -849,7 +674,7 @@ contract, while OPDS stays a separate read-only catalog standard.
   reading orders.
 - Duplicate suggestions never delete or merge source files automatically.
 
-## 8. 0.5 — Accounts and secure client access — server and iPad
+## 8. 0.5 — Accounts and secure client access — server
 
 ### Scope
 
@@ -869,37 +694,6 @@ contract, while OPDS stays a separate read-only catalog standard.
   anonymously accessible.
 - Separate users never receive each other's reading state.
 - Backup and restore preserve accounts without exporting reusable secrets.
-
-## 9. iPad release readiness
-
-The iPad client is developed and released separately from the server.
-
-dependency.
-
-### Done
-
-- Signed for App Store Connect as `com.example.panelshelf` against team
-  REDACTED, automatic provisioning, with the simulator exempted so CI keeps
-  building without certificates.
-- `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` moved into build settings,
-  where a bump survives `xcodegen generate`.
-- An asset catalog and app icon, and an `ITSAppUsesNonExemptEncryption`
-  declaration so export compliance is answered in the build.
-
-### Scope
-
-- iPhone layouts, if the shared components survive the width.
-- Secure pairing, once the server grows device tokens (section 8).
-- Background refresh and graceful handling of an unreachable NAS.
-- Accessibility pass: Dynamic Type, VoiceOver on the grid and reader, contrast.
-- App Store metadata, privacy nutrition labels, TestFlight cycle.
-
-### Later
-
-- Custom collections and storylines.
-- Annotations and bookmarks.
-- Remote-access onboarding.
-- Purchase, entitlement, and family-sharing model.
 
 ## 10. 0.7 — Reliability, performance, and administration — server
 
