@@ -4,7 +4,7 @@ Updated: 2026-08-29
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.4.16, build 1039 | Released. The developer's NAS runs 0.4.16. |
+| **Server and web** | 0.4.17, build 1040 | Released. The developer's NAS runs 0.4.16. |
 | **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
@@ -98,6 +98,7 @@ The current build provides:
 | 0.4.15 / 1037 | A cover cache that records itself, can be warmed in one pass, and is cleaned up |
 | 0.4.16 / 1038 | Device pairing, a versioned API, and incremental library changes |
 | 0.4.16 / 1039 | Library folders no longer opens empty over a configured library |
+| 0.4.17 / 1040 | Storylines, chosen covers, order portability, duplicates, bulk editing |
 
 Nothing is unreleased on `main`. The 0.4.14 heading covers 1035 and 1036 as
 point fixes; the storyline and library-editing scope filed under 0.4.17 in
@@ -595,8 +596,8 @@ and Franco-Belgian publishers.
 
 ## Delivery sequence
 
-Server milestones continue from 0.4.16. The numbers 0.4.4 through 0.4.16 are
-spent; anything planned takes 0.4.17 or later. Section numbers are stable
+Server milestones continue from 0.4.17. The numbers 0.4.4 through 0.4.17 are
+spent; anything planned takes 0.4.18 or later. Section numbers are stable
 identifiers and are referenced elsewhere in this document, so the gaps below
 are deliberate — those milestones belong to the iPad client and moved with it.
 
@@ -604,7 +605,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 | --- | --- | --- | --- |
 | 5 | 0.4.15 — Offline shelf and cover cache | **Done** — 0.4.15 | — |
 | 6 | 0.4.16 — Sync API hardening | **Done** — 0.4.16 | — |
-| 7 | 0.4.17 — Storylines and advanced library editing | Planned | 3–5 weeks |
+| 7 | 0.4.17 — Storylines and advanced library editing | **Done** — 0.4.17 | — |
 | 8 | 0.5 — Accounts and secure client access | Planned | 3–4 weeks |
 | 10 | 0.7 — Reliability, performance, administration | Planned | 3–5 weeks |
 | 11 | 0.9 — Synology marketplace candidate | Planned | 3–6 weeks plus review |
@@ -705,7 +706,7 @@ contract, while OPDS stays a separate read-only catalog standard.
 
 ## 7. 0.4.17 — Storylines and advanced library editing — server and web
 
-Complete and unreleased on `main`, server and web both.
+Complete, released as 0.4.17-1040, server and web both.
 
 Bulk editing acts on the current search rather than on a hand-picked selection.
 The job it exists for — fixing a publisher or a series name across a run — is a

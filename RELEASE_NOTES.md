@@ -1,3 +1,54 @@
+# PanelShelf 0.4.17-1040
+
+Storylines, covers you choose, and the tools for tidying a library that has
+grown past the point of doing it by hand.
+
+## Covers you choose
+
+- Any comic can be given a cover of your own, in **Edit comic**. PanelShelf
+  keeps the picture in its own data directory and never writes beside your
+  comics.
+- A reading order can have one too, which is what makes it a storyline: it is
+  shown instead of the cover borrowed from whichever comic happened to be first.
+- Chosen covers are shrunk for the shelf like any other, so a large picture does
+  not cost you anything while browsing.
+
+## Reading orders that can travel
+
+- **Export** writes an order as a documented format that records what each comic
+  is — title, series, path and content fingerprint — rather than only its id, so
+  it can be imported on another PanelShelf and still find the right files.
+- **Import** matches contents first, then path, then title, and tells you what
+  it could not find rather than quietly giving you a shorter order.
+- **Repair** appears when an order has entries the library no longer has, or the
+  same comic listed twice. It says what is wrong before changing anything, and
+  your comic files are never touched.
+
+## Library review
+
+- A new **Library review** screen, in Library settings, showing possible
+  duplicates and online matches that were too close to call.
+- Duplicates are reported and never resolved for you. Files with identical
+  contents are certain; the same issue in two formats is only probable, and is
+  labelled that way. Each group lists every copy with its path, size and source,
+  and roughly what removing the extras would reclaim.
+- Matches to review show what was proposed, both confidence scores, and why it
+  was not taken automatically.
+
+## Bulk editing
+
+- Search for a run, and a bar offers to edit the metadata of everything matching
+  or add it all to a reading order.
+- A field left blank is left alone, so one patch is safe across hundreds of
+  comics with different titles.
+- More than a thousand matches are refused rather than partly applied. Narrow
+  the search instead.
+
+## Validation
+
+- 316 server tests pass, sixty-two of them new since 0.4.16. Every screen here
+  was also driven end to end in a real browser.
+
 # PanelShelf 0.4.16-1039
 
 A fix for a way to lose your library configuration. Anyone running PanelShelf
