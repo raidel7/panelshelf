@@ -1544,3 +1544,33 @@ test("an order can be checked for damage without being changed", async (t) => {
   assert.deepEqual(report.missing, []);
   assert.deepEqual(report.duplicated, []);
 });
+
+test("duplicates are reported, and only reported", async (t) => {
+  // The release gate: suggestions never delete or merge source files. The
+  // endpoint has no verb that could, and both files are still there afterwards.
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  const same = zipBuffer([{ name: "page.png", data: pngBuffer(300, 450) }]);
+  await fsp.writeFile(path.join(comicsDirectory, "Action 001.cbz"), same);
+  await fsp.writeFile(path.join(comicsDirectory, "Action 001 (copy).cbz"), same);
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Detective 001.cbz"),
+    zipBuffer([{ name: "page.png", data: pngBuffer(320, 450) }])
+  );
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 3);
+
+  const report = await (await fetch(`${base}/api/duplicates`)).json();
+  assert.equal(report.groups.length, 1, state.logs);
+  assert.equal(report.groups[0].reason, "identical-contents");
+  assert.equal(report.groups[0].confidence, "certain");
+  assert.equal(report.groups[0].comics.length, 2);
+  assert.ok(report.reclaimableBytes > 0);
+
+  const files = await fsp.readdir(comicsDirectory);
+  assert.equal(files.length, 3, "nothing was removed by looking");
+});

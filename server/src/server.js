@@ -669,6 +669,10 @@ async function startServer() {
         }
       }
 
+      if (request.method === "GET" && pathname === "/api/duplicates") {
+        return sendJson(response, 200, library.findDuplicateComics());
+      }
+
       if (request.method === "GET" && pathname === "/api/changes") {
         return sendJson(
           response,

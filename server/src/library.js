@@ -38,6 +38,7 @@ const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const { DeviceTokenStore } = require("./device-tokens");
 const { LibraryChangeLog } = require("./library-changes");
 const { CustomArtworkStore } = require("./custom-artwork");
+const { findDuplicates } = require("./duplicates");
 const {
   BACKUP_FORMAT,
   BACKUP_SCHEMA_VERSION,
@@ -999,6 +1000,17 @@ class ComicLibrary {
 
   async updateReadingOrder(id, input) {
     return this.readingOrders.update(id, input, this.comics);
+  }
+
+  // Reads the index and returns groups. It cannot delete anything, which is
+  // how the release gate that duplicates are never resolved automatically is
+  // kept: there is nothing here to make destructive later.
+  findDuplicateComics() {
+    const groups = findDuplicates(this.comics);
+    return {
+      groups,
+      reclaimableBytes: groups.reduce((sum, group) => sum + group.reclaimableBytes, 0)
+    };
   }
 
   exportReadingOrder(id) {

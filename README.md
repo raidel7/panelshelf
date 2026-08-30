@@ -402,6 +402,31 @@ holding a cursor from a data directory that has since been rebuilt. Sending a
 partial history in any of those cases would leave a client quietly wrong, which
 is the failure nobody notices.
 
+### Duplicates
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/duplicates` | Groups of comics that look like copies of each other |
+
+Reporting only. There is no endpoint that resolves a duplicate, and the module
+behind this one has no way to delete a file — which is a stronger promise than
+a rule saying it must not, because a later change cannot make destructive
+something that has nothing destructive in it.
+
+Two kinds, and the difference is the point. **identical-contents** is
+`certain`: the scan already fingerprints every file, and two files with the same
+fingerprint are one comic filed twice. **same-issue** is `probable`: a CBZ and a
+CBR of one issue have different bytes and are still the same comic — but so are
+a raw scan and a restored version of it, and only you know which you meant to
+keep.
+
+An issue with no number is never guessed at, because grouping a run by series
+alone would call every issue a duplicate of every other. A comic on an
+unavailable source is left out entirely: a sleeping USB disk is not a reason to
+suggest removing the copy that is still there. Groups come back with the most
+reclaimable bytes first, and each carries the path, size and source of every
+copy — the things you need to decide which one is the keeper.
+
 ### Reading orders: artwork, portability and repair
 
 A reading order with a cover is what the roadmap calls a storyline. The cover is
