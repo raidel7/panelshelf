@@ -65,6 +65,35 @@ names it serves, comma separated.
 The folder browser exposes only mounted Synology volume paths. PanelShelf never
 offers browsing of DSM system directories.
 
+### Device pairing
+
+PanelShelf can require every client to be paired. It is off by default, because
+turning it on locks out every client that has not paired yet — including OPDS
+readers — and that is the owner's decision rather than an upgrade's.
+
+Enable it in **Library settings**. The browser that turns it on is paired in the
+same step, so you cannot lock yourself out of the page you are looking at. To
+pair anything else, generate an eight-character code and type it into the other
+client within five minutes; the token it receives is shown once and stored only
+as a hash here.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/devices` | Whether pairing is on, and what is paired |
+| POST | `/api/devices/enable` | Turn it on and pair the calling browser |
+| POST | `/api/devices/disable` | Turn it off; paired devices are kept |
+| POST | `/api/devices/pairing-code` | An eight-character code, good for five minutes, once |
+| POST | `/api/devices/pair` | Exchange a code for a token; needs no token itself |
+| DELETE | `/api/devices/:deviceId` | Revoke a device, effective on its next request |
+
+Clients send `Authorization: Bearer <token>`. OPDS readers, which can only send
+HTTP Basic, put the token in the password field and anything in the username.
+`/api/health` and `/api/discovery` stay open so a client can tell a wrong
+address from an unpaired server.
+
+If pairing is on and every client has lost its token, recovery means setting
+`enabled` to `false` in `devices.json` in the data directory, over SSH.
+
 Found a vulnerability? Please report it privately rather than as an issue —
 see [SECURITY.md](SECURITY.md).
 

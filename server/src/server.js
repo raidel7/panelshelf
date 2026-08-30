@@ -105,6 +105,46 @@ function guardRequest(request) {
   }
 }
 
+// Reachable before a client holds a credential, because each of them is how a
+// client gets one or decides whether it needs one. `/api/health` in particular
+// is what the iPad's connection screen uses to tell a wrong address from an
+// unpaired server, and those need different words on screen.
+const OPEN_PATHS = new Set(["/api/health", "/api/discovery", "/api/devices/pair"]);
+
+// A device token can arrive two ways. Bearer is what PanelShelf's own clients
+// send. Basic is what a third-party OPDS reader sends, because Basic is all it
+// has — so the token goes in the password field and the username is ignored.
+// Without that, switching pairing on would silently break every OPDS reader.
+function presentedToken(request) {
+  const header = String(request.headers.authorization || "");
+  const bearer = header.match(/^Bearer\s+(.+)$/i);
+  if (bearer) return bearer[1].trim();
+  const basic = header.match(/^Basic\s+(.+)$/i);
+  if (!basic) return null;
+  try {
+    const decoded = Buffer.from(basic[1].trim(), "base64").toString("utf8");
+    const separator = decoded.indexOf(":");
+    return separator === -1 ? null : decoded.slice(separator + 1);
+  } catch {
+    return null;
+  }
+}
+
+function authorize(request, pathname, devices) {
+  if (!devices.enabled) return;
+  if (OPEN_PATHS.has(pathname)) return;
+  // The app shell and its assets stay open: the page has to load before anyone
+  // can type a pairing code into it. Everything it then asks for is guarded.
+  const guarded = pathname.startsWith("/api/") || pathname === "/opds" ||
+    pathname.startsWith("/opds/");
+  if (!guarded) return;
+  if (devices.verify(presentedToken(request))) return;
+  throw jsonError(
+    "This server only answers paired devices.",
+    "UNAUTHORIZED"
+  );
+}
+
 function sendJson(response, status, value) {
   const body = Buffer.from(JSON.stringify(value));
   response.writeHead(status, {
@@ -120,6 +160,8 @@ function sendError(response, error) {
     NOT_FOUND: 404,
     PROVIDER_RECORD_NOT_FOUND: 404,
     SCAN_RUNNING: 409,
+    UNAUTHORIZED: 401,
+    INVALID_PAIRING_CODE: 400,
     COVER_WARMUP_RUNNING: 409,
     METADATA_JOB_RUNNING: 409,
     PROVIDER_AUTH_FAILED: 401,
@@ -301,6 +343,7 @@ async function startServer() {
 
     try {
       guardRequest(request);
+      authorize(request, pathname, library.deviceTokens);
 
       if (request.method === "GET" && pathname === "/api/health") {
         return sendJson(response, 200, {
@@ -488,6 +531,45 @@ async function startServer() {
 
       if (request.method === "DELETE" && pathname === "/api/scan/issues") {
         return sendJson(response, 200, await library.clearScanIssues());
+      }
+
+      if (request.method === "GET" && pathname === "/api/devices") {
+        return sendJson(response, 200, {
+          enabled: library.deviceTokens.enabled,
+          devices: library.deviceTokens.list()
+        });
+      }
+
+      if (request.method === "POST" && pathname === "/api/devices/enable") {
+        const body = await readJsonBody(request);
+        return sendJson(response, 200, await library.enableDevicePairing(body));
+      }
+
+      if (request.method === "POST" && pathname === "/api/devices/disable") {
+        await library.deviceTokens.setEnabled(false);
+        return sendJson(response, 200, { enabled: false, devices: library.deviceTokens.list() });
+      }
+
+      if (request.method === "POST" && pathname === "/api/devices/pairing-code") {
+        return sendJson(response, 200, await library.deviceTokens.createPairingCode());
+      }
+
+      if (request.method === "POST" && pathname === "/api/devices/pair") {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          200,
+          await library.deviceTokens.redeemPairingCode(body.code, { name: body.name })
+        );
+      }
+
+      const deviceMatch = pathname.match(
+        /^\/api\/devices\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
+      );
+      if (request.method === "DELETE" && deviceMatch) {
+        const revoked = await library.deviceTokens.revoke(deviceMatch[1]);
+        if (!revoked) throw jsonError("That device is not paired.", "NOT_FOUND");
+        return sendJson(response, 200, { devices: library.deviceTokens.list() });
       }
 
       if (request.method === "GET" && pathname === "/api/covers/cache") {

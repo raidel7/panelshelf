@@ -1017,3 +1017,133 @@ test("warming the cache fills it for every comic, once", async (t) => {
   assert.equal(again.warmup.generated, 0, state.logs);
   assert.equal(again.warmup.alreadyCached, 2);
 });
+
+async function enablePairing(base) {
+  const response = await fetch(`${base}/api/devices/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "This browser" })
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test("with pairing off, nothing needs a token", async (t) => {
+  // The default, and the upgrade path: an install that never opts in must not
+  // notice that any of this exists.
+  const { base, state } = await startServer(t);
+
+  assert.equal((await fetch(`${base}/api/comics`)).status, 200, state.logs);
+  const devices = await (await fetch(`${base}/api/devices`)).json();
+  assert.equal(devices.enabled, false);
+  assert.deepEqual(devices.devices, []);
+});
+
+test("enabling pairing hands a token to the browser that enabled it", async (t) => {
+  // Otherwise turning it on locks the owner out of the page they turned it on
+  // from, and the only way back is a text editor over SSH.
+  const { base, state } = await startServer(t);
+
+  const enabled = await enablePairing(base);
+  assert.equal(enabled.status, 200, state.logs);
+  assert.match(enabled.body.token, /^pst_/, "a usable token, returned once");
+  assert.equal(enabled.body.enabled, true);
+
+  const withToken = await fetch(`${base}/api/comics`, {
+    headers: { Authorization: `Bearer ${enabled.body.token}` }
+  });
+  assert.equal(withToken.status, 200, state.logs);
+});
+
+test("with pairing on, a request carrying no token is refused", async (t) => {
+  const { base, state } = await startServer(t);
+  await enablePairing(base);
+
+  const response = await fetch(`${base}/api/comics`);
+  assert.equal(response.status, 401, state.logs);
+  assert.equal((await response.json()).error.code, "UNAUTHORIZED");
+});
+
+test("a revoked device is refused on its very next request", async (t) => {
+  // The milestone's release gate. Revocation drops the hash, so there is
+  // nothing left to match rather than a flag to check.
+  const { base, state } = await startServer(t);
+  const { body } = await enablePairing(base);
+  const auth = { Authorization: `Bearer ${body.token}` };
+
+  const listed = await (await fetch(`${base}/api/devices`, { headers: auth })).json();
+  assert.equal(listed.devices.length, 1, state.logs);
+
+  const revoked = await fetch(`${base}/api/devices/${listed.devices[0].id}`, {
+    method: "DELETE",
+    headers: auth
+  });
+  assert.equal(revoked.status, 200, state.logs);
+
+  assert.equal((await fetch(`${base}/api/comics`, { headers: auth })).status, 401);
+});
+
+test("health and discovery stay open, so a client can still find the server", async (t) => {
+  // A client that cannot reach /api/health cannot tell "wrong address" from
+  // "not paired", and the iPad's connection screen is built on that difference.
+  const { base, state } = await startServer(t);
+  await enablePairing(base);
+
+  assert.equal((await fetch(`${base}/api/health`)).status, 200, state.logs);
+  assert.equal((await fetch(`${base}/api/discovery`)).status, 200, state.logs);
+});
+
+test("a pairing code turns into a token without needing a token", async (t) => {
+  // The whole point: a new device has no credential yet, so the pairing route
+  // cannot require one. The code is the credential, and it lasts minutes.
+  const { base, state } = await startServer(t);
+  const { body } = await enablePairing(base);
+  const auth = { Authorization: `Bearer ${body.token}` };
+
+  const code = await (
+    await fetch(`${base}/api/devices/pairing-code`, { method: "POST", headers: auth })
+  ).json();
+  assert.match(code.code, /^[A-Z2-9]{8}$/, state.logs);
+
+  const paired = await fetch(`${base}/api/devices/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: code.code, name: "Raidel's iPad" })
+  });
+  assert.equal(paired.status, 200, state.logs);
+  const issued = await paired.json();
+  assert.match(issued.token, /^pst_/);
+
+  const used = await fetch(`${base}/api/comics`, {
+    headers: { Authorization: `Bearer ${issued.token}` }
+  });
+  assert.equal(used.status, 200, state.logs);
+});
+
+test("a wrong pairing code is refused", async (t) => {
+  const { base, state } = await startServer(t);
+  await enablePairing(base);
+
+  const response = await fetch(`${base}/api/devices/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: "AAAAAAAA", name: "Chancer" })
+  });
+  assert.equal(response.status, 400, state.logs);
+  assert.equal((await response.json()).error.code, "INVALID_PAIRING_CODE");
+});
+
+test("OPDS takes the token as Basic auth, which is all a reader can send", async (t) => {
+  // Third-party OPDS readers speak HTTP Basic and nothing else. Leaving the
+  // catalog open while claiming the server is paired would be a lie, and
+  // requiring Bearer would lock every reader out.
+  const { base, state } = await startServer(t);
+  const { body } = await enablePairing(base);
+
+  assert.equal((await fetch(`${base}/opds`)).status, 401, state.logs);
+
+  const basic = Buffer.from(`panelshelf:${body.token}`).toString("base64");
+  const authorized = await fetch(`${base}/opds`, {
+    headers: { Authorization: `Basic ${basic}` }
+  });
+  assert.equal(authorized.status, 200, state.logs);
+});

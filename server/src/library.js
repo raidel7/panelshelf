@@ -35,6 +35,7 @@ const {
   imageSize
 } = require("./thumbnail");
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
+const { DeviceTokenStore } = require("./device-tokens");
 const {
   BACKUP_FORMAT,
   BACKUP_SCHEMA_VERSION,
@@ -454,6 +455,7 @@ class ComicLibrary {
     // carries the comics whose cover cannot be shrunk, so a repeat request —
     // or a restart — does not decode one again only to give up.
     this.coverCache = new CoverCacheStore(dataDirectory);
+    this.deviceTokens = new DeviceTokenStore(dataDirectory);
     this.coverWarmup = new CoverWarmup({
       listComics: () => this.listComics(),
       warm: (comic) => this.warmCover(comic)
@@ -485,6 +487,7 @@ class ComicLibrary {
     await this.progress.initialize();
     await this.skips.initialize();
     await this.coverCache.initialize();
+    await this.deviceTokens.initialize();
     const storedConfig = await readJson(this.configPath, defaultConfig());
     const migratedConfig = migrateConfig(storedConfig);
     this.config = migratedConfig.config;
@@ -1551,6 +1554,19 @@ class ComicLibrary {
       await fsp.rm(path.join(this.coverDirectory, file), { force: true });
     }
     return orphaned.length;
+  }
+
+  // Enabling pairing from a browser that is then locked out of the server is a
+  // trap with no way back except a text editor over SSH, so the act of enabling
+  // issues that browser its own token. The request is already origin-guarded,
+  // which is what makes handing one out here safe.
+  async enableDevicePairing(input = {}) {
+    const { code } = await this.deviceTokens.createPairingCode();
+    const paired = await this.deviceTokens.redeemPairingCode(code, {
+      name: String(input.name || "").trim() || "This browser"
+    });
+    await this.deviceTokens.setEnabled(true);
+    return { enabled: true, token: paired.token, device: paired.device };
   }
 
   coverCacheStatus() {

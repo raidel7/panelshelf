@@ -26,9 +26,17 @@ no backporting to earlier builds.
 These are known and documented rather than accidental, so please do not report
 them as vulnerabilities. They are on the roadmap.
 
-- **No authentication.** There are no user accounts, no OPDS authentication and
-  no device tokens. Anything that can reach port 8251 can read the library and
-  change its settings. Accounts are section 8 of `ROADMAP.md`.
+- **No authentication by default.** A fresh install answers anything that can
+  reach port 8251, and that is deliberate: turning pairing on locks out every
+  client that has not paired, which is the owner's decision to make rather than
+  an upgrade's. Device pairing can be switched on in Library settings, after
+  which every API and OPDS request needs a device token. There are still no user
+  accounts — everyone paired shares one library and one reading position.
+  Accounts are section 8 of `ROADMAP.md`.
+- **Locking yourself out is possible.** If pairing is on and every paired client
+  has lost its token, nothing in the browser can undo it. Recovery means editing
+  `devices.json` in the package's data directory and setting `enabled` to
+  `false`, which needs shell access to the NAS.
 - **No TLS.** PanelShelf serves plain HTTP and terminates no TLS of its own.
 - **No multi-user separation.** Reading progress is a single shared store, so
   everyone using one server shares one reading position per comic.
@@ -43,6 +51,10 @@ example:
 
 - reaching the API from another origin, or through a forged `Host`, in spite of
   the checks in `guardRequest`
+- reaching any guarded route without a device token while pairing is on, or
+  keeping access after the device was revoked
+- a device token appearing in a response, a log line, or `devices.json`, which
+  stores only a SHA-256 of each one
 - reading or writing a path outside the configured library sources, including
   through `GET /api/folders` or an archive entry that escapes its extraction
   directory
