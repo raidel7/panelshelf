@@ -705,9 +705,15 @@ contract, while OPDS stays a separate read-only catalog standard.
 
 ## 7. 0.4.17 — Storylines and advanced library editing — server and web
 
-Server side complete and unreleased on `main`. The web interface for these is
-not built: every one of them is reachable over the API and none has a screen
-yet, which is the next piece of work rather than a caveat on this one.
+Complete and unreleased on `main`, server and web both.
+
+Bulk editing acts on the current search rather than on a hand-picked selection.
+The job it exists for — fixing a publisher or a series name across a run — is a
+filter, and selection state over a shelf that draws ninety-six of twenty-five
+thousand cards is a great deal of machinery for something that rarely needs
+individual picks. A selection over a thousand comics is refused rather than
+truncated: half an edit is worse than none, and nothing on screen would say
+which half.
 
 ### Scope
 

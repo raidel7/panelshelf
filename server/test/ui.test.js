@@ -80,6 +80,18 @@ test("browser application parses and ships reading orders and reader modes", asy
   }
   assert.match(styles, /\.library-review-callout\b/);
   assert.match(styles, /\.review-confidence\b/);
+  for (const id of [
+    "bulkBar",
+    "bulkEditButton",
+    "bulkAssignButton",
+    "bulkEditDialog",
+    "bulkAssignDialog",
+    "applyBulkEditButton",
+    "applyBulkAssignButton"
+  ]) {
+    assert.match(document, new RegExp(`id="${id}"`), `${id} is in the markup`);
+  }
+  assert.match(styles, /\.bulk-bar\b/);
   assert.match(document, /id="devicePairingSummary"/);
   assert.match(document, /id="devicePairingCode"/);
   assert.match(document, /id="devicePairingList"/);

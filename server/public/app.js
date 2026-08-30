@@ -159,6 +159,22 @@ const elements = {
   exportBackupButton: document.querySelector("#exportBackupButton"),
   coverCacheSummary: document.querySelector("#coverCacheSummary"),
   openLibraryReviewButton: document.querySelector("#openLibraryReviewButton"),
+  bulkBar: document.querySelector("#bulkBar"),
+  bulkBarSummary: document.querySelector("#bulkBarSummary"),
+  bulkEditButton: document.querySelector("#bulkEditButton"),
+  bulkAssignButton: document.querySelector("#bulkAssignButton"),
+  bulkEditDialog: document.querySelector("#bulkEditDialog"),
+  bulkEditSeries: document.querySelector("#bulkEditSeries"),
+  bulkEditPublisher: document.querySelector("#bulkEditPublisher"),
+  bulkEditVolume: document.querySelector("#bulkEditVolume"),
+  bulkEditYear: document.querySelector("#bulkEditYear"),
+  bulkEditFormat: document.querySelector("#bulkEditFormat"),
+  bulkEditError: document.querySelector("#bulkEditError"),
+  applyBulkEditButton: document.querySelector("#applyBulkEditButton"),
+  bulkAssignDialog: document.querySelector("#bulkAssignDialog"),
+  bulkAssignOrder: document.querySelector("#bulkAssignOrder"),
+  bulkAssignError: document.querySelector("#bulkAssignError"),
+  applyBulkAssignButton: document.querySelector("#applyBulkAssignButton"),
   libraryReviewDialog: document.querySelector("#libraryReviewDialog"),
   libraryReviewSummary: document.querySelector("#libraryReviewSummary"),
   duplicateSummary: document.querySelector("#duplicateSummary"),
@@ -4521,9 +4537,37 @@ function renderChronologicalView(filtered) {
   setBrowseNotice(messages);
 }
 
+// A bulk edit acts on the search, not on a hand-picked set. The motivating job
+// is fixing a publisher or a series name across a run, which is a filter — and
+// selection state over a shelf that only draws ninety-six of twenty-five
+// thousand cards is a great deal of machinery for a job that rarely needs
+// individual picks.
+const BULK_LIMIT = 1000;
+
+function bulkSelection() {
+  const filtered = filteredLibraryComics();
+  const narrowed = filtered.length > 0 && filtered.length < state.comics.length;
+  return { comics: narrowed ? filtered : [], narrowed };
+}
+
+function renderBulkBar() {
+  const { comics, narrowed } = bulkSelection();
+  elements.bulkBar.hidden = !narrowed;
+  if (!narrowed) return;
+  const tooMany = comics.length > BULK_LIMIT;
+  elements.bulkBarSummary.textContent = tooMany
+    ? `${comics.length} comics match. Narrow the search to ${BULK_LIMIT} or fewer to edit them together.`
+    : `${comics.length} ${comics.length === 1 ? "comic matches" : "comics match"} this search.`;
+  // Refused rather than applied to the first thousand: half an edit is worse
+  // than none, and nothing on screen would say which half.
+  elements.bulkEditButton.disabled = tooMany;
+  elements.bulkAssignButton.disabled = tooMany;
+}
+
 function renderComics() {
   closeComicStatusMenu();
   const filtered = filteredLibraryComics();
+  renderBulkBar();
   const hasLibraries = state.libraries.length > 0;
   elements.emptyState.hidden = hasLibraries || state.comics.length > 0;
   elements.noResults.hidden = filtered.length > 0 || state.comics.length === 0;
@@ -6439,6 +6483,96 @@ elements.manualPath.addEventListener("keydown", (event) => {
   }
 });
 elements.saveSettingsButton.addEventListener("click", saveSettings);
+elements.bulkEditButton.addEventListener("click", () => {
+  const { comics } = bulkSelection();
+  if (comics.length === 0) return;
+  for (const field of ["Series", "Publisher", "Volume", "Year", "Format"]) {
+    elements[`bulkEdit${field}`].value = "";
+  }
+  clearFormError(elements.bulkEditError);
+  document.querySelector("#bulkEditTitle").textContent = `Edit ${comics.length} comics`;
+  elements.bulkEditDialog.showModal();
+});
+
+elements.applyBulkEditButton.addEventListener("click", async () => {
+  const { comics } = bulkSelection();
+  if (comics.length === 0 || comics.length > BULK_LIMIT) return;
+  const metadata = {};
+  const text = (element) => element.value.trim();
+  if (text(elements.bulkEditSeries)) metadata.series = text(elements.bulkEditSeries);
+  if (text(elements.bulkEditPublisher)) metadata.publisher = text(elements.bulkEditPublisher);
+  if (text(elements.bulkEditVolume)) metadata.volume = Number(text(elements.bulkEditVolume));
+  if (text(elements.bulkEditYear)) metadata.year = Number(text(elements.bulkEditYear));
+  if (text(elements.bulkEditFormat)) metadata.format = text(elements.bulkEditFormat);
+  if (Object.keys(metadata).length === 0) {
+    showFormError(elements.bulkEditError, new Error("Fill in at least one field."));
+    return;
+  }
+  elements.applyBulkEditButton.disabled = true;
+  try {
+    const result = await api("/api/metadata/overrides/bulk", {
+      method: "POST",
+      body: JSON.stringify({ comicIds: comics.map((comic) => comic.id), metadata })
+    });
+    elements.bulkEditDialog.close();
+    await refresh();
+    showToast(`Updated ${result.updated} comics.`);
+  } catch (error) {
+    showFormError(elements.bulkEditError, error);
+  } finally {
+    elements.applyBulkEditButton.disabled = false;
+  }
+});
+
+elements.bulkAssignButton.addEventListener("click", () => {
+  const { comics } = bulkSelection();
+  if (comics.length === 0) return;
+  const manual = state.manualOrders || [];
+  if (manual.length === 0) {
+    showToast("Create a reading order first.");
+    return;
+  }
+  elements.bulkAssignOrder.replaceChildren(
+    ...manual.map((order) => {
+      const option = document.createElement("option");
+      option.value = order.id;
+      option.textContent = order.name;
+      return option;
+    })
+  );
+  clearFormError(elements.bulkAssignError);
+  document.querySelector("#bulkAssignTitle").textContent = `Add ${comics.length} comics`;
+  elements.bulkAssignDialog.showModal();
+});
+
+elements.applyBulkAssignButton.addEventListener("click", async () => {
+  const { comics } = bulkSelection();
+  const orderId = elements.bulkAssignOrder.value;
+  if (comics.length === 0 || comics.length > BULK_LIMIT || !orderId) return;
+  elements.applyBulkAssignButton.disabled = true;
+  try {
+    const order = await api(`/api/reading-orders/${orderId}/comics`, {
+      method: "POST",
+      body: JSON.stringify({ comicIds: comics.map((comic) => comic.id) })
+    });
+    elements.bulkAssignDialog.close();
+    await refresh();
+    renderOrders();
+    showToast(`${order.name} now has ${order.itemCount} comics.`);
+  } catch (error) {
+    showFormError(elements.bulkAssignError, error);
+  } finally {
+    elements.applyBulkAssignButton.disabled = false;
+  }
+});
+
+for (const button of document.querySelectorAll(".close-bulk-edit")) {
+  button.addEventListener("click", () => elements.bulkEditDialog.close());
+}
+for (const button of document.querySelectorAll(".close-bulk-assign")) {
+  button.addEventListener("click", () => elements.bulkAssignDialog.close());
+}
+
 elements.openLibraryReviewButton.addEventListener("click", () => {
   elements.libraryReviewDialog.showModal();
   loadLibraryReview();

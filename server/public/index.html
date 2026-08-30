@@ -154,6 +154,18 @@
           </div>
         </section>
 
+        <section id="bulkBar" class="bulk-bar" hidden>
+          <p id="bulkBarSummary"></p>
+          <div class="bulk-bar-actions">
+            <button id="bulkEditButton" class="button button-secondary" type="button">
+              Edit metadata
+            </button>
+            <button id="bulkAssignButton" class="button button-secondary" type="button">
+              Add to reading order
+            </button>
+          </div>
+        </section>
+
         <section id="continueSection" class="continue-section" hidden>
           <div class="shelf-heading">
             <div>
@@ -1053,6 +1065,67 @@
           <button id="permissionRescanButton" class="button button-primary" type="button">
             I fixed it — rescan
           </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="bulkEditDialog" class="dialog bulk-edit-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Bulk edit</p>
+            <h2 id="bulkEditTitle">Edit metadata</h2>
+          </div>
+          <button class="icon-button close-bulk-edit" value="cancel" aria-label="Close bulk edit">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <aside class="metadata-editor-note">
+            These edits override filenames, ComicInfo.xml, and online matches for
+            every comic in the current search. Your CBZ and CBR files are never
+            modified. A field left blank is left alone.
+          </aside>
+          <div class="metadata-editor-fields">
+            <label>Series<input id="bulkEditSeries" type="text" maxlength="300"></label>
+            <label>Publisher<input id="bulkEditPublisher" type="text" maxlength="200"></label>
+            <label>Volume<input id="bulkEditVolume" type="number" min="0" max="99999"></label>
+            <label>Publication year<input id="bulkEditYear" type="number" min="1800" max="2200"></label>
+            <label>Format<input id="bulkEditFormat" type="text" maxlength="100" placeholder="Trade Paperback, Hardcover…"></label>
+          </div>
+          <p id="bulkEditError" class="form-error" hidden></p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-bulk-edit" value="cancel">Cancel</button>
+          <button id="applyBulkEditButton" class="button button-primary" type="button">Apply</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="bulkAssignDialog" class="dialog bulk-assign-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Bulk edit</p>
+            <h2 id="bulkAssignTitle">Add to reading order</h2>
+          </div>
+          <button class="icon-button close-bulk-assign" value="cancel" aria-label="Close">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <label class="bulk-assign-field">
+            Reading order
+            <select id="bulkAssignOrder"></select>
+          </label>
+          <p class="muted">
+            Comics already in the order keep their place. Nothing is removed.
+          </p>
+          <p id="bulkAssignError" class="form-error" hidden></p>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-bulk-assign" value="cancel">Cancel</button>
+          <button id="applyBulkAssignButton" class="button button-primary" type="button">Add</button>
         </footer>
       </form>
     </dialog>
