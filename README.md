@@ -347,6 +347,23 @@ summary, creators, genres and characters a compact response does not carry.
 Only the exact value `compact` opts in; `?view=full` and any other value return
 the full records, so an existing client cannot be shortened by accident.
 
+### Checking a server against this document
+
+```bash
+npm run conformance -- http://your-nas:8251
+```
+
+Checks a running server against the contract described here: what health
+reports, that `/api/v1` and `/api/…` agree and an unknown version does not
+answer, the shape of the compact listing, the resync rules for
+`/api/changes`, and that a foreign origin, a forged host and a non-JSON body
+are all refused.
+
+Read-only by default, because it is meant to be pointed at a real NAS. Add
+`--write` to also check the progress contract — it stores one record and puts
+back whatever was there. Add `--token pst_…` when pairing is on; without one it
+reports which checks it could not reach rather than failing them.
+
 ### API version
 
 Every `/api/…` route is also served under `/api/v1/…`, and the two are the same
@@ -425,6 +442,29 @@ iPad app — shares one reading position per comic.
 
 `:comicId` is a 24-character lowercase hex id; any other shape falls through to
 the generic `404`.
+
+### Which write to use, and why it matters
+
+The three writing routes are not interchangeable, and choosing wrongly loses
+data quietly.
+
+**`PUT` and `/batch` are deliberate writes.** They describe something the reader
+just did. Every supplied record is stamped with server time and applied
+unconditionally, so a client with a skewed clock cannot have its own action
+thrown away. `/batch` takes its deletions as a plain list, because a deliberate
+write consults nobody's clock.
+
+**`/merge` is reconciliation.** It describes what a client believes, usually
+after being offline, and the newer of the two records wins on the timestamps
+carried in the request. So an incoming record can be discarded — and the
+response is still `200`. That is correct for reconciliation and wrong for a
+user action: a page turn sent through `/merge` while another device has a newer
+position is silently dropped, with nothing in the response to say so.
+`/merge` takes its deletions as a map of comic id to the moment the reader
+marked it unread, because a deletion has to be dated to be reconciled at all.
+
+The rule: something the reader just did goes through `PUT` or `/batch`.
+Something a client is catching up on goes through `/merge`.
 
 A record is:
 

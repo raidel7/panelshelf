@@ -7,6 +7,7 @@
     "install:server": "npm --prefix server install --omit=dev",
     "test": "node --test server/test/*.test.js",
     "validate:spk": "node scripts/validate-spk.mjs",
+    "conformance": "node scripts/conformance.mjs",
     "start": "node server/src/server.js",
     "build:spk": "bash scripts/build-spk.sh",
     "build:source": "bash scripts/build-source.sh",

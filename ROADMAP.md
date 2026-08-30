@@ -633,6 +633,13 @@ Complete, released as 0.4.15-1037.
 
 ## 6. 0.4.16 — Sync API hardening — server
 
+Shipped so far, unreleased on `main`: device tokens with pairing by short code,
+enforcement across `/api` and OPDS, the pairing panel in Library settings, an
+additive `/api/v1` prefix, `GET /api/changes`, the write contract documented,
+and `npm run conformance`. Outstanding: stable identifiers and the explicit
+unavailable-source and offline-cache states, both of which look largely done and
+need verifying rather than building.
+
 ### Goal
 
 Turn the endpoints the app grew into a stable, versioned, authenticated

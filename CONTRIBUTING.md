@@ -26,6 +26,16 @@ PANELSHELF_DATA=/tmp/panelshelf-data npm start  # http://localhost:8251/
 The server needs no NAS to run. Point a library source at any folder of CBZ or
 CBR files and the browser reader works exactly as it does on DSM.
 
+## Checking a server
+
+```bash
+npm run conformance -- http://localhost:8251
+```
+
+Points at a running server and checks it against the contract in `README.md`.
+Useful after changing anything a client depends on, and safe against a real
+library — it writes nothing unless you pass `--write`.
+
 ## Building a package
 
 ```bash
