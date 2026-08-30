@@ -1220,3 +1220,109 @@ test("turning pairing off clears the cookie it handed out", async (t) => {
     "the cookie is emptied rather than left to expire on its own"
   );
 });
+
+test("a versioned path answers exactly as the unversioned one does", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+
+  for (const route of ["/api/config", "/api/comics", "/api/covers/cache", "/api/devices"]) {
+    const plain = await fetch(`${base}${route}`);
+    const versioned = await fetch(`${base}/api/v1${route.slice("/api".length)}`);
+    assert.equal(versioned.status, plain.status, `${route}: ${state.logs}`);
+    assert.deepEqual(await versioned.json(), await plain.json(), route);
+  }
+});
+
+test("the unversioned path keeps working, because clients ship separately", async (t) => {
+  // The iPad app is released from its own repository on its own schedule. A
+  // server that moved its paths would break every copy already installed, so
+  // /api/v1 is an addition and never a replacement.
+  const { base, state } = await startServer(t);
+  assert.equal((await fetch(`${base}/api/comics`)).status, 200, state.logs);
+});
+
+test("health names the API version a client can ask for", async (t) => {
+  const { base, state } = await startServer(t);
+  const health = await (await fetch(`${base}/api/health`)).json();
+  assert.equal(health.apiVersion, 1, state.logs);
+  assert.equal(health.status, "ok");
+});
+
+test("a version this server does not speak is not silently treated as v1", async (t) => {
+  const { base, state } = await startServer(t);
+  const response = await fetch(`${base}/api/v2/comics`);
+  assert.equal(response.status, 404, state.logs);
+});
+
+test("a versioned write is guarded exactly like an unversioned one", async (t) => {
+  // The prefix must not become a way around the checks: same origin rules,
+  // same content type rules, same pairing.
+  const { port, state } = await startServer(t);
+
+  const foreign = await rawRequest(port, {
+    method: "PUT",
+    path: "/api/v1/config",
+    headers: { Origin: "http://evil.example", "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [] })
+  });
+  assert.equal(foreign.status, 403, state.logs);
+
+  const plainText = await rawRequest(port, {
+    method: "POST",
+    path: "/api/v1/skips",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ add: [] })
+  });
+  assert.equal(plainText.status, 415, state.logs);
+});
+
+test("a scan reports what changed instead of the whole catalogue", async (t) => {
+  // The point of the endpoint: a client that already holds the library asks
+  // what moved, not for the library again.
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+
+  const cbz = () => zipBuffer([{ name: "page.png", data: ONE_PIXEL_PNG }]);
+  await fsp.writeFile(path.join(comicsDirectory, "Alpha.cbz"), cbz());
+  await fsp.writeFile(path.join(comicsDirectory, "Bravo.cbz"), cbz());
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 2);
+
+  const first = await (await fetch(`${base}/api/changes?since=0`)).json();
+  assert.equal(first.reset, false, state.logs);
+  assert.equal(first.changes.length, 2, "both arrivals");
+  assert.deepEqual([...new Set(first.changes.map((c) => c.kind))], ["added"]);
+
+  // Caught up: nothing to send, and no catalogue with it.
+  const caughtUp = await (
+    await fetch(`${base}/api/changes?since=${first.sequence}`)
+  ).json();
+  assert.deepEqual(caughtUp.changes, [], state.logs);
+  assert.equal(caughtUp.sequence, first.sequence);
+
+  await fsp.rm(path.join(comicsDirectory, "Bravo.cbz"));
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+
+  const afterRemoval = await (
+    await fetch(`${base}/api/changes?since=${first.sequence}`)
+  ).json();
+  assert.equal(afterRemoval.reset, false, state.logs);
+  assert.equal(afterRemoval.changes.length, 1);
+  assert.equal(afterRemoval.changes[0].kind, "removed", "the departure a list of what remains cannot express");
+});
+
+test("a client with no cursor is told to take the whole library", async (t) => {
+  const { base, state } = await startServer(t);
+  const update = await (await fetch(`${base}/api/changes`)).json();
+  assert.equal(update.reset, true, state.logs);
+  assert.deepEqual(update.changes, []);
+});

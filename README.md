@@ -347,6 +347,44 @@ summary, creators, genres and characters a compact response does not carry.
 Only the exact value `compact` opts in; `?view=full` and any other value return
 the full records, so an existing client cannot be shortened by accident.
 
+### API version
+
+Every `/api/…` route is also served under `/api/v1/…`, and the two are the same
+handler: same origin, content-type and pairing checks, same responses. The
+unversioned form is not deprecated and will not move — the iPad client ships
+from its own repository on its own schedule, and a server that renamed its paths
+would break every copy already installed. `/api/health` reports `apiVersion` so
+a client can tell what it is talking to. A version this server does not speak,
+such as `/api/v2/comics`, answers `404` rather than being quietly served as v1.
+
+OPDS is not versioned. It is a published standard rather than this project's
+contract.
+
+### Incremental library changes
+
+A client that already holds the library asks what moved rather than downloading
+the catalogue again.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/changes?since=<sequence>` | What changed after that point |
+
+The answer carries `sequence` — the point the client has now reached — and
+`changes`, a list of `{ id, kind }` where `kind` is `added`, `updated` or
+`removed`. A client stores the sequence and sends it back next time.
+
+Additions and edits a client could work out for itself by comparing what it
+holds against what it receives. Removals it cannot: nothing in a list of what
+remains says what left. That is what the log is really for.
+
+`reset: true` means the cursor cannot be caught up from here, and the client
+should fetch `/api/comics` in full and adopt the `sequence` reported alongside.
+It is the answer to a client that has never synced, to one that has been away
+long enough for its cursor to fall off the end of a bounded log, and to one
+holding a cursor from a data directory that has since been rebuilt. Sending a
+partial history in any of those cases would leave a client quietly wrong, which
+is the failure nobody notices.
+
 ### Cover cache
 
 Covers and thumbnails are generated on first request, which suits browsing and

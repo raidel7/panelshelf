@@ -12,6 +12,13 @@ const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
 
 const VERSION = "0.4.15";
+// The JSON API's own version, which moves independently of the package's.
+// A client asks for `/api/v1/...`; `/api/...` is the same surface under its
+// original name and stays that way, because the iPad client is released from
+// its own repository on its own schedule and a server that moved its paths
+// would break every copy already installed.
+const API_VERSION = 1;
+const API_PREFIX = `/api/v${API_VERSION}/`;
 const HOST = process.env.PANELSHELF_HOST || "0.0.0.0";
 const PORT = Number(process.env.PANELSHELF_PORT || 8251);
 const DATA_DIRECTORY =
@@ -374,7 +381,15 @@ async function startServer() {
   const server = http.createServer(async (request, response) => {
     setSecurityHeaders(response);
     const requestUrl = new URL(request.url, `http://${request.headers.host || "localhost"}`);
-    const pathname = decodeURIComponent(requestUrl.pathname);
+    let pathname = decodeURIComponent(requestUrl.pathname);
+    // Normalised before anything reads it, so a versioned path meets exactly
+    // the same origin, content-type and pairing checks as its unversioned twin
+    // rather than a parallel set someone has to remember to keep in step. A
+    // version this server does not speak is left alone and falls through to the
+    // 404 it deserves, rather than being quietly served as v1.
+    if (pathname.startsWith(API_PREFIX)) {
+      pathname = `/api/${pathname.slice(API_PREFIX.length)}`;
+    }
 
     try {
       guardRequest(request);
@@ -384,6 +399,7 @@ async function startServer() {
         return sendJson(response, 200, {
           status: "ok",
           version: VERSION,
+          apiVersion: API_VERSION,
           uptimeSeconds: Math.round(process.uptime())
         });
       }
@@ -566,6 +582,14 @@ async function startServer() {
 
       if (request.method === "DELETE" && pathname === "/api/scan/issues") {
         return sendJson(response, 200, await library.clearScanIssues());
+      }
+
+      if (request.method === "GET" && pathname === "/api/changes") {
+        return sendJson(
+          response,
+          200,
+          library.libraryChangesSince(requestUrl.searchParams.get("since"))
+        );
       }
 
       if (request.method === "GET" && pathname === "/api/devices") {

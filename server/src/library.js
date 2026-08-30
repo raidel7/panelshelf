@@ -36,6 +36,7 @@ const {
 } = require("./thumbnail");
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const { DeviceTokenStore } = require("./device-tokens");
+const { LibraryChangeLog } = require("./library-changes");
 const {
   BACKUP_FORMAT,
   BACKUP_SCHEMA_VERSION,
@@ -456,6 +457,7 @@ class ComicLibrary {
     // or a restart — does not decode one again only to give up.
     this.coverCache = new CoverCacheStore(dataDirectory);
     this.deviceTokens = new DeviceTokenStore(dataDirectory);
+    this.changes = new LibraryChangeLog(dataDirectory);
     this.coverWarmup = new CoverWarmup({
       listComics: () => this.listComics(),
       warm: (comic) => this.warmCover(comic)
@@ -488,6 +490,7 @@ class ComicLibrary {
     await this.skips.initialize();
     await this.coverCache.initialize();
     await this.deviceTokens.initialize();
+    await this.changes.initialize();
     const storedConfig = await readJson(this.configPath, defaultConfig());
     const migratedConfig = migrateConfig(storedConfig);
     this.config = migratedConfig.config;
@@ -505,7 +508,9 @@ class ComicLibrary {
       comicIsConfigured(comic, this.config.sources)
     );
     const droppedOrphans = retainedComics.length !== savedComics.length;
+    const beforePrune = this.comics;
     this.setComics(retainedComics);
+    await this.changes.record(beforePrune, this.comics);
     // Reconciles the orders against the pruned list on its own.
     await this.readingOrders.initialize(this.comics);
     if (droppedOrphans) {
@@ -635,7 +640,9 @@ class ComicLibrary {
       comicIsConfigured(comic, this.config.sources)
     );
     if (retained.length === this.comics.length) return false;
+    const beforeRetain = this.comics;
     this.setComics(retained);
+    await this.changes.record(beforeRetain, this.comics);
     await this.readingOrders.reconcile(this.comics);
     await this.enrichment.reconcile(this.comics);
     await this.pruneCoverCache();
@@ -1402,11 +1409,13 @@ class ComicLibrary {
       }
       // Re-checked against the config as it stands now: a source removed while
       // the scan was running must not be written back into the index.
+      const beforeScan = this.comics;
       this.setComics(
         [...discovered.values()].filter((comic) =>
           comicIsConfigured(comic, this.config.sources)
         )
       );
+      await this.changes.record(beforeScan, this.comics);
       this.scanState.foundComics = this.comics.length;
       await this.readingOrders.reconcile(this.comics);
       await this.enrichment.reconcile(this.comics);
@@ -1567,6 +1576,13 @@ class ComicLibrary {
     });
     await this.deviceTokens.setEnabled(true);
     return { enabled: true, token: paired.token, device: paired.device };
+  }
+
+  // What a client asks after a scan instead of downloading the catalogue again.
+  // `reset` means its cursor cannot be caught up from here and it should take
+  // the full list, then adopt the sequence reported alongside.
+  libraryChangesSince(cursor) {
+    return this.changes.since(cursor);
   }
 
   coverCacheStatus() {
