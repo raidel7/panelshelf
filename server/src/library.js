@@ -1005,6 +1005,22 @@ class ComicLibrary {
   // Reads the index and returns groups. It cannot delete anything, which is
   // how the release gate that duplicates are never resolved automatically is
   // kept: there is nothing here to make destructive later.
+  async applyBulkMetadata(input) {
+    const result = await this.metadataOverrides.applyMany(
+      input?.comicIds,
+      input?.metadata || {}
+    );
+    // The shelf shows merged metadata, so a bulk edit changes what every
+    // affected card reads. Clients learn about it the same way they learn
+    // about a scan.
+    await this.changes.record(this.comics, this.comics);
+    return result;
+  }
+
+  async addComicsToReadingOrder(id, comicIds) {
+    return this.readingOrders.addComics(id, comicIds, this.comics);
+  }
+
   findDuplicateComics() {
     const groups = findDuplicates(this.comics);
     return {

@@ -669,6 +669,26 @@ async function startServer() {
         }
       }
 
+      if (
+        request.method === "POST" &&
+        pathname === "/api/metadata/overrides/bulk"
+      ) {
+        const body = await readJsonBody(request);
+        return sendJson(response, 200, await library.applyBulkMetadata(body));
+      }
+
+      const orderComicsMatch = pathname.match(
+        /^\/api\/reading-orders\/(manual_[a-f0-9]{24})\/comics$/
+      );
+      if (request.method === "POST" && orderComicsMatch) {
+        const body = await readJsonBody(request);
+        return sendJson(
+          response,
+          200,
+          await library.addComicsToReadingOrder(orderComicsMatch[1], body?.comicIds)
+        );
+      }
+
       if (request.method === "GET" && pathname === "/api/duplicates") {
         return sendJson(response, 200, library.findDuplicateComics());
       }

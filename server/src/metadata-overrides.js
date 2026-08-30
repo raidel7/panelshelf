@@ -141,13 +141,58 @@ class MetadataOverrideStore {
         updatedAt: new Date().toISOString()
       };
     }
-    await atomicWriteJson(this.filePath, this.records);
+    await this.persist();
     return this.get(comicId);
+  }
+
+  persist() {
+    return atomicWriteJson(this.filePath, this.records);
+  }
+
+  // One patch across a selection. It merges rather than replaces: someone
+  // fixing the publisher across a run must not lose the title they corrected on
+  // one issue last week, and `save` replaces a comic's whole override. A field
+  // given as null is cleared, which is how a wrong value gets taken back off a
+  // hundred comics at once.
+  //
+  // One write at the end rather than one per comic: two hundred comics is an
+  // ordinary selection, and two hundred rewrites of the whole file is not an
+  // ordinary cost for one action.
+  async applyMany(comicIds, patch) {
+    if (!plainObject(patch)) {
+      throw jsonError("Metadata overrides must be an object.", "INVALID_METADATA_OVERRIDE");
+    }
+    const ids = Array.isArray(comicIds) ? comicIds : [];
+    const rejected = [];
+    const staged = new Map();
+
+    // Everything is validated before anything is applied, so a bad field in the
+    // patch cannot leave half a selection edited.
+    for (const comicId of ids) {
+      if (!COMIC_ID.test(String(comicId))) {
+        rejected.push(comicId);
+        continue;
+      }
+      const existing = this.records[comicId]?.metadata || {};
+      const merged = { ...existing };
+      for (const [field, value] of Object.entries(patch)) {
+        if (value === null) delete merged[field];
+        else merged[field] = value;
+      }
+      staged.set(comicId, normalizeMetadata(merged));
+    }
+
+    const now = new Date().toISOString();
+    for (const [comicId, metadata] of staged) {
+      this.records[comicId] = { metadata, updatedAt: now };
+    }
+    await this.persist();
+    return { updated: staged.size, rejected };
   }
 
   async remove(comicId) {
     delete this.records[comicId];
-    await atomicWriteJson(this.filePath, this.records);
+    await this.persist();
   }
 
   exportData() {

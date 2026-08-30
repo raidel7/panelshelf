@@ -402,6 +402,26 @@ holding a cursor from a data directory that has since been rebuilt. Sending a
 partial history in any of those cases would leave a client quietly wrong, which
 is the failure nobody notices.
 
+### Bulk editing
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/metadata/overrides/bulk` | Apply one metadata patch to many comics |
+| POST | `/api/reading-orders/:orderId/comics` | Add comics to an order, keeping what is there |
+
+A bulk metadata edit is a **patch, not a rewrite**. It merges into whatever each
+comic already had overridden, so fixing a publisher across a run does not lose
+the title someone corrected on one issue last week. A field sent as `null` is
+cleared, which is how a wrong value comes back off a hundred comics at once.
+Everything is validated before anything is applied, so a bad field cannot leave
+half a selection edited, and the whole edit lands in one write rather than one
+per comic.
+
+Adding comics to a reading order appends. What is already in the order stays
+where it was — filing a run into a storyline is an addition, not a rewrite of an
+order somebody arranged. Ids already present, and ids for comics the library
+does not have, are ignored.
+
 ### Duplicates
 
 | Method | Path | Purpose |

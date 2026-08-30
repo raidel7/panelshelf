@@ -529,6 +529,23 @@ class ReadingOrderStore {
     return this.publicOrder(order, comics);
   }
 
+  // Appends a selection to an order, leaving what is already there alone and in
+  // its place. Filing a run into a storyline is an addition, not a rewrite of
+  // the order somebody arranged.
+  async addComics(id, comicIds, comics) {
+    const order = this.get(id);
+    const known = new Set(comics.map((comic) => comic.id));
+    const present = new Set(order.comicIds);
+    for (const comicIdValue of uniqueIds(comicIds)) {
+      if (!known.has(comicIdValue) || present.has(comicIdValue)) continue;
+      present.add(comicIdValue);
+      order.comicIds.push(comicIdValue);
+    }
+    order.updatedAt = new Date().toISOString();
+    await this.persist();
+    return this.publicOrder(order, comics);
+  }
+
   async duplicate(id, comics) {
     const original = this.get(id);
     return this.create(
