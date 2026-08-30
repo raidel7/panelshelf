@@ -1089,3 +1089,108 @@ test("a batch in flight when the read starts survives settling mid-read", async 
     [COMIC_A]: { pageIndex: 9, completed: true }
   });
 });
+
+// The settings dialog writes its editing list as the *complete* set of sources,
+// so a dialog that opens without the server's sources in it deletes every one of
+// them the moment Save is pressed. That is not hypothetical: it emptied a
+// 24,839-comic library on 2026-08-30, because the in-memory copy it trusted had
+// never been filled.
+const settingsSource = (async () => {
+  const source = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+  const start = source.indexOf("\nasync function loadSourcesForEditing()");
+  const end = source.indexOf("\nfunction browserBackupState()");
+  assert.ok(
+    start > 0 && end > start,
+    "app.js must keep the settings loader between its usual anchors"
+  );
+  return source.slice(start, end);
+})();
+
+function settingsSandbox({ config, fail = false }) {
+  const calls = [];
+  const context = {
+    JSON,
+    calls,
+    state: { libraries: [], editingLibraries: [] },
+    api: async (path) => {
+      calls.push(path);
+      if (fail) throw new Error("The server could not be reached.");
+      return config;
+    },
+    renderSources: () => calls.push("renderSources"),
+    pollCoverCache: () => calls.push("pollCoverCache"),
+    loadDevicePairing: () => calls.push("loadDevicePairing"),
+    clearFormError: () => {},
+    showFormError: () => calls.push("showFormError"),
+    elements: {
+      settingsError: {},
+      devicePairingCode: {},
+      settingsDialog: { open: false, showModal() { this.open = true; calls.push("showModal"); } }
+    }
+  };
+  vm.createContext(context);
+  return {
+    context,
+    calls,
+    ready: settingsSource.then((source) => vm.runInContext(source, context)),
+    run: (expression) => vm.runInContext(expression, context)
+  };
+}
+
+test("the settings editor takes its sources from the server, not from memory", async () => {
+  // The in-memory copy is deliberately left empty here, which is the state that
+  // caused the loss: the boot refresh had failed and nothing refilled it.
+  const sandbox = settingsSandbox({
+    config: { sources: [{ id: "src_dc", name: "DC", path: "/volumeUSB2/usbshare2-2/DC" }] }
+  });
+  await sandbox.ready;
+
+  await sandbox.run("loadSourcesForEditing()");
+
+  assert.deepEqual(
+    sandbox.context.state.editingLibraries.map((source) => source.name),
+    ["DC"],
+    "the dialog edits what the server actually has"
+  );
+  assert.ok(sandbox.calls.includes("/api/config"), "it asked the server");
+});
+
+test("the editing list is a copy, so cancelling changes nothing", async () => {
+  const sandbox = settingsSandbox({
+    config: { sources: [{ id: "src_dc", name: "DC", path: "/dc" }] }
+  });
+  await sandbox.ready;
+  await sandbox.run("loadSourcesForEditing()");
+
+  sandbox.context.state.editingLibraries[0].name = "edited";
+
+  assert.equal(sandbox.context.state.libraries[0].name, "DC");
+});
+
+test("a settings dialog whose sources will not load does not open", async () => {
+  // Opening it anyway is what turns an unreachable server into a deleted
+  // library: the dialog would show nothing, and Save would persist nothing.
+  const sandbox = settingsSandbox({ config: null, fail: true });
+  await sandbox.ready;
+
+  await sandbox.run("openSettingsSources()");
+
+  assert.equal(
+    sandbox.context.elements.settingsDialog.open,
+    false,
+    "the dialog stays shut rather than offering to save an empty list"
+  );
+  assert.ok(sandbox.calls.includes("showFormError"), "and says why");
+});
+
+test("a settings dialog whose sources load does open", async () => {
+  const sandbox = settingsSandbox({
+    config: { sources: [{ id: "src_dc", name: "DC", path: "/dc" }] }
+  });
+  await sandbox.ready;
+
+  await sandbox.run("openSettingsSources()");
+
+  assert.equal(sandbox.context.elements.settingsDialog.open, true);
+  assert.ok(sandbox.calls.includes("renderSources"));
+});

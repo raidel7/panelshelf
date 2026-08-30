@@ -426,6 +426,28 @@ Adding a source should be a short wizard:
 5. **Name the source** or accept the folder-name default.
 6. **Save and quick scan**.
 
+### Remembered starting points in the folder browser
+
+The browser opens at `/` every time and shows the volumes, so adding a second
+folder from the same tree means walking back down
+`/volumeUSB2/usbshare2-2/Marvel/…` by hand, once per folder. Someone filing a
+publisher's run adds many folders in one sitting and pays that walk every time.
+
+Remember the folders a source has actually been created from and offer them as
+one-tap starting points at the top of the browser, most recent first. Not a
+browsing history — that fills with half-walked paths nobody chose — but the
+directories that were actually selected, plus their parents, which is where the
+next sibling folder almost always lives.
+
+Release gates:
+
+- Adding a second folder beside one already in the library takes one tap to
+  reach its parent, not a walk from `/`.
+- A remembered path that no longer exists, or whose USB volume is unplugged, is
+  shown as unavailable rather than opening onto an error.
+- Removing a source does not remove its starting point; the folder is still
+  where the next one is likely to be.
+
 The preview is an important safeguard. It should show:
 
 - each folder's interpreted role: publisher, ordered section, group, staging,

@@ -5141,17 +5141,47 @@ function stopCoverCachePolling() {
   state.coverCachePollTimer = null;
 }
 
+// Saving writes the editing list as the *complete* set of sources, so a dialog
+// that opens without the server's sources in it deletes every one of them the
+// moment Save is pressed. It used to read `state.libraries`, which is filled
+// once at boot by a refresh that can fail — and when that refresh failed
+// against a restarting server, the dialog opened empty over a configured
+// library and the next Save emptied it. Twenty-four thousand comics, in one
+// click, with no warning and nothing on screen that looked wrong.
+//
+// So the editor loads what it is editing, every time it opens.
+async function loadSourcesForEditing() {
+  const config = await api("/api/config");
+  state.libraries = config.sources || config.libraryPaths || [];
+  // A copy: cancelling has to leave the loaded set alone.
+  state.editingLibraries = state.libraries.map((source) => ({ ...source }));
+}
+
+async function openSettingsSources() {
+  try {
+    await loadSourcesForEditing();
+  } catch (error) {
+    // Not opening is the safe failure. An open dialog offers a Save button, and
+    // a Save from an editor that never loaded is indistinguishable, on the
+    // wire, from "remove every source I have".
+    showFormError(elements.settingsError, error);
+    return;
+  }
+  renderSources();
+  elements.settingsDialog.showModal();
+}
+
 function openSettings() {
   clearFormError(elements.settingsError);
   elements.devicePairingCode.hidden = true;
-  state.editingLibraries = state.libraries.map((source) => ({ ...source }));
-  renderSources();
-  elements.settingsDialog.showModal();
-  // After `showModal`, not before. Both of these bail when the dialog is shut,
-  // which is what stops them polling a panel nobody is looking at — and which
-  // silently made them no-ops when they ran a line too early.
-  pollCoverCache();
-  loadDevicePairing();
+  openSettingsSources().then(() => {
+    // After `showModal`, not before. Both of these bail when the dialog is shut,
+    // which is what stops them polling a panel nobody is looking at — and which
+    // silently made them no-ops when they ran a line too early.
+    if (!elements.settingsDialog.open) return;
+    pollCoverCache();
+    loadDevicePairing();
+  });
 }
 
 function browserBackupState() {
