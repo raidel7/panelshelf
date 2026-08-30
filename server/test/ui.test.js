@@ -41,10 +41,22 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(document, /id="coverCacheSummary"/);
   assert.match(document, /id="warmCoverCacheButton"/);
   assert.match(document, /id="cancelCoverCacheButton"/);
-  // The callout borrows the backup callout's rules rather than restating them,
-  // so a rename there must take this with it.
-  assert.match(styles, /\.cover-cache-callout \{/);
-  assert.match(styles, /\.cover-cache-actions \{/);
+  // These callouts share the backup callout's rules rather than restating them,
+  // so a rename there must take them with it. Matched without the brace: they
+  // sit in a selector list, and which one ends it changes as callouts are
+  // added — which is exactly what broke this assertion once already.
+  assert.match(styles, /\.cover-cache-callout\b/);
+  assert.match(styles, /\.cover-cache-actions\b/);
+  assert.match(styles, /\.device-pairing-callout\b/);
+  assert.match(styles, /\.device-pairing-actions\b/);
+  assert.match(document, /id="devicePairingSummary"/);
+  assert.match(document, /id="devicePairingCode"/);
+  assert.match(document, /id="devicePairingList"/);
+  assert.match(document, /id="enablePairingButton"/);
+  assert.match(document, /id="pairDeviceButton"/);
+  assert.match(document, /id="disablePairingButton"/);
+  assert.match(styles, /\.device-pairing-code \{/);
+  assert.match(styles, /\.device-pairing-list \{/);
   assert.match(document, /id="metadataSettingsDialog"/);
   assert.match(document, /id="metadataDialog"/);
   assert.match(document, /id="metadataEditorDialog"/);

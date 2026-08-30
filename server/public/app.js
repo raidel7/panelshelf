@@ -158,6 +158,12 @@ const elements = {
   addPathButton: document.querySelector("#addPathButton"),
   exportBackupButton: document.querySelector("#exportBackupButton"),
   coverCacheSummary: document.querySelector("#coverCacheSummary"),
+  devicePairingSummary: document.querySelector("#devicePairingSummary"),
+  devicePairingCode: document.querySelector("#devicePairingCode"),
+  devicePairingList: document.querySelector("#devicePairingList"),
+  enablePairingButton: document.querySelector("#enablePairingButton"),
+  pairDeviceButton: document.querySelector("#pairDeviceButton"),
+  disablePairingButton: document.querySelector("#disablePairingButton"),
   warmCoverCacheButton: document.querySelector("#warmCoverCacheButton"),
   cancelCoverCacheButton: document.querySelector("#cancelCoverCacheButton"),
   importBackupButton: document.querySelector("#importBackupButton"),
@@ -681,6 +687,69 @@ async function refreshComicsAfterBulk(job) {
   renderContinueReading();
   renderComics();
   renderOrders();
+}
+
+// This browser authenticates by cookie, not by a header, because the shelf and
+// the reader load images with `image.src` and a browser attaches nothing of its
+// own to those. So nothing here carries a token: the cookie rides along on
+// same-origin requests by itself, and the only job left is saying what is
+// paired.
+function renderDevicePairing(status) {
+  const enabled = status.enabled === true;
+  const devices = status.devices || [];
+
+  elements.enablePairingButton.hidden = enabled;
+  elements.pairDeviceButton.hidden = !enabled;
+  elements.disablePairingButton.hidden = !enabled;
+  elements.devicePairingList.hidden = !enabled || devices.length === 0;
+  if (!enabled) elements.devicePairingCode.hidden = true;
+
+  elements.devicePairingSummary.textContent = enabled
+    ? `Only paired devices can reach this library. ${devices.length} paired.`
+    : "Anything that can reach this server can read your library and change its settings. Pairing asks every client to be approved once.";
+
+  elements.devicePairingList.replaceChildren(
+    ...devices.map((device) => {
+      const item = document.createElement("li");
+      const name = document.createElement("strong");
+      name.textContent = device.name;
+      const seen = document.createElement("span");
+      seen.textContent = device.lastUsedAt
+        ? `last seen ${new Date(device.lastUsedAt).toLocaleDateString()}`
+        : "not used yet";
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "button button-secondary";
+      revoke.textContent = "Revoke";
+      revoke.addEventListener("click", () => revokeDevice(device));
+      item.append(name, seen, revoke);
+      return item;
+    })
+  );
+}
+
+async function loadDevicePairing() {
+  if (!elements.settingsDialog.open) return;
+  try {
+    renderDevicePairing(await api("/api/devices"));
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  }
+}
+
+async function revokeDevice(device) {
+  if (
+    !window.confirm(
+      `Revoke “${device.name}”? It loses access on its next request and has to be paired again.`
+    )
+  ) {
+    return;
+  }
+  try {
+    renderDevicePairing(await api(`/api/devices/${device.id}`, { method: "DELETE" }));
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  }
 }
 
 // The settings panel is the only place the cover cache is visible, so polling
@@ -5074,10 +5143,15 @@ function stopCoverCachePolling() {
 
 function openSettings() {
   clearFormError(elements.settingsError);
-  pollCoverCache();
+  elements.devicePairingCode.hidden = true;
   state.editingLibraries = state.libraries.map((source) => ({ ...source }));
   renderSources();
   elements.settingsDialog.showModal();
+  // After `showModal`, not before. Both of these bail when the dialog is shut,
+  // which is what stops them polling a panel nobody is looking at — and which
+  // silently made them no-ops when they ran a line too early.
+  pollCoverCache();
+  loadDevicePairing();
 }
 
 function browserBackupState() {
@@ -6143,6 +6217,64 @@ elements.manualPath.addEventListener("keydown", (event) => {
 });
 elements.saveSettingsButton.addEventListener("click", saveSettings);
 elements.settingsDialog.addEventListener("close", stopCoverCachePolling);
+
+elements.enablePairingButton.addEventListener("click", async () => {
+  if (
+    !window.confirm(
+      "Turn on device pairing? Every client that is not paired — including OPDS readers — stops working until you pair it. This browser is paired automatically."
+    )
+  ) {
+    return;
+  }
+  elements.enablePairingButton.disabled = true;
+  try {
+    // The response carries a token for a client that needs to hold one. This
+    // browser does not: the same response sets its cookie.
+    const paired = await api("/api/devices/enable", {
+      method: "POST",
+      body: JSON.stringify({ name: "This browser" })
+    });
+    renderDevicePairing({ enabled: paired.enabled, devices: [paired.device] });
+    await loadDevicePairing();
+    showToast("Device pairing is on. This browser is paired.");
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  } finally {
+    elements.enablePairingButton.disabled = false;
+  }
+});
+
+elements.disablePairingButton.addEventListener("click", async () => {
+  if (
+    !window.confirm(
+      "Turn off device pairing? Anything that can reach this server will be able to read your library again."
+    )
+  ) {
+    return;
+  }
+  elements.disablePairingButton.disabled = true;
+  try {
+    renderDevicePairing(await api("/api/devices/disable", { method: "POST" }));
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  } finally {
+    elements.disablePairingButton.disabled = false;
+  }
+});
+
+elements.pairDeviceButton.addEventListener("click", async () => {
+  elements.pairDeviceButton.disabled = true;
+  try {
+    const pairing = await api("/api/devices/pairing-code", { method: "POST" });
+    elements.devicePairingCode.textContent = pairing.code;
+    elements.devicePairingCode.hidden = false;
+    showToast("Type this code into the other device within five minutes.");
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  } finally {
+    elements.pairDeviceButton.disabled = false;
+  }
+});
 
 elements.warmCoverCacheButton.addEventListener("click", async () => {
   elements.warmCoverCacheButton.disabled = true;

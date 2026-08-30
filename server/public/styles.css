@@ -3825,7 +3825,8 @@ h2 {
 }
 
 .data-backup-callout,
-.cover-cache-callout {
+.cover-cache-callout,
+.device-pairing-callout {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3840,13 +3841,15 @@ h2 {
 }
 
 .data-backup-callout strong,
-.cover-cache-callout strong {
+.cover-cache-callout strong,
+.device-pairing-callout strong {
   display: block;
   font-size: 13px;
 }
 
 .data-backup-callout p,
-.cover-cache-callout p {
+.cover-cache-callout p,
+.device-pairing-callout p {
   max-width: 430px;
   margin: 4px 0 0;
   color: var(--muted);
@@ -3855,10 +3858,50 @@ h2 {
 }
 
 .data-backup-actions,
-.cover-cache-actions {
+.cover-cache-actions,
+.device-pairing-actions {
   display: flex;
   flex: 0 0 auto;
   gap: 8px;
+}
+
+.device-pairing-code {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px dashed rgba(139, 123, 199, .5);
+  border-radius: 9px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  letter-spacing: .28em;
+}
+
+.device-pairing-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.device-pairing-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.device-pairing-list li strong {
+  display: inline;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.device-pairing-list button {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 10px;
 }
 
 .provider-state {
@@ -4871,6 +4914,7 @@ h2 {
 
   .online-metadata-callout,
   .cover-cache-callout,
+  .device-pairing-callout,
   .data-backup-callout {
     align-items: stretch;
     flex-direction: column;
@@ -4881,7 +4925,8 @@ h2 {
   }
 
   .data-backup-actions,
-  .cover-cache-actions {
+  .cover-cache-actions,
+  .device-pairing-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
   }

@@ -1147,3 +1147,76 @@ test("OPDS takes the token as Basic auth, which is all a reader can send", async
   });
   assert.equal(authorized.status, 200, state.logs);
 });
+
+test("enabling pairing sets a cookie, because an <img> cannot send a header", async (t) => {
+  // The shelf draws covers and the reader draws pages with `image.src`, which
+  // is a browser-issued request and carries no Authorization header. Without a
+  // cookie, switching pairing on would empty every shelf it was meant to
+  // protect. HttpOnly so script cannot read the token, SameSite=Strict so no
+  // other site can spend it.
+  const { base, state } = await startServer(t);
+
+  const response = await fetch(`${base}/api/devices/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "This browser" })
+  });
+  assert.equal(response.status, 200, state.logs);
+
+  const cookie = response.headers.get("set-cookie") || "";
+  assert.match(cookie, /panelshelf_device=pst_/, "carries the token");
+  assert.match(cookie, /HttpOnly/i);
+  assert.match(cookie, /SameSite=Strict/i);
+  assert.match(cookie, /Path=\//i);
+});
+
+test("a cover request authenticated only by cookie is served", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Alpha.cbz"),
+    zipBuffer([{ name: "page.png", data: ONE_PIXEL_PNG }])
+  );
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  const [comic] = await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+
+  const enabled = await fetch(`${base}/api/devices/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "This browser" })
+  });
+  const cookie = (enabled.headers.get("set-cookie") || "").split(";")[0];
+
+  const withoutCookie = await fetch(`${base}/api/comics/${comic.id}/cover`);
+  assert.equal(withoutCookie.status, 401, state.logs);
+
+  const withCookie = await fetch(`${base}/api/comics/${comic.id}/cover`, {
+    headers: { Cookie: cookie }
+  });
+  assert.equal(withCookie.status, 200, state.logs);
+});
+
+test("turning pairing off clears the cookie it handed out", async (t) => {
+  const { base, state } = await startServer(t);
+  const enabled = await fetch(`${base}/api/devices/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "This browser" })
+  });
+  const cookie = (enabled.headers.get("set-cookie") || "").split(";")[0];
+
+  const disabled = await fetch(`${base}/api/devices/disable`, {
+    method: "POST",
+    headers: { Cookie: cookie }
+  });
+  assert.equal(disabled.status, 200, state.logs);
+  assert.match(
+    disabled.headers.get("set-cookie") || "",
+    /panelshelf_device=;/,
+    "the cookie is emptied rather than left to expire on its own"
+  );
+});

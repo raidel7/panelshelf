@@ -385,6 +385,30 @@
               </button>
             </div>
           </section>
+          <section class="device-pairing-callout">
+            <div>
+              <span class="result-label">Access</span>
+              <strong>Device pairing</strong>
+              <p id="devicePairingSummary">
+                Anything that can reach this server can read your library and
+                change its settings. Pairing asks every client to be approved
+                once.
+              </p>
+              <p id="devicePairingCode" class="device-pairing-code" hidden></p>
+              <ul id="devicePairingList" class="device-pairing-list" hidden></ul>
+            </div>
+            <div class="device-pairing-actions">
+              <button id="enablePairingButton" class="button button-secondary" type="button">
+                Turn on pairing
+              </button>
+              <button id="pairDeviceButton" class="button button-secondary" type="button" hidden>
+                Pair a device
+              </button>
+              <button id="disablePairingButton" class="button button-secondary" type="button" hidden>
+                Turn off
+              </button>
+            </div>
+          </section>
           <p id="settingsError" class="form-error" hidden></p>
         </div>
         <footer class="dialog-footer">

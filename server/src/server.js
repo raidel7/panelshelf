@@ -111,7 +111,40 @@ function guardRequest(request) {
 // unpaired server, and those need different words on screen.
 const OPEN_PATHS = new Set(["/api/health", "/api/discovery", "/api/devices/pair"]);
 
-// A device token can arrive two ways. Bearer is what PanelShelf's own clients
+const DEVICE_COOKIE = "panelshelf_device";
+
+// The shelf draws covers and the reader draws pages with `image.src`. Those are
+// browser-issued requests and carry no Authorization header, so a token that
+// lives only in a header would empty every shelf the moment pairing was on.
+// A cookie is the one credential the browser attaches to an <img> by itself.
+//
+// HttpOnly so script cannot read the token back out. SameSite=Strict so no
+// other site can spend it — which, with the origin and host checks already in
+// `guardRequest`, is what makes carrying it on a plain GET safe. No Secure:
+// PanelShelf serves plain HTTP on a LAN, and a Secure cookie would simply never
+// be sent.
+function deviceCookieHeader(token) {
+  const shared = "Path=/; HttpOnly; SameSite=Strict";
+  if (!token) return `${DEVICE_COOKIE}=; ${shared}; Max-Age=0`;
+  // 400 days is the longest most browsers will honour.
+  return `${DEVICE_COOKIE}=${token}; ${shared}; Max-Age=${400 * 24 * 60 * 60}`;
+}
+
+function cookieToken(request) {
+  for (const part of String(request.headers.cookie || "").split(";")) {
+    const separator = part.indexOf("=");
+    if (separator === -1) continue;
+    if (part.slice(0, separator).trim() !== DEVICE_COOKIE) continue;
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// A device token can arrive three ways. Bearer is what PanelShelf's own clients
 // send. Basic is what a third-party OPDS reader sends, because Basic is all it
 // has — so the token goes in the password field and the username is ignored.
 // Without that, switching pairing on would silently break every OPDS reader.
@@ -120,14 +153,16 @@ function presentedToken(request) {
   const bearer = header.match(/^Bearer\s+(.+)$/i);
   if (bearer) return bearer[1].trim();
   const basic = header.match(/^Basic\s+(.+)$/i);
-  if (!basic) return null;
-  try {
-    const decoded = Buffer.from(basic[1].trim(), "base64").toString("utf8");
-    const separator = decoded.indexOf(":");
-    return separator === -1 ? null : decoded.slice(separator + 1);
-  } catch {
-    return null;
+  if (basic) {
+    try {
+      const decoded = Buffer.from(basic[1].trim(), "base64").toString("utf8");
+      const separator = decoded.indexOf(":");
+      if (separator !== -1) return decoded.slice(separator + 1);
+    } catch {
+      // Falls through to the cookie.
+    }
   }
+  return cookieToken(request);
 }
 
 function authorize(request, pathname, devices) {
@@ -542,11 +577,16 @@ async function startServer() {
 
       if (request.method === "POST" && pathname === "/api/devices/enable") {
         const body = await readJsonBody(request);
-        return sendJson(response, 200, await library.enableDevicePairing(body));
+        const paired = await library.enableDevicePairing(body);
+        response.setHeader("Set-Cookie", deviceCookieHeader(paired.token));
+        return sendJson(response, 200, paired);
       }
 
       if (request.method === "POST" && pathname === "/api/devices/disable") {
         await library.deviceTokens.setEnabled(false);
+        // Emptied rather than left to expire: a cookie for a server that no
+        // longer asks for one is just a token sitting in a browser.
+        response.setHeader("Set-Cookie", deviceCookieHeader(null));
         return sendJson(response, 200, { enabled: false, devices: library.deviceTokens.list() });
       }
 
@@ -556,11 +596,13 @@ async function startServer() {
 
       if (request.method === "POST" && pathname === "/api/devices/pair") {
         const body = await readJsonBody(request);
-        return sendJson(
-          response,
-          200,
-          await library.deviceTokens.redeemPairingCode(body.code, { name: body.name })
-        );
+        const paired = await library.deviceTokens.redeemPairingCode(body.code, {
+          name: body.name
+        });
+        // Set for a browser redeeming a code; a native client ignores it and
+        // keeps the token from the body instead.
+        response.setHeader("Set-Cookie", deviceCookieHeader(paired.token));
+        return sendJson(response, 200, paired);
       }
 
       const deviceMatch = pathname.match(
