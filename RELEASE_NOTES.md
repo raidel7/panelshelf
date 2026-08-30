@@ -1,3 +1,46 @@
+# PanelShelf 0.4.16-1039
+
+A fix for a way to lose your library configuration. Anyone running PanelShelf
+should take this build.
+
+## Library folders could open empty over a configured library, and saving kept it
+
+- Saving **Library folders** writes what the dialog is showing as the complete
+  list of sources. The dialog filled that list from a copy held in the browser,
+  made once when the page loaded — and if that load failed, the copy stayed
+  empty and nothing said so.
+- Opening the dialog then showed "No folders selected yet" over a library with
+  folders in it. Adding a folder and pressing **Save and scan** replaced every
+  existing source with just the new one, and the scan that followed rebuilt the
+  index to match.
+- The most likely way to meet this was upgrading: installing a package restarts
+  the server, and a page loaded into that window is exactly a page whose first
+  request fails.
+- The dialog now loads your folders from the server every time it opens, and
+  refuses to open at all if it cannot. Refusing is the safe failure — an open
+  dialog offers a Save button, and saving from a dialog that never loaded is
+  indistinguishable from asking to remove everything.
+
+## If this already happened to you
+
+- **Your comic files were never touched.** PanelShelf does not move, rename or
+  write to them.
+- **Reading positions survive.** Progress is kept for comics that are not
+  currently in the library rather than deleted, and a comic's identity comes
+  from its path — so adding the folder back and rescanning reattaches every
+  position on its own.
+- **Confirmed online metadata matches do not survive.** Those are pruned for
+  comics no longer in the library, and will need matching again.
+- Add the folder back in Library folders and run a scan. On a large library that
+  scan takes a while: 24,839 comics took about forty-five minutes.
+
+## Validation
+
+- 263 server tests pass, four of them new. End to end, with the configuration
+  request blocked so the page's first load genuinely fails, the dialog still
+  lists the configured folder and a save afterwards leaves the source list
+  exactly as it was.
+
 # PanelShelf 0.4.16-1038
 
 PanelShelf can now require every client to be paired, and a client can ask what

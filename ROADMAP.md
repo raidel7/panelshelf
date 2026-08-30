@@ -4,7 +4,7 @@ Updated: 2026-08-29
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.4.16, build 1038 | Released. The developer's NAS runs 0.4.14. |
+| **Server and web** | 0.4.16, build 1039 | Released. The developer's NAS runs 0.4.16. |
 | **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
@@ -97,6 +97,7 @@ The current build provides:
 | 0.4.14 / 1036 | A page turn stopped repainting every cover the shelf had drawn |
 | 0.4.15 / 1037 | A cover cache that records itself, can be warmed in one pass, and is cleaned up |
 | 0.4.16 / 1038 | Device pairing, a versioned API, and incremental library changes |
+| 0.4.16 / 1039 | Library folders no longer opens empty over a configured library |
 
 Nothing is unreleased on `main`. The 0.4.14 heading covers 1035 and 1036 as
 point fixes; the storyline and library-editing scope filed under 0.4.17 in
