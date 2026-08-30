@@ -61,6 +61,15 @@ test("browser application parses and ships reading orders and reader modes", asy
   }
   assert.match(styles, /\.order-heading-actions\b/);
   assert.match(styles, /\.custom-cover\b/);
+  for (const id of [
+    "metadataEditCoverPreview",
+    "chooseComicCoverButton",
+    "clearComicCoverButton",
+    "comicCoverInput"
+  ]) {
+    assert.match(document, new RegExp(`id="${id}"`), `${id} is in the markup`);
+  }
+  assert.match(styles, /\.metadata-editor-cover\b/);
   assert.match(document, /id="devicePairingSummary"/);
   assert.match(document, /id="devicePairingCode"/);
   assert.match(document, /id="devicePairingList"/);

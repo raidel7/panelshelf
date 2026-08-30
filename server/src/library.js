@@ -885,6 +885,9 @@ class ComicLibrary {
         ...(manualOverride ? ["manual"] : [])
       ],
       hierarchy,
+      // So the browser asks for a chosen cover only where there is one, rather
+      // than taking a 404 on every card it draws.
+      hasCustomCover: Boolean(this.artwork.get(`comic:${comic.id}`, "cover")),
       orderPath: Array.isArray(comic.orderPath) ? comic.orderPath : []
     };
   }
@@ -1565,21 +1568,6 @@ class ComicLibrary {
   async cover(id, options = {}) {
     const comic = this.getComic(id);
 
-    // What the owner chose beats what the archive happens to start with, and it
-    // is served whole rather than thumbnailed: they picked this picture.
-    const chosen = this.artwork.get(`comic:${comic.id}`, "cover");
-    if (chosen) {
-      try {
-        return {
-          buffer: await fsp.readFile(this.artwork.pathFor(chosen)),
-          mime: chosen.mime
-        };
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-        // The record outlived the file; fall through to the comic's own cover.
-      }
-    }
-
     // Every cache lookup happens before the archive is opened, and that
     // ordering is the whole point. `pagesForComic` opens the archive, so
     // reaching it first meant a source that had gone away — a USB disk asleep,
@@ -1591,6 +1579,25 @@ class ComicLibrary {
       if (cached) return cached;
     }
     let full = await this.cachedCover(comic);
+
+    // A chosen picture stands in for the archive's first page, and then takes
+    // the same path everything else does — including being shrunk for the
+    // shelf. Serving it whole because someone picked it would put megabytes on
+    // every card, which is the cost thumbnails exist to avoid.
+    if (!full) {
+      const chosen = this.artwork.get(`comic:${comic.id}`, "cover");
+      if (chosen) {
+        try {
+          full = {
+            buffer: await fsp.readFile(this.artwork.pathFor(chosen)),
+            mime: chosen.mime
+          };
+        } catch (error) {
+          if (error.code !== "ENOENT") throw error;
+          // The record outlived the file; fall back to the comic's own cover.
+        }
+      }
+    }
 
     if (!full) {
       const pages = await this.pagesForComic(comic);
@@ -1626,9 +1633,19 @@ class ComicLibrary {
   // mtime — the signal the cache used to rely on entirely — and upgrades
   // itself the first time a scan fingerprints the comic.
   cacheKey(comic) {
-    if (comic.fingerprint) return comic.fingerprint;
-    if (!Number.isFinite(comic.mtimeMs)) return null;
-    return `sm1_${Number(comic.size) || 0}_${Math.round(comic.mtimeMs)}`;
+    const contents = comic.fingerprint
+      ? comic.fingerprint
+      : Number.isFinite(comic.mtimeMs)
+        ? `sm1_${Number(comic.size) || 0}_${Math.round(comic.mtimeMs)}`
+        : null;
+    if (!contents) return null;
+    // Choosing a picture does not change the comic's contents, so without this
+    // a cached thumbnail of the previous cover would outlive the choice to
+    // replace it. The artwork filename is fresh on every upload, so including
+    // it invalidates the cache exactly when the picture changes and never
+    // otherwise.
+    const chosen = this.artwork.get(`comic:${comic.id}`, "cover");
+    return chosen ? `${contents}+art:${chosen.file}` : contents;
   }
 
   // Generates this comic's cover and thumbnail unless the record already says

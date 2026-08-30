@@ -769,6 +769,29 @@
             These edits override filenames, ComicInfo.xml, and online matches in
             PanelShelf. Your CBZ and CBR files are never modified.
           </aside>
+          <section class="metadata-editor-cover">
+            <div class="editor-cover-preview">
+              <img id="metadataEditCoverPreview" alt="">
+              <span id="metadataEditCoverFallback">First page</span>
+            </div>
+            <div>
+              <strong>Cover</strong>
+              <p>
+                PanelShelf shows the comic's first page unless you choose a
+                picture. The picture is kept in PanelShelf's own data, never
+                beside your comics.
+              </p>
+              <div class="editor-cover-actions">
+                <button id="chooseComicCoverButton" class="button button-secondary" type="button">
+                  Choose picture
+                </button>
+                <button id="clearComicCoverButton" class="button button-secondary" type="button" hidden>
+                  Use first page
+                </button>
+              </div>
+              <input id="comicCoverInput" type="file" accept="image/png,image/jpeg" hidden>
+            </div>
+          </section>
           <div class="metadata-editor-fields">
             <label>Title<input id="metadataEditTitle" type="text" maxlength="300"></label>
             <label>Series<input id="metadataEditSeries" type="text" maxlength="300"></label>

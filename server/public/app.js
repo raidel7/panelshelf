@@ -266,6 +266,11 @@ const elements = {
   metadataEditorDialog: document.querySelector("#metadataEditorDialog"),
   metadataEditorComicTitle: document.querySelector("#metadataEditorComicTitle"),
   metadataEditTitle: document.querySelector("#metadataEditTitle"),
+  metadataEditCoverPreview: document.querySelector("#metadataEditCoverPreview"),
+  metadataEditCoverFallback: document.querySelector("#metadataEditCoverFallback"),
+  chooseComicCoverButton: document.querySelector("#chooseComicCoverButton"),
+  clearComicCoverButton: document.querySelector("#clearComicCoverButton"),
+  comicCoverInput: document.querySelector("#comicCoverInput"),
   metadataEditSeries: document.querySelector("#metadataEditSeries"),
   metadataEditNumber: document.querySelector("#metadataEditNumber"),
   metadataEditVolume: document.querySelector("#metadataEditVolume"),
@@ -2199,10 +2204,33 @@ function openMetadataEditor(comic) {
   elements.metadataEditWriters.value = baseline.writers;
   elements.metadataEditArtists.value = baseline.artists;
   elements.resetMetadataOverrideButton.hidden = !comic.manualOverride;
+  renderComicCoverChoice(comic);
   clearFormError(elements.metadataEditorError);
   if (!elements.metadataEditorDialog.open) {
     elements.metadataEditorDialog.showModal();
   }
+}
+
+// The preview always shows what the shelf will show, which is the chosen
+// picture when there is one and the first page otherwise. `modifiedAt` busts
+// the cache: choosing a new picture writes a new file, and without it the
+// preview would go on showing the last one.
+function renderComicCoverChoice(comic) {
+  const chosen = Boolean(comic.hasCustomCover);
+  elements.clearComicCoverButton.hidden = !chosen;
+  elements.metadataEditCoverPreview.src = chosen
+    ? `/api/artwork/cover/comic/${comic.id}?v=${encodeURIComponent(comic.modifiedAt || "")}`
+    : thumbnailUrl(comic.id);
+  elements.metadataEditCoverPreview.alt = `${comic.title} cover`;
+  elements.metadataEditCoverFallback.hidden = true;
+}
+
+async function reloadEditedComic(comicId) {
+  await refresh();
+  const updated = comicById(comicId);
+  if (!updated) return;
+  state.metadataEditor = { ...state.metadataEditor, comic: updated };
+  renderComicCoverChoice(updated);
 }
 
 function commaValues(value) {
@@ -6294,6 +6322,40 @@ elements.manualPath.addEventListener("keydown", (event) => {
   }
 });
 elements.saveSettingsButton.addEventListener("click", saveSettings);
+elements.chooseComicCoverButton.addEventListener("click", () =>
+  elements.comicCoverInput.click()
+);
+
+elements.comicCoverInput.addEventListener("change", async () => {
+  const [file] = elements.comicCoverInput.files || [];
+  elements.comicCoverInput.value = "";
+  const comic = state.metadataEditor?.comic;
+  if (!file || !comic) return;
+  try {
+    await api(`/api/artwork/cover/comic/${comic.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "image/png" },
+      body: await file.arrayBuffer()
+    });
+    await reloadEditedComic(comic.id);
+    showToast("Cover set.");
+  } catch (error) {
+    showFormError(elements.metadataEditorError, error);
+  }
+});
+
+elements.clearComicCoverButton.addEventListener("click", async () => {
+  const comic = state.metadataEditor?.comic;
+  if (!comic) return;
+  try {
+    await api(`/api/artwork/cover/comic/${comic.id}`, { method: "DELETE" });
+    await reloadEditedComic(comic.id);
+    showToast("Back to the comic's first page.");
+  } catch (error) {
+    showFormError(elements.metadataEditorError, error);
+  }
+});
+
 elements.setOrderCoverButton.addEventListener("click", () =>
   elements.orderCoverInput.click()
 );

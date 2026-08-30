@@ -391,3 +391,61 @@ test("a comic that leaves the library takes its cached cover with it", async (t)
     "and its cover files went with it, rather than occupying the NAS forever"
   );
 });
+
+test("a chosen cover is shrunk for the shelf like any other", async (t) => {
+  // The shelf asks for thumbnails and draws about a hundred at a time. Serving
+  // a chosen cover whole because someone picked it would mean megabytes per
+  // card — the exact cost thumbnails exist to avoid, reintroduced by a feature
+  // that has nothing to do with it.
+  const { library, comic } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+  // Large enough to need shrinking, small enough to be a plausible upload:
+  // pngBuffer is random noise and does not compress, so a bigger one exceeds
+  // the artwork size limit rather than testing anything about thumbnails.
+  const chosen = pngBuffer(800, 1200);
+  await library.artwork.save(`comic:${comic.id}`, "cover", chosen, "image/png");
+
+  const full = await library.cover(comic.id);
+  assert.deepEqual(full.buffer, chosen, "the full size is what was chosen");
+
+  const thumbnail = await library.cover(comic.id, { thumbnail: true });
+  assert.equal(thumbnail.thumbnail, true);
+  assert.ok(
+    thumbnail.buffer.length < chosen.length / 2,
+    `a thumbnail, not the original: ${thumbnail.buffer.length} vs ${chosen.length}`
+  );
+});
+
+test("replacing a chosen cover does not serve the previous one from cache", async (t) => {
+  // Cover caching is keyed on the comic's contents, and choosing a picture does
+  // not change those — so without the artwork in the key, the old cover would
+  // outlive the choice to replace it.
+  const { library, comic } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+  await library.artwork.save(`comic:${comic.id}`, "cover", pngBuffer(600, 900), "image/png");
+  const first = await library.cover(comic.id, { thumbnail: true });
+
+  const replacement = pngBuffer(640, 960);
+  await library.artwork.save(`comic:${comic.id}`, "cover", replacement, "image/png");
+  const second = await library.cover(comic.id, { thumbnail: true });
+
+  assert.notDeepEqual(second.buffer, first.buffer, "the new picture, not the cached old one");
+});
+
+test("removing a chosen cover goes back to the comic's own page", async (t) => {
+  const { library, comic } = await libraryWithCover(
+    t,
+    pngBuffer(COVER_WIDTH, COVER_HEIGHT)
+  );
+  const own = await library.cover(comic.id);
+  await library.artwork.save(`comic:${comic.id}`, "cover", pngBuffer(600, 900), "image/png");
+  assert.notDeepEqual((await library.cover(comic.id)).buffer, own.buffer);
+
+  await library.artwork.remove(`comic:${comic.id}`, "cover");
+
+  assert.deepEqual((await library.cover(comic.id)).buffer, own.buffer);
+});
