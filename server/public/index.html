@@ -367,6 +367,21 @@
               <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
             </div>
           </section>
+          <section class="library-review-callout">
+            <div>
+              <span class="result-label">Housekeeping</span>
+              <strong>Library review</strong>
+              <p id="libraryReviewSummary">
+                Copies of the same comic, and online matches that were too close
+                to call. Nothing here changes anything on its own.
+              </p>
+            </div>
+            <div class="library-review-actions">
+              <button id="openLibraryReviewButton" class="button button-secondary" type="button">
+                Review
+              </button>
+            </div>
+          </section>
           <section class="cover-cache-callout">
             <div>
               <span class="result-label">Covers</span>
@@ -1038,6 +1053,43 @@
           <button id="permissionRescanButton" class="button button-primary" type="button">
             I fixed it — rescan
           </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="libraryReviewDialog" class="dialog library-review-dialog">
+      <form method="dialog" class="dialog-card">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Housekeeping</p>
+            <h2>Library review</h2>
+          </div>
+          <button class="icon-button close-library-review" value="cancel" aria-label="Close library review">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="dialog-content">
+          <section class="review-section">
+            <div class="order-section-heading">
+              <div>
+                <h3>Possible duplicates</h3>
+                <p id="duplicateSummary">Nothing to look at.</p>
+              </div>
+            </div>
+            <div id="duplicateList" class="review-list"></div>
+          </section>
+          <section class="review-section">
+            <div class="order-section-heading">
+              <div>
+                <h3>Matches to review</h3>
+                <p id="reviewQueueSummary">Nothing waiting.</p>
+              </div>
+            </div>
+            <div id="reviewQueueList" class="review-list"></div>
+          </section>
+        </div>
+        <footer class="dialog-footer">
+          <button class="button button-primary close-library-review" value="cancel">Close</button>
         </footer>
       </form>
     </dialog>

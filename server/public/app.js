@@ -158,6 +158,13 @@ const elements = {
   addPathButton: document.querySelector("#addPathButton"),
   exportBackupButton: document.querySelector("#exportBackupButton"),
   coverCacheSummary: document.querySelector("#coverCacheSummary"),
+  openLibraryReviewButton: document.querySelector("#openLibraryReviewButton"),
+  libraryReviewDialog: document.querySelector("#libraryReviewDialog"),
+  libraryReviewSummary: document.querySelector("#libraryReviewSummary"),
+  duplicateSummary: document.querySelector("#duplicateSummary"),
+  duplicateList: document.querySelector("#duplicateList"),
+  reviewQueueSummary: document.querySelector("#reviewQueueSummary"),
+  reviewQueueList: document.querySelector("#reviewQueueList"),
   devicePairingSummary: document.querySelector("#devicePairingSummary"),
   devicePairingCode: document.querySelector("#devicePairingCode"),
   devicePairingList: document.querySelector("#devicePairingList"),
@@ -760,6 +767,113 @@ async function revokeDevice(device) {
     renderDevicePairing(await api(`/api/devices/${device.id}`, { method: "DELETE" }));
   } catch (error) {
     showFormError(elements.settingsError, error);
+  }
+}
+
+function reviewEmpty(message) {
+  const empty = document.createElement("div");
+  empty.className = "review-empty";
+  empty.textContent = message;
+  return empty;
+}
+
+function duplicateRow(group) {
+  const row = document.createElement("div");
+  row.className = "review-row";
+
+  const header = document.createElement("header");
+  const name = document.createElement("strong");
+  const [first] = group.comics;
+  name.textContent = first ? first.title || first.relativePath : "Duplicate";
+  const badge = document.createElement("span");
+  badge.className = `review-confidence ${group.confidence}`;
+  badge.textContent = group.confidence;
+  header.append(name, badge);
+
+  const why = document.createElement("p");
+  why.textContent =
+    group.reason === "identical-contents"
+      ? `${group.comics.length} files with identical contents · about ${formatSize(group.reclaimableBytes)} could be reclaimed`
+      : `${group.comics.length} files that look like the same issue · about ${formatSize(group.reclaimableBytes)} could be reclaimed`;
+
+  // Every copy's path, size and source: what someone needs in order to decide
+  // which one is the keeper. PanelShelf will not decide it for them.
+  const list = document.createElement("ul");
+  for (const comic of group.comics) {
+    const item = document.createElement("li");
+    item.textContent = `${comic.relativePath} — ${formatSize(comic.size)}${comic.sourceName ? ` · ${comic.sourceName}` : ""}`;
+    list.append(item);
+  }
+
+  row.append(header, why, list);
+  return row;
+}
+
+function reviewRow(entry) {
+  const row = document.createElement("div");
+  row.className = "review-row";
+
+  const header = document.createElement("header");
+  const name = document.createElement("strong");
+  name.textContent = entry.title || entry.comicId;
+  const score = document.createElement("small");
+  score.textContent =
+    entry.score === null
+      ? ""
+      : `${entry.score}%${entry.runnerUpScore === null ? "" : ` · runner-up ${entry.runnerUpScore}%`}`;
+  header.append(name, score);
+
+  const proposal = document.createElement("p");
+  proposal.textContent = entry.displayName
+    ? `Proposed: ${entry.displayName}${entry.provider ? ` (${entry.provider})` : ""}`
+    : "No candidate was proposed.";
+
+  const reason = document.createElement("small");
+  reason.textContent = entry.reason || "";
+
+  row.append(header, proposal, reason);
+  return row;
+}
+
+async function loadLibraryReview() {
+  try {
+    const [duplicates, review] = await Promise.all([
+      api("/api/duplicates"),
+      api("/api/metadata/review")
+    ]);
+
+    elements.duplicateSummary.textContent = duplicates.groups.length
+      ? `${duplicates.groups.length} ${duplicates.groups.length === 1 ? "group" : "groups"} · about ${formatSize(duplicates.reclaimableBytes)} could be reclaimed. Nothing is removed for you.`
+      : "No copies of the same comic were found.";
+    elements.duplicateList.replaceChildren(
+      ...(duplicates.groups.length
+        ? duplicates.groups.slice(0, 200).map(duplicateRow)
+        : [reviewEmpty("Nothing looks duplicated.")])
+    );
+
+    elements.reviewQueueSummary.textContent = review.pending
+      ? `${review.pending} ${review.pending === 1 ? "match needs" : "matches need"} a decision.`
+      : "No matches are waiting.";
+    elements.reviewQueueList.replaceChildren(
+      ...(review.entries.length
+        ? review.entries.slice(0, 200).map(reviewRow)
+        : [reviewEmpty("Nothing is waiting on you.")])
+    );
+
+    const parts = [];
+    if (duplicates.groups.length) {
+      parts.push(
+        `${duplicates.groups.length} possible ${duplicates.groups.length === 1 ? "duplicate" : "duplicates"}`
+      );
+    }
+    if (review.pending) {
+      parts.push(`${review.pending} ${review.pending === 1 ? "match" : "matches"} to review`);
+    }
+    elements.libraryReviewSummary.textContent = parts.length
+      ? `${parts.join(" and ")}. Nothing here changes anything on its own.`
+      : "Nothing needs looking at. Copies of the same comic and close-call matches appear here.";
+  } catch (error) {
+    showToast(error.message);
   }
 }
 
@@ -5257,6 +5371,9 @@ function openSettings() {
     if (!elements.settingsDialog.open) return;
     pollCoverCache();
     loadDevicePairing();
+    // Fills the callout's counts, so what needs looking at is visible without
+    // opening anything.
+    loadLibraryReview();
   });
 }
 
@@ -6322,6 +6439,15 @@ elements.manualPath.addEventListener("keydown", (event) => {
   }
 });
 elements.saveSettingsButton.addEventListener("click", saveSettings);
+elements.openLibraryReviewButton.addEventListener("click", () => {
+  elements.libraryReviewDialog.showModal();
+  loadLibraryReview();
+});
+
+for (const button of document.querySelectorAll(".close-library-review")) {
+  button.addEventListener("click", () => elements.libraryReviewDialog.close());
+}
+
 elements.chooseComicCoverButton.addEventListener("click", () =>
   elements.comicCoverInput.click()
 );

@@ -3826,7 +3826,8 @@ h2 {
 
 .data-backup-callout,
 .cover-cache-callout,
-.device-pairing-callout {
+.device-pairing-callout,
+.library-review-callout {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3842,14 +3843,16 @@ h2 {
 
 .data-backup-callout strong,
 .cover-cache-callout strong,
-.device-pairing-callout strong {
+.device-pairing-callout strong,
+.library-review-callout strong {
   display: block;
   font-size: 13px;
 }
 
 .data-backup-callout p,
 .cover-cache-callout p,
-.device-pairing-callout p {
+.device-pairing-callout p,
+.library-review-callout p {
   max-width: 430px;
   margin: 4px 0 0;
   color: var(--muted);
@@ -3859,7 +3862,8 @@ h2 {
 
 .data-backup-actions,
 .cover-cache-actions,
-.device-pairing-actions {
+.device-pairing-actions,
+.library-review-actions {
   display: flex;
   flex: 0 0 auto;
   gap: 8px;
@@ -5142,4 +5146,77 @@ h2 {
 .editor-cover-actions {
   display: flex;
   gap: 8px;
+}
+
+.review-section {
+  margin-bottom: 22px;
+}
+
+.review-list {
+  display: grid;
+  gap: 8px;
+}
+
+.review-row {
+  display: grid;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-soft);
+  gap: 5px;
+}
+
+.review-row header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.review-row strong {
+  font-size: 12px;
+}
+
+.review-row small,
+.review-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.review-row ul {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.review-confidence {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.review-confidence.certain {
+  color: #ffd9dc;
+  background: rgba(255, 139, 147, .18);
+}
+
+.review-confidence.probable {
+  color: #ffe2a0;
+  background: rgba(242, 199, 110, .16);
+}
+
+.review-empty {
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 11px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
 }

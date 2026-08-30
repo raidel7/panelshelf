@@ -70,6 +70,16 @@ test("browser application parses and ships reading orders and reader modes", asy
     assert.match(document, new RegExp(`id="${id}"`), `${id} is in the markup`);
   }
   assert.match(styles, /\.metadata-editor-cover\b/);
+  for (const id of [
+    "openLibraryReviewButton",
+    "libraryReviewDialog",
+    "duplicateList",
+    "reviewQueueList"
+  ]) {
+    assert.match(document, new RegExp(`id="${id}"`), `${id} is in the markup`);
+  }
+  assert.match(styles, /\.library-review-callout\b/);
+  assert.match(styles, /\.review-confidence\b/);
   assert.match(document, /id="devicePairingSummary"/);
   assert.match(document, /id="devicePairingCode"/);
   assert.match(document, /id="devicePairingList"/);
