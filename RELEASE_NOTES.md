@@ -1,3 +1,59 @@
+# PanelShelf 0.4.16-1038
+
+PanelShelf can now require every client to be paired, and a client can ask what
+changed instead of downloading the library again.
+
+## Device pairing
+
+- **Off by default.** Turning it on locks out every client that has not paired,
+  including OPDS readers, so it is a decision you make on a day you choose
+  rather than something an upgrade does to you. Enable it in Library settings.
+- Pairing is an eight-character code with a five-minute life, used once. You
+  read it off one screen and type it into another; no long-lived password is
+  ever pasted anywhere. The code alphabet has no O/0 or I/1/L in it.
+- Only a SHA-256 of each token is stored, so a readable `devices.json` is a list
+  of names and timestamps rather than a set of working credentials.
+- Revoking a device takes effect on its next request, because revoking drops the
+  hash and leaves nothing to match.
+- The browser that turns pairing on is paired in the same step, so you cannot
+  lock yourself out of the page you are looking at.
+- OPDS readers authenticate with HTTP Basic, which is all they can send: the
+  token goes in the password field.
+- `/api/health` and `/api/discovery` stay open, so a client can still tell a
+  wrong address from an unpaired server.
+
+## Ask what changed, not what exists
+
+- `GET /api/changes?since=…` reports what was added, updated or removed since a
+  point the client names, instead of the whole catalogue. Removals are the
+  reason it exists: nothing in a list of what remains says what left.
+- A cursor that cannot be caught up — never synced, away too long, or from a
+  rebuilt data directory — is told to resync rather than handed a partial
+  history it would treat as complete.
+
+## A versioned API
+
+- Every `/api/…` route is also served at `/api/v1/…`, with the same guards and
+  the same answers. The unversioned form is not deprecated and will not move.
+- `/api/health` reports `apiVersion`.
+
+## Checking a server
+
+- `npm run conformance -- http://your-nas:8251` checks a running server against
+  the documented contract. Read-only unless you pass `--write`.
+
+## Documentation
+
+- The three progress writes are not interchangeable, and the difference is now
+  written down: `PUT` and `/batch` are deliberate writes applied unconditionally,
+  while `/merge` is reconciliation and can discard what you send with a 200.
+
+## Validation
+
+- 259 server tests pass, twenty-two of them new, including that a revoked device
+  loses access on its next request and that a bookmark survives both a rescan
+  and a comic being moved.
+
 # PanelShelf 0.4.15-1037
 
 A shelf whose USB disk is asleep stays a shelf, covers are built once rather

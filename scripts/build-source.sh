@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="${PROJECT_DIR}/dist"
-VERSION="${PANELSHELF_VERSION:-0.4.15-1037}"
+VERSION="${PANELSHELF_VERSION:-0.4.16-1038}"
 ARCHIVE="${DIST_DIR}/PanelShelf-source-${VERSION}.zip"
 
 mkdir -p "${DIST_DIR}"

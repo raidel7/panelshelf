@@ -11,7 +11,7 @@ const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
 
-const VERSION = "0.4.15";
+const VERSION = "0.4.16";
 // The JSON API's own version, which moves independently of the package's.
 // A client asks for `/api/v1/...`; `/api/...` is the same surface under its
 // original name and stays that way, because the iPad client is released from
