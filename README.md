@@ -402,6 +402,23 @@ holding a cursor from a data directory that has since been rebuilt. Sending a
 partial history in any of those cases would leave a client quietly wrong, which
 is the failure nobody notices.
 
+### Match review queue
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/metadata/review` | Comics whose online match is waiting on a decision |
+
+Bulk matching auto-approves a clear winner and leaves everything else alone.
+This is what it left: matches that scored below the threshold, or whose
+runner-up was close enough that picking one would be a guess. Each entry carries
+the proposal and why it was not taken — a bare comic id is a question with no
+information in it.
+
+Only the newest verdict for a comic counts, so one reviewed on an early pass and
+auto-approved on a later one is gone from the queue. A comic confirmed by hand
+since the job ran is gone too, and so is one that has left the library: neither
+is a decision anyone still has to make.
+
 ### Bulk editing
 
 | Method | Path | Purpose |

@@ -317,6 +317,38 @@ class BulkMetadataMatcher {
       });
   }
 
+  // The comics still waiting on a person, rather than the last fifty things
+  // that happened. `publicState` reports progress; this reports work.
+  //
+  // Only the newest verdict for a comic counts. A comic checked twice —
+  // reviewed on one pass, auto-approved on a later one — is settled, and
+  // listing it because an older row still says review would send someone to
+  // decide something already decided. The reverse holds too: a later review
+  // puts a previously approved comic back in the queue.
+  reviewQueue() {
+    const latest = new Map();
+    for (const result of this.state.results || []) {
+      if (!result || !result.comicId) continue;
+      const held = latest.get(result.comicId);
+      if (!held || String(result.checkedAt || "") >= String(held.checkedAt || "")) {
+        latest.set(result.comicId, result);
+      }
+    }
+    return [...latest.values()]
+      .filter((result) => result.status === "review")
+      .map((result) => ({
+        comicId: result.comicId,
+        title: result.title || "",
+        provider: result.provider || null,
+        recordId: result.recordId || null,
+        displayName: result.displayName || "",
+        score: result.score ?? null,
+        runnerUpScore: result.runnerUpScore ?? null,
+        reason: result.reason || "",
+        checkedAt: result.checkedAt || null
+      }));
+  }
+
   result(comic, status, details = {}) {
     this.state.results.push({
       comicId: comic?.id || this.state.currentComicId,

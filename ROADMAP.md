@@ -705,6 +705,10 @@ contract, while OPDS stays a separate read-only catalog standard.
 
 ## 7. 0.4.17 — Storylines and advanced library editing — server and web
 
+Server side complete and unreleased on `main`. The web interface for these is
+not built: every one of them is reachable over the API and none has a screen
+yet, which is the next piece of work rather than a caveat on this one.
+
 ### Scope
 
 - Storyline builder from folders, metadata, or manual selection.

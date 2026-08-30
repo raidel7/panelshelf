@@ -689,6 +689,10 @@ async function startServer() {
         );
       }
 
+      if (request.method === "GET" && pathname === "/api/metadata/review") {
+        return sendJson(response, 200, library.metadataReviewQueue());
+      }
+
       if (request.method === "GET" && pathname === "/api/duplicates") {
         return sendJson(response, 200, library.findDuplicateComics());
       }

@@ -1574,3 +1574,10 @@ test("duplicates are reported, and only reported", async (t) => {
   const files = await fsp.readdir(comicsDirectory);
   assert.equal(files.length, 3, "nothing was removed by looking");
 });
+
+test("the review queue is reachable and empty before anything has been matched", async (t) => {
+  const { base, state } = await startServer(t);
+  const queue = await (await fetch(`${base}/api/metadata/review`)).json();
+  assert.equal(queue.pending, 0, state.logs);
+  assert.deepEqual(queue.entries, []);
+});

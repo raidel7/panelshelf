@@ -1005,6 +1005,20 @@ class ComicLibrary {
   // Reads the index and returns groups. It cannot delete anything, which is
   // how the release gate that duplicates are never resolved automatically is
   // kept: there is nothing here to make destructive later.
+  // What the matcher left for a person, narrowed to what is still open. A comic
+  // confirmed by hand since the job ran is settled even though the job's own
+  // record still says review, and a comic that has left the library is not a
+  // decision anybody can make.
+  metadataReviewQueue() {
+    const known = new Map(this.comics.map((comic) => [comic.id, comic]));
+    const entries = this.bulkMetadata
+      .reviewQueue()
+      .filter((entry) => known.has(entry.comicId))
+      .filter((entry) => !this.enrichment.publicMatch(entry.comicId))
+      .map((entry) => ({ ...entry, series: known.get(entry.comicId).series || "" }));
+    return { pending: entries.length, entries };
+  }
+
   async applyBulkMetadata(input) {
     const result = await this.metadataOverrides.applyMany(
       input?.comicIds,
