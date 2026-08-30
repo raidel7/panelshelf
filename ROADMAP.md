@@ -578,7 +578,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 | # | Milestone | Status | Planning range |
 | --- | --- | --- | --- |
 | 5 | 0.4.15 — Offline shelf and cover cache | **Done** — 0.4.15 | — |
-| 6 | 0.4.16 — Sync API hardening | Planned | 2–3 weeks |
+| 6 | 0.4.16 — Sync API hardening | **Done** — unreleased | — |
 | 7 | 0.4.17 — Storylines and advanced library editing | Planned | 3–5 weeks |
 | 8 | 0.5 — Accounts and secure client access | Planned | 3–4 weeks |
 | 10 | 0.7 — Reliability, performance, administration | Planned | 3–5 weeks |
@@ -633,12 +633,7 @@ Complete, released as 0.4.15-1037.
 
 ## 6. 0.4.16 — Sync API hardening — server
 
-Shipped so far, unreleased on `main`: device tokens with pairing by short code,
-enforcement across `/api` and OPDS, the pairing panel in Library settings, an
-additive `/api/v1` prefix, `GET /api/changes`, the write contract documented,
-and `npm run conformance`. Outstanding: stable identifiers and the explicit
-unavailable-source and offline-cache states, both of which look largely done and
-need verifying rather than building.
+Complete and unreleased on `main`.
 
 ### Goal
 
@@ -647,8 +642,10 @@ contract, while OPDS stays a separate read-only catalog standard.
 
 ### Scope
 
-- Version the JSON API for library views, comics, folders, chronology, pages,
-  and reading orders.
+- Version the JSON API. `/api/v1/…` is an addition, never a replacement: the
+  prefix is normalised off before anything reads the path, so a versioned
+  request meets the same guards rather than a parallel set. The iPad client
+  ships from its own repository, so moving the paths was never available.
 - Device-token creation, revocation, expiry, and last-used reporting, so pairing
   never means pasting a long-lived password.
 - An incremental library-change endpoint, so a client does not re-download the
@@ -658,8 +655,14 @@ contract, while OPDS stays a separate read-only catalog standard.
   and document it, because a user action sent through `/merge` can be discarded
   with a 200.
 - Stable comic and reading-order identifiers across safe rescans and moves.
-- Explicit unavailable-source and offline-cache states for clients.
-- API documentation and a small conformance suite.
+  Already true — the scan carries an id through `identity`, and matches a moved
+  file by the fingerprint of its contents. Now covered by a test that saves a
+  bookmark, rescans, moves the comic, and requires the bookmark to survive both.
+- Explicit unavailable-source and offline-cache states for clients. Already
+  carried as `available` on each comic, with a disconnected source keeping its
+  last-known comics rather than emptying the shelf.
+- API documentation and a small conformance suite: `npm run conformance`, aimed
+  at a running server, read-only unless asked otherwise.
 
 ### Non-goals
 
@@ -670,8 +673,10 @@ contract, while OPDS stays a separate read-only catalog standard.
 
 - Progress written by one authorized client appears consistently in the other.
 - A stale client write cannot silently replace newer progress.
-- Revoked credentials lose access immediately.
-- A rescan does not break client bookmarks for unchanged comics.
+- Revoked credentials lose access immediately. **Met**: revoking drops the
+  token's hash, so there is nothing left to match on the next request.
+- A rescan does not break client bookmarks for unchanged comics. **Met**, and
+  for a moved comic too.
 
 ## 7. 0.4.17 — Storylines and advanced library editing — server and web
 

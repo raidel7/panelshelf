@@ -1326,3 +1326,57 @@ test("a client with no cursor is told to take the whole library", async (t) => {
   assert.equal(update.reset, true, state.logs);
   assert.deepEqual(update.changes, []);
 });
+
+test("a rescan, and a move, do not break a client's bookmark", async (t) => {
+  // 0.4.16's release gate. Reading progress is keyed on the comic id, so this
+  // is really a test that the id survives — a rescan that reissued ids would
+  // silently detach every bookmark in the library, and the shelf would look
+  // fine while every comic claimed to be unread.
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Alpha.cbz"),
+    zipBuffer([
+      { name: "001.png", data: ONE_PIXEL_PNG },
+      { name: "002.png", data: ONE_PIXEL_PNG }
+    ])
+  );
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  const [comic] = await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+
+  const saved = await fetch(`${base}/api/progress/${comic.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pageIndex: 1, pageCount: 2, completed: false })
+  });
+  assert.equal(saved.status, 200, state.logs);
+
+  // An unchanged comic, rescanned.
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+  const [rescanned] = await (await fetch(`${base}/api/comics`)).json();
+  assert.equal(rescanned.id, comic.id, "the id is the same comic's id");
+
+  let bookmark = await (await fetch(`${base}/api/progress/${comic.id}`)).json();
+  assert.equal(bookmark.pageIndex, 1, `bookmark lost by a rescan: ${state.logs}`);
+
+  // The same comic, moved into a subfolder. The scan matches it by the
+  // fingerprint of its contents, so it is a move rather than a departure and
+  // an arrival.
+  await fsp.mkdir(path.join(comicsDirectory, "Series"), { recursive: true });
+  await fsp.rename(
+    path.join(comicsDirectory, "Alpha.cbz"),
+    path.join(comicsDirectory, "Series", "Alpha.cbz")
+  );
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+
+  const [moved] = await (await fetch(`${base}/api/comics`)).json();
+  assert.equal(moved.id, comic.id, "a moved comic keeps its id");
+  bookmark = await (await fetch(`${base}/api/progress/${comic.id}`)).json();
+  assert.equal(bookmark.pageIndex, 1, `bookmark lost by a move: ${state.logs}`);
+});
