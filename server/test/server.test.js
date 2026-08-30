@@ -1581,3 +1581,64 @@ test("the review queue is reachable and empty before anything has been matched",
   assert.equal(queue.pending, 0, state.logs);
   assert.deepEqual(queue.entries, []);
 });
+
+test("a streaming reader can fetch one page at a time, counting from one", async (t) => {
+  // The OPDS Page Streaming Extension numbers pages from one; PanelShelf's own
+  // route numbers them from zero. Page one here must be the same image as page
+  // zero there, or every streaming reader is off by one for the whole comic.
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Alpha.cbz"),
+    zipBuffer([
+      { name: "001.png", data: pngBuffer(300, 450) },
+      { name: "002.png", data: pngBuffer(320, 450) }
+    ])
+  );
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  const [comic] = await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+
+  const streamed = await fetch(`${base}/opds/comics/${comic.id}/pages/1`);
+  assert.equal(streamed.status, 200, state.logs);
+  assert.equal(streamed.headers.get("x-comic-page-count"), "2");
+
+  const internal = await fetch(`${base}/api/comics/${comic.id}/pages/0`);
+  assert.deepEqual(
+    Buffer.from(await streamed.arrayBuffer()),
+    Buffer.from(await internal.arrayBuffer()),
+    "page one streamed is page zero internally"
+  );
+
+  const second = await fetch(`${base}/opds/comics/${comic.id}/pages/2`);
+  assert.equal(second.status, 200);
+
+  assert.equal((await fetch(`${base}/opds/comics/${comic.id}/pages/0`)).status, 404);
+  assert.equal((await fetch(`${base}/opds/comics/${comic.id}/pages/99`)).status, 404);
+});
+
+test("the catalogue advertises streaming with a real page count", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Alpha.cbz"),
+    zipBuffer([
+      { name: "001.png", data: pngBuffer(300, 450) },
+      { name: "002.png", data: pngBuffer(320, 450) }
+    ])
+  );
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+
+  const feed = await (await fetch(`${base}/opds/all`)).text();
+  assert.match(feed, /xmlns:pse="http:\/\/vaemendis\.net\/opds-pse\/ns"/, state.logs);
+  assert.match(feed, /pse:count="2"/);
+  assert.match(feed, /\{pageNumber\}/, "the template reaches the client unescaped");
+});

@@ -44,7 +44,12 @@ function feedDocument({ id, title, updated, self, start, search, entries }) {
     '<?xml version="1.0" encoding="utf-8"?>',
     '<feed xmlns="http://www.w3.org/2005/Atom"',
     ' xmlns:dc="http://purl.org/dc/terms/"',
-    ' xmlns:opds="http://opds-spec.org/2010/catalog">',
+    ' xmlns:opds="http://opds-spec.org/2010/catalog"',
+    // The Page Streaming Extension. A reader that understands it fetches one
+    // page at a time instead of pulling a whole archive down to read the first
+    // page of it, which is the difference between usable and not on a phone
+    // network with a 400 MB collection.
+    ' xmlns:pse="http://vaemendis.net/opds-pse/ns">',
     `<id>${xml(id)}</id>`,
     `<title>${xml(title)}</title>`,
     `<updated>${xml(updated)}</updated>`,
@@ -85,6 +90,24 @@ function comicEntry(comic, baseUrl, updated = null) {
   const cover = absolute(baseUrl, `/api/comics/${comic.id}/cover`);
   const thumbnail = absolute(baseUrl, `/api/comics/${comic.id}/cover?size=thumb`);
   const summary = metadata.summary || comic.relativePath || "";
+
+  // `{pageNumber}` stays in the href: the reader substitutes it. `absolute`
+  // puts the braces back after URL encoding, the same as it does for the
+  // search template.
+  //
+  // One-based, because the extension counts from one and PanelShelf's own page
+  // route counts from zero. The translation lives in the OPDS route rather
+  // than in either count, so neither has to bend to the other.
+  const pageCount = Number(comic.pageCount) || 0;
+  const stream = pageCount > 0
+    ? absolute(baseUrl, `/opds/comics/${comic.id}/pages/{pageNumber}`)
+    : null;
+  const progress = comic.progress;
+  const lastRead =
+    progress && Number.isInteger(progress.pageIndex) && progress.pageIndex >= 0
+      ? progress.pageIndex + 1
+      : null;
+
   return [
     "<entry>",
     `<id>urn:panelshelf:comic:${xml(comic.id)}</id>`,
@@ -102,6 +125,17 @@ function comicEntry(comic, baseUrl, updated = null) {
     `<link rel="http://opds-spec.org/acquisition/open-access" href="${xml(
       acquisition
     )}" type="${comicMime(comic)}"/>`,
+    // Advertised alongside the download rather than instead of it: a reader
+    // that does not understand streaming must still be able to fetch the file.
+    stream
+      ? `<link rel="http://vaemendis.net/opds-pse/stream" href="${xml(stream)}" type="image/jpeg" pse:count="${pageCount}"${
+          lastRead ? ` pse:lastRead="${lastRead}"` : ""
+        }${
+          lastRead && progress.lastReadAt
+            ? ` pse:lastReadDate="${xml(progress.lastReadAt)}"`
+            : ""
+        }/>`
+      : "",
     "</entry>"
   ]
     .filter(Boolean)
@@ -167,7 +201,14 @@ function publicComics(library) {
   return library
     .listComics()
     .filter((comic) => comic.available !== false)
-    .map((comic) => library.publicComic(comic));
+    .map((comic) => {
+      const record = library.publicComic(comic);
+      // Reading position is server-side and shared, so the catalogue can say
+      // where the reader got to and a streaming reader can open there. Attached
+      // here rather than threaded through three feed builders.
+      const progress = library.getProgress ? library.getProgress(comic.id) : null;
+      return progress ? { ...record, progress } : record;
+    });
 }
 
 function sourceFolders(comics, sourceId, prefix) {

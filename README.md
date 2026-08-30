@@ -259,6 +259,42 @@ PanelShelf, because generic OPDS 1.2 does not define a universal progress
 protocol. This preview is intended for a trusted LAN and does not yet protect
 the OPDS catalog with user authentication.
 
+### Reading in a third-party app
+
+PanelShelf speaks OPDS, so readers that do — Panels, Chunky, KyBook and others —
+can browse, search, download and see covers without any PanelShelf-specific
+support. With device pairing on, they authenticate with HTTP Basic: any
+username, and the device token as the password.
+
+It also implements the [OPDS Page Streaming Extension][pse], which is the
+difference between usable and not on a phone network. Without it a reader must
+download an entire archive to look at one page; with it, it fetches pages as you
+turn them.
+
+[pse]: https://vaemendis.net/opds-pse/
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/opds/comics/:comicId/pages/:pageNumber` | One page, numbered from **one** |
+
+Each acquisition entry carries `pse:count`, and a stream link whose
+`{pageNumber}` the reader substitutes. Comics you have started also carry
+`pse:lastRead` and `pse:lastReadDate`, so a streaming reader opens where the
+browser left off — reading position lives on the server and is shared, so it is
+the same position either way.
+
+Page numbers in that route start at one because the extension does. PanelShelf's
+own `/api/comics/:comicId/pages/:index` starts at zero and stays that way: the
+translation lives in the OPDS route rather than in either count, so the standard
+does not renumber the internal API and the internal API does not hand a standard
+reader an off-by-one.
+
+The download link is advertised alongside the stream link, never instead of it,
+so a reader that does not understand the extension still works.
+
+**This is not Komga emulation.** PanelShelf implements published standards and
+does not impersonate another server's API — see the non-goals in `ROADMAP.md`.
+
 ## Library API
 
 | Method | Path | Purpose |

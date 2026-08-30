@@ -934,6 +934,30 @@ async function startServer() {
         );
       }
 
+      // One page at a time, for a reader that speaks the OPDS Page Streaming
+      // Extension. Numbered from one, because the extension is, while
+      // PanelShelf's own page route is numbered from zero. The translation
+      // lives here rather than in either of them: the extension does not get to
+      // renumber the internal API, and the internal API does not get to hand a
+      // standard client an off-by-one.
+      const opdsPageMatch = pathname.match(
+        /^\/opds\/comics\/([a-f0-9]{24})\/pages\/(\d+)$/
+      );
+      if (request.method === "GET" && opdsPageMatch) {
+        const pageNumber = Number(opdsPageMatch[2]);
+        if (pageNumber < 1) {
+          throw jsonError("Pages are numbered from one.", "NOT_FOUND");
+        }
+        const page = await library.page(opdsPageMatch[1], pageNumber - 1);
+        response.writeHead(200, {
+          "Content-Type": page.mime,
+          "Content-Length": page.buffer.length,
+          "Cache-Control": "private, max-age=3600",
+          "X-Comic-Page-Count": String(page.pageCount)
+        });
+        return response.end(page.buffer);
+      }
+
       const metadataSearchMatch = pathname.match(
         /^\/api\/comics\/([a-f0-9]{24})\/metadata\/search$/
       );

@@ -692,7 +692,11 @@ contract, while OPDS stays a separate read-only catalog standard.
 
 ### Non-goals
 
-- No Komga API emulation, no third-party client impersonation.
+- No Komga API emulation, no third-party client impersonation. Standard
+  extensions are a different thing and are welcome: OPDS Page Streaming shipped
+  in 0.4.18 so third-party readers can page through a comic instead of
+  downloading it whole, which is compatibility by publishing to a standard
+  rather than by pretending to be somebody else's server.
 - No write-back into CBZ or CBR archives.
 
 ### Release gates
