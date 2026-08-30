@@ -402,6 +402,45 @@ holding a cursor from a data directory that has since been rebuilt. Sending a
 partial history in any of those cases would leave a client quietly wrong, which
 is the failure nobody notices.
 
+### Reading orders: artwork, portability and repair
+
+A reading order with a cover is what the roadmap calls a storyline. The cover is
+uploaded rather than borrowed from a comic, and lives in PanelShelf's own data
+directory — the library stays read-only.
+
+| Method | Path | Purpose |
+|---|---|---|
+| PUT | `/api/artwork/:kind/:subject/:id` | Upload a `cover` or `banner` for a `comic` or `order` |
+| GET | `/api/artwork/:kind/:subject/:id` | Serve it |
+| DELETE | `/api/artwork/:kind/:subject/:id` | Remove it, falling back to what was there before |
+| GET | `/api/reading-orders/:orderId/export` | The order as a portable document |
+| POST | `/api/reading-orders/import` | Create an order from one |
+| GET | `/api/reading-orders/:orderId/repair` | What is wrong with an order, changing nothing |
+| POST | `/api/reading-orders/:orderId/repair` | Drop missing entries and de-duplicate |
+
+Artwork is uploaded as the image itself — `image/png` or `image/jpeg` — which is
+the one exception to the JSON-only body rule. The content decides what it is,
+not the `Content-Type`, so a file claiming to be a PNG and failing to be one is
+refused rather than served back as one later. A comic's chosen cover is served
+in place of its first page everywhere the cover appears.
+
+The export format is `panelshelf.reading-order`. It records what each comic
+*is* — title, series, path and content fingerprint — and not only its id,
+because an id is a hash of the file's path on the server that made it and would
+import as an empty order anywhere else. Importing matches contents first, then
+path, then title, and reports which of those answered: a title match is a guess
+worth knowing about. Each local comic can answer for one entry only, so two
+files with identical bytes do not both collapse onto the same comic. Entries
+that match nothing are reported rather than dropped, because an order that comes
+back quietly shorter is worse than one that says what it could not find.
+
+Repair separates saying from doing. `GET` reports entries the library no longer
+has and comics listed twice; `POST` removes them, keeping the first of each
+duplicate and the original order. Duplicates cannot be created through the API —
+both create and update de-duplicate — so one means a restored backup or an
+edited file, which is exactly when someone wants to be told rather than
+corrected underneath.
+
 ### Cover cache
 
 Covers and thumbnails are generated on first request, which suits browsing and

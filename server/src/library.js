@@ -1001,6 +1001,22 @@ class ComicLibrary {
     return this.readingOrders.update(id, input, this.comics);
   }
 
+  exportReadingOrder(id) {
+    return this.readingOrders.exportOrder(id, this.comics);
+  }
+
+  async importReadingOrder(document) {
+    return this.readingOrders.importOrder(document, this.comics);
+  }
+
+  readingOrderRepairReport(id) {
+    return this.readingOrders.repairReport(id, this.comics);
+  }
+
+  async repairReadingOrder(id) {
+    return this.readingOrders.repair(id, this.comics);
+  }
+
   async duplicateReadingOrder(id) {
     return this.readingOrders.duplicate(id, this.comics);
   }

@@ -5,6 +5,8 @@ const path = require("node:path");
 const { comicId, jsonError, naturalCompare } = require("./util");
 const { compareRanks, parseOrderPrefix } = require("./structure");
 
+const ORDER_EXPORT_FORMAT = "panelshelf.reading-order";
+const ORDER_EXPORT_VERSION = 1;
 const ORDER_SCHEMA_VERSION = 1;
 const COMIC_ID_PATTERN = /^[a-f0-9]{24}$/;
 const MANUAL_ID_PATTERN = /^manual_[a-f0-9]{24}$/;
@@ -360,6 +362,168 @@ class ReadingOrderStore {
           .map((comic) => comic.id)
       ])
     ];
+    order.updatedAt = new Date().toISOString();
+    await this.persist();
+    return this.publicOrder(order, comics);
+  }
+
+  // A reading order is worth moving between servers — it is the part of a
+  // library that took a person's judgement rather than a scan's. Ids cannot
+  // carry it: an id is a hash of the file's path on *this* server, so an export
+  // of ids alone would import as an empty order anywhere else. The document
+  // therefore says what each comic *is*, and the import works out which local
+  // file that turned out to be.
+  exportOrder(id, comics) {
+    const order = this.get(id);
+    const comicById = new Map(comics.map((comic) => [comic.id, comic]));
+    return {
+      format: ORDER_EXPORT_FORMAT,
+      formatVersion: ORDER_EXPORT_VERSION,
+      exportedAt: new Date().toISOString(),
+      name: order.name,
+      description: order.description,
+      entries: order.comicIds.map((comicIdValue, index) => {
+        const comic = comicById.get(comicIdValue);
+        return {
+          position: index + 1,
+          comicId: comicIdValue,
+          title: comic?.title || "",
+          series: comic?.series || "",
+          relativePath: comic?.relativePath || "",
+          fingerprint: comic?.fingerprint || ""
+        };
+      })
+    };
+  }
+
+  // Contents first, then where it sat, then what it was called. Each step is
+  // weaker than the one before, which is why the report says which of them
+  // answered — a title match is a guess worth telling someone about.
+  async importOrder(document, comics) {
+    if (
+      !document ||
+      typeof document !== "object" ||
+      document.format !== ORDER_EXPORT_FORMAT ||
+      !Array.isArray(document.entries)
+    ) {
+      throw jsonError(
+        "That file is not a PanelShelf reading order.",
+        "INVALID_ORDER_DOCUMENT"
+      );
+    }
+
+    const byFingerprint = new Map();
+    const byPath = new Map();
+    const byTitle = new Map();
+    // Lists, not single values: a library legitimately holds several comics with
+    // the same contents or the same title, and a map would keep whichever
+    // happened to be scanned last — matching the first entry to the wrong copy.
+    const push = (map, key, comic) => {
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(comic);
+    };
+    for (const comic of comics) {
+      if (comic.fingerprint) push(byFingerprint, comic.fingerprint, comic);
+      if (comic.relativePath) byPath.set(comic.relativePath, comic);
+      push(byTitle, `${comic.series || ""}\u0000${comic.title || ""}`.toLowerCase(), comic);
+    }
+
+    const matchedBy = { fingerprint: 0, relativePath: 0, title: 0 };
+    const missing = [];
+    const moved = [];
+    const comicIds = [];
+
+    // Each local comic can answer for one entry only. Two files with identical
+    // bytes share a fingerprint — a comic library is full of those, the same
+    // issue filed twice — and without this both entries match the same comic,
+    // the order comes back a entry shorter, and the report cheerfully claims
+    // two matches. A taken comic makes the entry try its next-weakest signal.
+    const claimed = new Set();
+    const unclaimed = (comic) => (comic && !claimed.has(comic.id) ? comic : null);
+    const firstFree = (list) => (list || []).find((comic) => !claimed.has(comic.id)) || null;
+
+    for (const entry of document.entries) {
+      if (!entry || typeof entry !== "object") continue;
+      let comic = entry.fingerprint ? firstFree(byFingerprint.get(entry.fingerprint)) : null;
+      let how = comic ? "fingerprint" : null;
+      if (!comic && entry.relativePath) {
+        comic = unclaimed(byPath.get(entry.relativePath));
+        how = comic ? "relativePath" : null;
+      }
+      if (!comic && entry.title) {
+        const key = `${entry.series || ""}\u0000${entry.title}`.toLowerCase();
+        comic = firstFree(byTitle.get(key));
+        how = comic ? "title" : null;
+      }
+      if (!comic) {
+        missing.push({
+          position: entry.position ?? null,
+          title: entry.title || "",
+          series: entry.series || "",
+          relativePath: entry.relativePath || ""
+        });
+        continue;
+      }
+      if (
+        how === "fingerprint" &&
+        entry.relativePath &&
+        comic.relativePath &&
+        entry.relativePath !== comic.relativePath
+      ) {
+        moved.push({ was: entry.relativePath, now: comic.relativePath });
+      }
+      matchedBy[how] += 1;
+      claimed.add(comic.id);
+      comicIds.push(comic.id);
+    }
+
+    const order = await this.create(
+      { name: document.name, description: document.description, comicIds },
+      comics
+    );
+    return { order, report: { matched: comicIds.length, matchedBy, missing, moved } };
+  }
+
+  // What is wrong with an order, without changing it. Missing entries are
+  // comics the order still lists that the library no longer has. Duplicates
+  // cannot be made through create or update — both dedupe — so one here means a
+  // restored backup or a hand-edited file, which is exactly when someone wants
+  // to be told rather than to have it quietly corrected underneath them.
+  repairReport(id, comics) {
+    const order = this.get(id);
+    const known = new Set(comics.map((comic) => comic.id));
+    const seen = new Set();
+    const missing = [];
+    const duplicated = [];
+    for (const comicIdValue of order.comicIds) {
+      if (!known.has(comicIdValue)) {
+        if (!missing.includes(comicIdValue)) missing.push(comicIdValue);
+      }
+      if (seen.has(comicIdValue)) {
+        if (!duplicated.includes(comicIdValue)) duplicated.push(comicIdValue);
+      }
+      seen.add(comicIdValue);
+    }
+    return {
+      id: order.id,
+      name: order.name,
+      missing,
+      duplicated,
+      healthy: missing.length === 0 && duplicated.length === 0
+    };
+  }
+
+  async repair(id, comics) {
+    const order = this.get(id);
+    const known = new Set(comics.map((comic) => comic.id));
+    const kept = [];
+    const seen = new Set();
+    for (const comicIdValue of order.comicIds) {
+      if (!known.has(comicIdValue) || seen.has(comicIdValue)) continue;
+      seen.add(comicIdValue);
+      kept.push(comicIdValue);
+    }
+    order.comicIds = kept;
     order.updatedAt = new Date().toISOString();
     await this.persist();
     return this.publicOrder(order, comics);

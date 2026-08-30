@@ -215,6 +215,7 @@ function sendError(response, error) {
     UNAUTHORIZED: 401,
     INVALID_PAIRING_CODE: 400,
     INVALID_ARTWORK: 400,
+    INVALID_ORDER_DOCUMENT: 400,
     COVER_WARMUP_RUNNING: 409,
     METADATA_JOB_RUNNING: 409,
     PROVIDER_AUTH_FAILED: 401,
@@ -537,6 +538,33 @@ async function startServer() {
           201,
           await library.createReadingOrder(body)
         );
+      }
+
+      if (request.method === "POST" && pathname === "/api/reading-orders/import") {
+        const body = await readJsonBody(request);
+        return sendJson(response, 201, await library.importReadingOrder(body));
+      }
+
+      const exportOrderMatch = pathname.match(
+        /^\/api\/reading-orders\/(manual_[a-f0-9]{24})\/export$/
+      );
+      if (request.method === "GET" && exportOrderMatch) {
+        return sendJson(response, 200, library.exportReadingOrder(exportOrderMatch[1]));
+      }
+
+      const repairOrderMatch = pathname.match(
+        /^\/api\/reading-orders\/(manual_[a-f0-9]{24})\/repair$/
+      );
+      if (repairOrderMatch) {
+        // GET says what is wrong and changes nothing; POST fixes it. Reporting
+        // and repairing are separate because an order is someone's judgement,
+        // and quietly rewriting one is not a favour.
+        if (request.method === "GET") {
+          return sendJson(response, 200, library.readingOrderRepairReport(repairOrderMatch[1]));
+        }
+        if (request.method === "POST") {
+          return sendJson(response, 200, await library.repairReadingOrder(repairOrderMatch[1]));
+        }
       }
 
       const duplicateOrderMatch = pathname.match(

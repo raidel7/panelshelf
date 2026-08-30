@@ -1457,3 +1457,90 @@ test("a text/plain body is still refused on an artwork route", async (t) => {
   });
   assert.equal(response.status, 415, state.logs);
 });
+
+test("a reading order survives a round trip through its export format", async (t) => {
+  // The point of the format: an order is the part of a library that took
+  // someone's judgement rather than a scan's, and it should be movable.
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  // Deliberately different bytes. Identical fixtures share a fingerprint, and
+  // an import is then entitled to treat them as one comic — which is correct
+  // behaviour and makes for a round-trip test that proves nothing.
+  for (const [name, width] of [["Alpha", 300], ["Bravo", 320]]) {
+    await fsp.writeFile(
+      path.join(comicsDirectory, `${name}.cbz`),
+      zipBuffer([{ name: "page.png", data: pngBuffer(width, 450) }])
+    );
+  }
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  const comics = await waitFor(`${base}/api/comics`, (body) => body.length === 2);
+
+  const created = await (
+    await fetch(`${base}/api/reading-orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Crisis",
+        description: "The big one",
+        comicIds: comics.map((comic) => comic.id)
+      })
+    })
+  ).json();
+
+  const document = await (
+    await fetch(`${base}/api/reading-orders/${created.id}/export`)
+  ).json();
+  assert.equal(document.format, "panelshelf.reading-order", state.logs);
+  assert.equal(document.entries.length, 2);
+  assert.ok(document.entries[0].fingerprint, "carries what the comic is, not just its id");
+
+  const imported = await (
+    await fetch(`${base}/api/reading-orders/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(document)
+    })
+  ).json();
+  assert.equal(imported.report.matched, 2, state.logs);
+  assert.equal(imported.report.missing.length, 0);
+  assert.deepEqual(
+    imported.order.comicIds,
+    created.comicIds,
+    "the same comics, in the same order"
+  );
+  assert.notEqual(imported.order.id, created.id, "as a new order, not a silent overwrite");
+});
+
+test("an order can be checked for damage without being changed", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Alpha.cbz"),
+    zipBuffer([{ name: "page.png", data: ONE_PIXEL_PNG }])
+  );
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  const [comic] = await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+
+  const created = await (
+    await fetch(`${base}/api/reading-orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Fine", comicIds: [comic.id] })
+    })
+  ).json();
+
+  const report = await (
+    await fetch(`${base}/api/reading-orders/${created.id}/repair`)
+  ).json();
+  assert.equal(report.healthy, true, state.logs);
+  assert.deepEqual(report.missing, []);
+  assert.deepEqual(report.duplicated, []);
+});
