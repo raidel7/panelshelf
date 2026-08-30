@@ -49,6 +49,18 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(styles, /\.cover-cache-actions\b/);
   assert.match(styles, /\.device-pairing-callout\b/);
   assert.match(styles, /\.device-pairing-actions\b/);
+  for (const id of [
+    "setOrderCoverButton",
+    "orderCoverInput",
+    "exportOrderButton",
+    "repairOrderButton",
+    "importOrderButton",
+    "importOrderInput"
+  ]) {
+    assert.match(document, new RegExp(`id="${id}"`), `${id} is in the markup`);
+  }
+  assert.match(styles, /\.order-heading-actions\b/);
+  assert.match(styles, /\.custom-cover\b/);
   assert.match(document, /id="devicePairingSummary"/);
   assert.match(document, /id="devicePairingCode"/);
   assert.match(document, /id="devicePairingList"/);

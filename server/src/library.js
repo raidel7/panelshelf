@@ -991,7 +991,16 @@ class ComicLibrary {
   }
 
   getReadingOrders() {
-    return this.readingOrders.list(this.comics, this.config.sources);
+    const listed = this.readingOrders.list(this.comics, this.config.sources);
+    // So a client knows to ask for the chosen cover instead of guessing at the
+    // artwork route and taking a 404 for every order that has none.
+    return {
+      ...listed,
+      manual: listed.manual.map((order) => ({
+        ...order,
+        hasCustomCover: Boolean(this.artwork.get(`order:${order.id}`, "cover"))
+      }))
+    };
   }
 
   async createReadingOrder(input) {

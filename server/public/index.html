@@ -1036,9 +1036,15 @@
               <h3>Your chronologies</h3>
               <p>Create an exact sequence that can cross folders and series.</p>
             </div>
-            <button id="createOrderButton" class="button button-primary" type="button">
-              New order
-            </button>
+            <div class="order-heading-actions">
+              <button id="importOrderButton" class="button button-secondary" type="button">
+                Import
+              </button>
+              <button id="createOrderButton" class="button button-primary" type="button">
+                New order
+              </button>
+              <input id="importOrderInput" type="file" accept="application/json,.json" hidden>
+            </div>
           </div>
           <div id="manualOrderList" class="order-grid"></div>
 
@@ -1082,8 +1088,12 @@
               </dl>
               <div id="orderDetailActions" class="order-detail-actions" hidden>
                 <button id="editOrderButton" class="button button-secondary" type="button">Edit</button>
+                <button id="setOrderCoverButton" class="button button-secondary" type="button">Set cover</button>
+                <button id="exportOrderButton" class="button button-secondary" type="button">Export</button>
+                <button id="repairOrderButton" class="button button-secondary" type="button" hidden>Repair</button>
                 <button id="duplicateOrderButton" class="button button-secondary" type="button">Duplicate</button>
                 <button id="deleteOrderButton" class="button danger-button" type="button">Delete</button>
+                <input id="orderCoverInput" type="file" accept="image/png,image/jpeg" hidden>
               </div>
             </div>
           </div>

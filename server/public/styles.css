@@ -5076,3 +5076,16 @@ h2 {
     transition-duration: .01ms !important;
   }
 }
+
+.order-heading-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+/* A chosen cover is not a comic page, so it is shown whole rather than cropped
+   to a card's aspect ratio. */
+.order-cover img.custom-cover {
+  object-fit: contain;
+  background: var(--surface-soft);
+}

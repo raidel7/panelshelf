@@ -338,6 +338,12 @@ const elements = {
   orderDetailFinished: document.querySelector("#orderDetailFinished"),
   orderDetailUnplaced: document.querySelector("#orderDetailUnplaced"),
   orderDetailActions: document.querySelector("#orderDetailActions"),
+  setOrderCoverButton: document.querySelector("#setOrderCoverButton"),
+  orderCoverInput: document.querySelector("#orderCoverInput"),
+  exportOrderButton: document.querySelector("#exportOrderButton"),
+  repairOrderButton: document.querySelector("#repairOrderButton"),
+  importOrderButton: document.querySelector("#importOrderButton"),
+  importOrderInput: document.querySelector("#importOrderInput"),
   orderDetailNotice: document.querySelector("#orderDetailNotice"),
   orderDetailItems: document.querySelector("#orderDetailItems"),
   editOrderButton: document.querySelector("#editOrderButton"),
@@ -4561,6 +4567,36 @@ function firstReadableComic(order) {
   );
 }
 
+// Asked after the dialog is drawn rather than before: the order's own contents
+// are already on screen, and a report that has not arrived should not hold them
+// up. Only manual orders can be repaired — an automatic one is derived from
+// folders and is whatever they say it is.
+async function loadOrderRepairState(orderId) {
+  try {
+    const report = await api(`/api/reading-orders/${orderId}/repair`);
+    if (state.activeOrderId !== orderId) return;
+    elements.repairOrderButton.hidden = report.healthy;
+    if (report.healthy) return;
+    const parts = [];
+    if (report.missing.length > 0) {
+      parts.push(
+        `${report.missing.length} ${report.missing.length === 1 ? "entry is" : "entries are"} no longer in the library.`
+      );
+    }
+    if (report.duplicated.length > 0) {
+      parts.push(
+        `${report.duplicated.length} ${report.duplicated.length === 1 ? "comic is" : "comics are"} listed more than once.`
+      );
+    }
+    elements.orderDetailNotice.textContent =
+      `${elements.orderDetailNotice.textContent} ${parts.join(" ")}`.trim();
+    elements.orderDetailNotice.hidden = false;
+  } catch {
+    // A report that cannot be fetched is not worth a banner: the order itself
+    // is on screen and readable, which is what the reader came for.
+  }
+}
+
 function openOrderDetail(orderId) {
   const order = orderById(orderId);
   if (!order) {
@@ -4583,7 +4619,16 @@ function openOrderDetail(orderId) {
 
   elements.orderDetailCover.hidden = true;
   elements.orderCoverFallback.hidden = false;
-  if (order.coverComicId && comicById(order.coverComicId)?.available !== false) {
+  elements.orderDetailCover.classList.remove("custom-cover");
+  if (order.hasCustomCover) {
+    // Cache-busted on the order's own updatedAt: replacing a cover writes a new
+    // file, and the browser would otherwise keep showing the old one.
+    elements.orderDetailCover.src = `/api/artwork/cover/order/${order.id}?v=${encodeURIComponent(order.updatedAt || "")}`;
+    elements.orderDetailCover.alt = `${order.name} cover`;
+    elements.orderDetailCover.classList.add("custom-cover");
+    elements.orderDetailCover.hidden = false;
+    elements.orderCoverFallback.hidden = true;
+  } else if (order.coverComicId && comicById(order.coverComicId)?.available !== false) {
     elements.orderDetailCover.src = thumbnailUrl(order.coverComicId);
     elements.orderDetailCover.alt = `${order.name} cover`;
     elements.orderDetailCover.hidden = false;
@@ -4611,6 +4656,9 @@ function openOrderDetail(orderId) {
   }
   elements.orderDetailNotice.hidden = notices.length === 0;
   elements.orderDetailNotice.textContent = notices.join(" ");
+
+  elements.repairOrderButton.hidden = true;
+  if (order.kind === "manual") loadOrderRepairState(order.id);
 
   const first = firstReadableComic(order);
   elements.startOrderButton.disabled = !first;
@@ -6246,6 +6294,102 @@ elements.manualPath.addEventListener("keydown", (event) => {
   }
 });
 elements.saveSettingsButton.addEventListener("click", saveSettings);
+elements.setOrderCoverButton.addEventListener("click", () =>
+  elements.orderCoverInput.click()
+);
+
+elements.orderCoverInput.addEventListener("change", async () => {
+  const [file] = elements.orderCoverInput.files || [];
+  elements.orderCoverInput.value = "";
+  if (!file || !state.activeOrderId) return;
+  try {
+    // Sent as the image itself. The server decides what it is from the bytes,
+    // so a mislabelled file is refused there rather than trusted here.
+    await api(`/api/artwork/cover/order/${state.activeOrderId}`, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "image/png" },
+      body: await file.arrayBuffer()
+    });
+    await refresh();
+    openOrderDetail(state.activeOrderId);
+    showToast("Cover set.");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.exportOrderButton.addEventListener("click", async () => {
+  if (!state.activeOrderId) return;
+  try {
+    const document_ = await api(`/api/reading-orders/${state.activeOrderId}/export`);
+    const blob = new Blob([`${JSON.stringify(document_, null, 2)}\n`], {
+      type: "application/json"
+    });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${document_.name.replace(/[^\w -]+/g, "").trim() || "reading-order"}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.repairOrderButton.addEventListener("click", async () => {
+  if (!state.activeOrderId) return;
+  const report = await api(`/api/reading-orders/${state.activeOrderId}/repair`).catch(
+    () => null
+  );
+  if (!report) return;
+  const summary = [
+    report.missing.length > 0 ? `remove ${report.missing.length} missing` : null,
+    report.duplicated.length > 0 ? `de-duplicate ${report.duplicated.length}` : null
+  ]
+    .filter(Boolean)
+    .join(" and ");
+  if (!window.confirm(`Repair this order? This will ${summary}. Your comic files are not touched.`)) {
+    return;
+  }
+  try {
+    await api(`/api/reading-orders/${state.activeOrderId}/repair`, { method: "POST" });
+    await refresh();
+    openOrderDetail(state.activeOrderId);
+    showToast("Reading order repaired.");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+elements.importOrderButton.addEventListener("click", () =>
+  elements.importOrderInput.click()
+);
+
+elements.importOrderInput.addEventListener("change", async () => {
+  const [file] = elements.importOrderInput.files || [];
+  elements.importOrderInput.value = "";
+  if (!file) return;
+  try {
+    const parsed = JSON.parse(await file.text());
+    const { report } = await api("/api/reading-orders/import", {
+      method: "POST",
+      body: JSON.stringify(parsed)
+    });
+    await refresh();
+    renderOrders();
+    // The missing count is the part worth saying out loud: an order that came
+    // back shorter than it left is the thing someone needs to know about.
+    showToast(
+      report.missing.length === 0
+        ? `Imported ${report.matched} comics.`
+        : `Imported ${report.matched} comics. ${report.missing.length} could not be found in this library.`
+    );
+  } catch (error) {
+    showToast(error.message || "That file is not a PanelShelf reading order.");
+  }
+});
+
 elements.settingsDialog.addEventListener("close", stopCoverCachePolling);
 
 elements.enablePairingButton.addEventListener("click", async () => {
