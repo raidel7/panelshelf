@@ -287,6 +287,16 @@ class BulkMetadataMatcher {
     return this.publicState();
   }
 
+  // The job runs in the background and persists as it goes, so a caller that
+  // needs the file to be final — a shutdown, a test about to remove the
+  // directory underneath it — has to wait for the run and for the write behind
+  // it. The loop is because a finished run reschedules itself while work
+  // remains, so one await is not necessarily the last one.
+  async settled() {
+    while (this.runner) await this.runner;
+    await this.persistQueue;
+  }
+
   schedule() {
     if (this.runner || this.state.status !== "running") return;
     this.runner = this.run()

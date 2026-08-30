@@ -131,6 +131,10 @@ test("devices and the enabled flag survive a restart", async (t) => {
   await reopened.initialize();
   assert.equal(reopened.enabled, true);
   assert.ok(reopened.verify(token), "a paired device stays paired across a restart");
+  // This store is not the one the helper tears down, and `verify` above
+  // scheduled a write. Left unawaited it lands inside the directory being
+  // removed and recreates it.
+  await reopened.settled();
 });
 
 test("a corrupt device file resets rather than refusing to start", async (t) => {

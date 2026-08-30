@@ -55,7 +55,17 @@ test("bulk metadata query infers a collected volume without release-group noise"
 
 test("bulk metadata auto-approves only a 90+ clear winner", async (t) => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-bulk-"));
-  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  t.after(async () => {
+    // The job writes as it runs. Removing the directory while a write is still
+    // in flight recreates it mid-removal, which fails as ENOTEMPTY.
+    // `matcher` is declared below this hook, so a test that threw before
+    // reaching it leaves the binding uninitialised. Cleanup is best effort.
+    try {
+      await matcher.cancel();
+      await matcher.settled();
+    } catch {}
+    await fsp.rm(directory, { recursive: true, force: true });
+  });
   const comics = new Map([
     ["clear", comic("clear", "Clear Winner v01 (2013)")],
     ["close", comic("close", "Close Race v01 (2013)")]
@@ -93,7 +103,17 @@ test("bulk metadata auto-approves only a 90+ clear winner", async (t) => {
 
 test("a running bulk metadata job becomes safely paused after restart", async (t) => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-bulk-restart-"));
-  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  t.after(async () => {
+    // The job writes as it runs. Removing the directory while a write is still
+    // in flight recreates it mid-removal, which fails as ENOTEMPTY.
+    // `matcher` is declared below this hook, so a test that threw before
+    // reaching it leaves the binding uninitialised. Cleanup is best effort.
+    try {
+      await matcher.cancel();
+      await matcher.settled();
+    } catch {}
+    await fsp.rm(directory, { recursive: true, force: true });
+  });
   await fsp.writeFile(
     path.join(directory, "bulk-metadata.json"),
     JSON.stringify({
