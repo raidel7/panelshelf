@@ -8,7 +8,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { ONE_PIXEL_PNG, zipBuffer } = require("./helpers");
+const { ONE_PIXEL_PNG, pngBuffer, zipBuffer } = require("./helpers");
 
 async function freePort() {
   return new Promise((resolve, reject) => {
@@ -1379,4 +1379,81 @@ test("a rescan, and a move, do not break a client's bookmark", async (t) => {
   assert.equal(moved.id, comic.id, "a moved comic keeps its id");
   bookmark = await (await fetch(`${base}/api/progress/${comic.id}`)).json();
   assert.equal(bookmark.pageIndex, 1, `bookmark lost by a move: ${state.logs}`);
+});
+
+test("a custom cover can be uploaded, served, and replaces the comic's own", async (t) => {
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Alpha.cbz"),
+    zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+  );
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  const [comic] = await waitFor(`${base}/api/comics`, (body) => body.length === 1);
+
+  const chosen = pngBuffer(120, 180);
+  const upload = await fetch(`${base}/api/artwork/cover/comic/${comic.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "image/png" },
+    body: chosen
+  });
+  assert.equal(upload.status, 200, state.logs);
+  const entry = await upload.json();
+  assert.equal(entry.width, 120);
+
+  // The cover route serves what the owner chose, not the first page.
+  const served = await fetch(`${base}/api/comics/${comic.id}/cover`);
+  assert.equal(served.status, 200, state.logs);
+  assert.equal(served.headers.get("content-type"), "image/png");
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), chosen);
+
+  // And removing it falls back to the comic's own page again.
+  assert.equal(
+    (await fetch(`${base}/api/artwork/cover/comic/${comic.id}`, { method: "DELETE" })).status,
+    200,
+    state.logs
+  );
+  const fallback = await fetch(`${base}/api/comics/${comic.id}/cover`);
+  assert.notDeepEqual(Buffer.from(await fallback.arrayBuffer()), chosen);
+});
+
+test("an upload that is not an image is refused", async (t) => {
+  const { base, state } = await startServer(t);
+  const response = await fetch(`${base}/api/artwork/cover/order/anything`, {
+    method: "PUT",
+    headers: { "Content-Type": "image/png" },
+    body: Buffer.from("<html>not a picture</html>")
+  });
+  assert.equal(response.status, 400, state.logs);
+  assert.equal((await response.json()).error.code, "INVALID_ARTWORK");
+});
+
+test("an image upload is still refused from another origin", async (t) => {
+  // Artwork routes take a body that is not JSON, so they are an exception to
+  // the content-type rule. The exception must not become a way past the others:
+  // image/png is not a CORS-safelisted type, so it still preflights, and the
+  // origin check still answers first.
+  const { port, state } = await startServer(t);
+  const response = await rawRequest(port, {
+    method: "PUT",
+    path: "/api/artwork/cover/order/x",
+    headers: { Origin: "http://evil.example", "Content-Type": "image/png" },
+    body: "not-an-image"
+  });
+  assert.equal(response.status, 403, state.logs);
+});
+
+test("a text/plain body is still refused on an artwork route", async (t) => {
+  const { port, state } = await startServer(t);
+  const response = await rawRequest(port, {
+    method: "PUT",
+    path: "/api/artwork/cover/order/x",
+    headers: { "Content-Type": "text/plain" },
+    body: "not-an-image"
+  });
+  assert.equal(response.status, 415, state.logs);
 });

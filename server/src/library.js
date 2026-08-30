@@ -37,6 +37,7 @@ const {
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const { DeviceTokenStore } = require("./device-tokens");
 const { LibraryChangeLog } = require("./library-changes");
+const { CustomArtworkStore } = require("./custom-artwork");
 const {
   BACKUP_FORMAT,
   BACKUP_SCHEMA_VERSION,
@@ -458,6 +459,7 @@ class ComicLibrary {
     this.coverCache = new CoverCacheStore(dataDirectory);
     this.deviceTokens = new DeviceTokenStore(dataDirectory);
     this.changes = new LibraryChangeLog(dataDirectory);
+    this.artwork = new CustomArtworkStore(dataDirectory);
     this.coverWarmup = new CoverWarmup({
       listComics: () => this.listComics(),
       warm: (comic) => this.warmCover(comic)
@@ -491,6 +493,7 @@ class ComicLibrary {
     await this.coverCache.initialize();
     await this.deviceTokens.initialize();
     await this.changes.initialize();
+    await this.artwork.initialize();
     const storedConfig = await readJson(this.configPath, defaultConfig());
     const migratedConfig = migrateConfig(storedConfig);
     this.config = migratedConfig.config;
@@ -516,6 +519,7 @@ class ComicLibrary {
     if (droppedOrphans) {
       await this.enrichment.reconcile(this.comics);
       await this.pruneCoverCache();
+      await this.pruneArtwork();
       await atomicWriteJson(this.indexPath, {
         scannedAt: saved.scannedAt || null,
         comics: this.comics
@@ -646,6 +650,7 @@ class ComicLibrary {
     await this.readingOrders.reconcile(this.comics);
     await this.enrichment.reconcile(this.comics);
     await this.pruneCoverCache();
+    await this.pruneArtwork();
     this.pageCache.clear();
     await atomicWriteJson(this.indexPath, {
       scannedAt: new Date().toISOString(),
@@ -1420,6 +1425,7 @@ class ComicLibrary {
       await this.readingOrders.reconcile(this.comics);
       await this.enrichment.reconcile(this.comics);
       await this.pruneCoverCache();
+      await this.pruneArtwork();
       this.pageCache.clear();
       await atomicWriteJson(this.indexPath, {
         scannedAt: new Date().toISOString(),
@@ -1492,6 +1498,21 @@ class ComicLibrary {
   async cover(id, options = {}) {
     const comic = this.getComic(id);
 
+    // What the owner chose beats what the archive happens to start with, and it
+    // is served whole rather than thumbnailed: they picked this picture.
+    const chosen = this.artwork.get(`comic:${comic.id}`, "cover");
+    if (chosen) {
+      try {
+        return {
+          buffer: await fsp.readFile(this.artwork.pathFor(chosen)),
+          mime: chosen.mime
+        };
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        // The record outlived the file; fall through to the comic's own cover.
+      }
+    }
+
     // Every cache lookup happens before the archive is opened, and that
     // ordering is the whole point. `pagesForComic` opens the archive, so
     // reaching it first meant a source that had gone away — a USB disk asleep,
@@ -1557,6 +1578,16 @@ class ComicLibrary {
   // Cover files are named for their comic, so a comic that is gone leaves files
   // nothing will ever ask for again. `force` because a file already deleted by
   // hand is the outcome being aimed at, not an error.
+  // Reading orders are pruned by their own reconcile, so only comics are
+  // considered here; an order's artwork outlives a scan by design.
+  async pruneArtwork() {
+    const subjects = this.comics.map((comic) => `comic:${comic.id}`);
+    for (const order of this.readingOrders.exportData()?.orders || []) {
+      subjects.push(`order:${order.id}`);
+    }
+    return (await this.artwork.reconcile(subjects)).length;
+  }
+
   async pruneCoverCache() {
     const orphaned = await this.coverCache.reconcile(this.comics);
     for (const file of orphaned) {

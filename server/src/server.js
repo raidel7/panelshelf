@@ -7,6 +7,7 @@ const net = require("node:net");
 const path = require("node:path");
 const { URL } = require("node:url");
 const { ComicLibrary, browseFolders, recentlyAdded } = require("./library");
+const { MAX_ARTWORK_BYTES } = require("./custom-artwork");
 const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
 const { jsonError } = require("./util");
@@ -62,7 +63,7 @@ function isTrustedHost(host) {
 /// network is a usable proxy for whichever page it happens to be showing, so
 /// "only on the LAN" is not by itself a boundary. These three checks are what
 /// make it one, and they run before any route does.
-function guardRequest(request) {
+function guardRequest(request, pathname) {
   if (!isTrustedHost(request.headers.host)) {
     throw jsonError(
       "This server does not answer to that host name.",
@@ -103,7 +104,16 @@ function guardRequest(request) {
       .split(";")[0]
       .trim()
       .toLowerCase();
-    if (type !== "application/json") {
+    // Artwork is uploaded as the image itself, so those routes accept an image
+    // type as well. This does not reopen what the rule closed: the CORS
+    // safelist is text/plain, multipart/form-data and
+    // application/x-www-form-urlencoded, and an image type is on none of them —
+    // so an image upload still preflights, and the origin check still answers
+    // first.
+    const allowed = pathname.startsWith("/api/artwork/")
+      ? ["application/json", "image/png", "image/jpeg"]
+      : ["application/json"];
+    if (!allowed.includes(type)) {
       throw jsonError(
         "Request bodies must be sent as application/json.",
         "UNSUPPORTED_MEDIA_TYPE"
@@ -204,6 +214,7 @@ function sendError(response, error) {
     SCAN_RUNNING: 409,
     UNAUTHORIZED: 401,
     INVALID_PAIRING_CODE: 400,
+    INVALID_ARTWORK: 400,
     COVER_WARMUP_RUNNING: 409,
     METADATA_JOB_RUNNING: 409,
     PROVIDER_AUTH_FAILED: 401,
@@ -310,6 +321,19 @@ async function serveComicArchive(request, response, library, id) {
   return fs.createReadStream(comic.path, { start, end }).pipe(response);
 }
 
+async function readBinaryBody(request, maximum) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    total += chunk.length;
+    if (total > maximum) {
+      throw jsonError("That image is too large.", "INVALID_ARTWORK");
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 async function readJsonBody(request, maximum = MAX_JSON_BODY) {
   const chunks = [];
   let total = 0;
@@ -392,7 +416,7 @@ async function startServer() {
     }
 
     try {
-      guardRequest(request);
+      guardRequest(request, pathname);
       authorize(request, pathname, library.deviceTokens);
 
       if (request.method === "GET" && pathname === "/api/health") {
@@ -582,6 +606,39 @@ async function startServer() {
 
       if (request.method === "DELETE" && pathname === "/api/scan/issues") {
         return sendJson(response, 200, await library.clearScanIssues());
+      }
+
+      // `comic:<id>` and `order:<id>`: one store serves both, because a
+      // storyline's cover and a comic's are the same kind of thing.
+      const artworkMatch = pathname.match(
+        /^\/api\/artwork\/(cover|banner)\/(comic|order)\/([A-Za-z0-9_-]{1,64})$/
+      );
+      if (artworkMatch) {
+        const [, kind, subjectType, subjectId] = artworkMatch;
+        const subject = `${subjectType}:${subjectId}`;
+        if (request.method === "PUT") {
+          const body = await readBinaryBody(request, MAX_ARTWORK_BYTES);
+          return sendJson(
+            response,
+            200,
+            await library.artwork.save(subject, kind, body)
+          );
+        }
+        if (request.method === "DELETE") {
+          await library.artwork.remove(subject, kind);
+          return sendJson(response, 200, { removed: true });
+        }
+        if (request.method === "GET") {
+          const entry = library.artwork.get(subject, kind);
+          if (!entry) throw jsonError("No artwork is set.", "NOT_FOUND");
+          const buffer = await fsp.readFile(library.artwork.pathFor(entry));
+          response.writeHead(200, {
+            "Content-Type": entry.mime,
+            "Content-Length": buffer.length,
+            "Cache-Control": "no-store"
+          });
+          return response.end(buffer);
+        }
       }
 
       if (request.method === "GET" && pathname === "/api/changes") {
