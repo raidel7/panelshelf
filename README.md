@@ -71,10 +71,13 @@ allow packages from any publisher.
 
 **Read this before exposing PanelShelf to anything.**
 
-PanelShelf has no user accounts. Whatever can reach port 8251 can read the
-library and change its settings, so do not forward that port to the internet.
-If you want remote access, put it behind an authenticated HTTPS reverse proxy
-or a VPN.
+PanelShelf has no user accounts, and out of the box nothing on your LAN needs a
+credential: whatever can reach port 8251 can read the library and change its
+settings. [Device pairing](#device-pairing) closes that — with it on, every API
+request and the entire OPDS catalog need a token. Neither arrangement is an
+internet boundary, and PanelShelf terminates no TLS of its own, so do not
+forward that port. If you want remote access, put it behind an authenticated
+HTTPS reverse proxy or a VPN.
 
 Being "only on the LAN" is not by itself a boundary. Every browser on the
 network can be driven by whichever page it happens to be showing, which makes
@@ -858,8 +861,9 @@ server goes away mid-session and nothing is lost from the page you are on.
 Saving is best-effort rather than offline-capable: a save that fails is not
 retried on its own. The position converges on the next successful save, or on
 the next load, which keeps whichever copy has the newer timestamp. Progress is
-shared by everyone using the server; there are no separate per-user shelves
-yet.
+shared by everyone using the server: one library, one set of shelves. Separate
+reading positions for two people are planned as reader profiles in the clients,
+not as user accounts here.
 
 Use the `•••` menu on a comic card to set its shelf status directly. Choosing
 **Unread** clears that comic's saved progress, **In progress** returns it to

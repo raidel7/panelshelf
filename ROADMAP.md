@@ -1,6 +1,6 @@
 # PanelShelf Roadmap
 
-Updated: 2026-08-29
+Updated: 2026-08-30
 
 | Component | Version | State |
 | --- | --- | --- |
@@ -102,9 +102,8 @@ The current build provides:
 | 0.4.18 / 1041 | OPDS page streaming, so third-party readers page instead of downloading |
 
 Nothing is unreleased on `main`. The 0.4.14 heading covers 1035 and 1036 as
-point fixes; the storyline and library-editing scope filed under 0.4.17 in
-section 7 has not been started. The iPad client cannot pair yet — that is client
-work, and pairing stays off until it can.
+point fixes. The iPad client cannot pair yet — that is client work, and pairing
+stays off until it can.
 
 ### Companion iPad app
 
@@ -117,9 +116,10 @@ alongside the app.
 
 ### Known gaps in the foundation
 
-- No user accounts, OPDS authentication, or device tokens.
-- Thumbnails are generated on first request, on NAS CPU, and there is no way to
-  warm them deliberately or to see what the cache costs.
+- Reading progress and skipped branches are single shared namespaces, so two
+  people reading the same library overwrite each other's shelves. Section 8.
+- The cover cache has no size ceiling and no limit on how many thumbnails it
+  will generate at once. Section 10.
 - The web viewer still downloads the full library listing, because it needs
   fields the compact record drops.
 - No marketplace-ready support workflow.
@@ -609,7 +609,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 | 5 | 0.4.15 — Offline shelf and cover cache | **Done** — 0.4.15 | — |
 | 6 | 0.4.16 — Sync API hardening | **Done** — 0.4.16 | — |
 | 7 | 0.4.17 — Storylines and advanced library editing | **Done** — 0.4.17 | — |
-| 8 | 0.5 — Accounts and secure client access | Planned | 3–4 weeks |
+| 8 | 0.5 — Reader profiles and secure deployment | Planned | 1–2 weeks |
 | 10 | 0.7 — Reliability, performance, administration | Planned | 3–5 weeks |
 | 11 | 0.9 — Synology marketplace candidate | Planned | 3–6 weeks plus review |
 | 12 | 1.0 — Public release | Planned | After the gates above |
@@ -741,15 +741,86 @@ which half.
   reading orders.
 - Duplicate suggestions never delete or merge source files automatically.
 
-## 8. 0.5 — Accounts and secure client access — server
+## 8. 0.5 — Reader profiles and secure deployment — server
+
+Accounts were the plan here and are no longer. The server holds one library, in
+whatever arrangement the drive already has, for one household. Usernames and
+passwords would put a login in front of a machine sitting on the owner's own
+LAN, and per-user shelves would fragment a library whose whole premise is that
+the owner's folder structure is authoritative. Device pairing, shipped in
+0.4.16, already does what the security gate was for: `authorize()` refuses
+every `/api/` route and the entire OPDS catalog to an unpaired caller.
+
+Two people reading different comics is a client concern, the way it is in Plex
+and Netflix. The iPad app owns reader profiles: creating them, naming them, and
+switching between them. The term is written in full every time it appears,
+because an *organization profile* elsewhere in this document means how a source
+is arranged on disk, and the two have nothing to do with each other.
+
+The server's share is small but not zero. Of the thirteen files in the data
+directory, exactly two hold per-reader state, and both are a single flat
+namespace today:
+
+- `progress.json` — comic id to record. Two reader profiles against that map
+  would show each other's shelves and each other's completed marks, since
+  unread, in progress, and completed all derive from it.
+- `skips.json` — which chronology branches a reader set aside. A branch one
+  person hides would vanish for the other.
+
+Those two gain a reader-profile dimension. Nothing else does: sources,
+metadata, reading orders, storylines, artwork, devices, and the index itself
+stay single and shared, because they describe the library rather than the
+reader. That split is the whole design, and it is the same one Plex draws — one
+server, one library, watch state per profile, any client picking it up.
+
+A device token is the wrong key for this — one iPad, two reader profiles, one
+token — so the reader-profile id is chosen by the client and sent explicitly.
+It is a namespace, not an identity: it authenticates nothing, and pairing
+remains the only thing standing between the library and a stranger.
+
+Third-party OPDS readers cannot send a header PanelShelf invents. That sounds
+like it conflicts with the paragraph above, and it does not: the client that
+holds several reader profiles is the first-party app, which can name one, and
+the clients that cannot name one are single-person apps on a single device,
+which never need to. Each side is solved by the thing it already has.
+
+The catalog is also the smaller half of the problem. OPDS reads progress — the
+feed advertises `pse:lastRead` and `pse:lastReadDate` — but nothing in the
+OPDS or page-streaming routes writes any back, so a third-party reader cannot
+overwrite anyone's place. What it can get wrong is whose shelf it displays.
+
+A reader profile therefore resolves in three steps, first match winning:
+
+1. **Named explicitly.** First-party clients send the id outright. An OPDS
+   reader puts the reader-profile name in the Basic *username* field, which
+   `presentedToken` already decodes and throws away today, and which every one
+   of these readers puts a box on screen for. Password stays the device token.
+   No extension, no invented header — the credential form the client already
+   shows is the one that carries it.
+2. **Bound to the device.** A paired device may be bound to a reader profile
+   when it pairs or afterwards in the web UI. A token that names nothing
+   resolves to its device's profile. This is why the device token is a poor
+   key but a good default: an OPDS reader is one app on one person's device,
+   even when the family's iPad is not.
+3. **Default.** No name and no binding resolves to the default reader profile.
+   That is what keeps the upgrade from 0.4.18 silent, and what a client with
+   no credential fields at all still gets.
+
+For a reader that offers neither a username nor pairing, a per-reader catalog
+URL — `/opds/r/<name>` — carries the same information in the one field every
+OPDS client has, the address of the catalog itself.
 
 ### Scope
 
-- First-launch administrator setup.
-- Multiple users with separate progress, statuses, lists, and preferences.
-- Secure sessions, password reset, rate limiting, and device management.
-- Authentication for OPDS and every non-public endpoint.
-- Migration of existing guest state into a chosen account.
+- Reading progress and skipped branches namespaced by reader-profile id, with
+  existing records migrating into a default reader profile so nobody loses
+  their place or their hidden branches.
+- Reader-profile listing and deletion on the server, so a client can offer the
+  switch and clean up after one nobody uses.
+- Reader-profile resolution from the Basic username, a bound device, or a
+  per-reader catalog URL, so a third-party OPDS reader sees one person's shelf.
+- An optional reader-profile binding on each paired device.
+- Rate limiting on pairing-code redemption.
 - Responsive tablet and phone improvements on the web.
 - Trusted reverse-proxy and HTTPS documentation.
 - An exportable support bundle with sanitized configuration, versions, and logs
@@ -757,10 +828,18 @@ which half.
 
 ### Release gates
 
-- With accounts enabled, no library, page, acquisition, or progress endpoint is
+- With pairing on, no library, page, acquisition, or progress endpoint is
   anonymously accessible.
-- Separate users never receive each other's reading state.
-- Backup and restore preserve accounts without exporting reusable secrets.
+- Two reader profiles never receive each other's reading state or each other's
+  skipped branches. Everything else about the library is shared on purpose.
+- Upgrading from 0.4.18 leaves existing progress and skips intact under the
+  default reader profile. A client that names no reader profile and is bound to
+  none still reads and writes exactly what it did before.
+- A wrong or unknown reader-profile name resolves to the default rather than
+  creating one, so a typo in an OPDS client's username box cannot silently
+  strand somebody's shelf in a profile nobody can find.
+- Backup and restore carry every reader profile's progress and skips without
+  exporting a reusable device token.
 
 ## 10. 0.7 — Reliability, performance, and administration — server
 
@@ -910,3 +989,5 @@ Every release must preserve these invariants:
 - Advertising untested Synology architectures as supported
 - Internet exposure before authentication and secure deployment guidance exist
 - An Android or macOS client before the iPad app has shipped once
+- Server-side user accounts, logins, or per-user shelves — one library, one
+  household, with reader profiles handled by the client (section 8)
