@@ -414,6 +414,28 @@
           </section>
           <section class="device-pairing-callout">
             <div>
+              <span class="result-label">Readers</span>
+              <strong>Reader profiles</strong>
+              <p id="readerProfileSummary">
+                One library, one household — and a shelf each. A reader profile
+                keeps two people's reading positions and hidden chronology
+                branches apart. It is not an account: it has no password and
+                grants no access.
+              </p>
+              <label class="reader-profile-picker" for="readerProfileSelect">
+                <span>This browser reads as</span>
+                <select id="readerProfileSelect" class="input"></select>
+              </label>
+              <ul id="readerProfileList" class="device-pairing-list"></ul>
+            </div>
+            <div class="device-pairing-actions">
+              <button id="addReaderProfileButton" class="button button-secondary" type="button">
+                Add a reader
+              </button>
+            </div>
+          </section>
+          <section class="device-pairing-callout">
+            <div>
               <span class="result-label">Access</span>
               <strong>Device pairing</strong>
               <p id="devicePairingSummary">

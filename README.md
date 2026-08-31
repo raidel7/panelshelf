@@ -938,10 +938,14 @@ first load. Each browser also keeps a local copy, so reading continues if the
 server goes away mid-session and nothing is lost from the page you are on.
 Saving is best-effort rather than offline-capable: a save that fails is not
 retried on its own. The position converges on the next successful save, or on
-the next load, which keeps whichever copy has the newer timestamp. Progress is
-shared by everyone using the server: one library, one set of shelves. Separate
-reading positions for two people are planned as reader profiles in the clients,
-not as user accounts here.
+the next load, which keeps whichever copy has the newer timestamp.
+
+Progress belongs to a [reader profile](#reader-profiles), and out of the box
+there is one of them, so it is shared by everyone using the server. Open
+**Library settings** to add a reader and to choose which one this browser reads
+as; the page reloads, because every shelf on it then means something different.
+Each profile keeps its own local copy too, so switching readers never hands one
+person's cached positions to another.
 
 Use the `•••` menu on a comic card to set its shelf status directly. Choosing
 **Unread** clears that comic's saved progress, **In progress** returns it to

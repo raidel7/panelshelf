@@ -535,10 +535,36 @@ const progressSource = (async () => {
     path.join(publicDirectory, "app.js"),
     "utf8"
   );
-  const constants = source.match(
-    /^const PROGRESS_STORAGE_KEY = "[^"]+";\nconst PROGRESS_MIGRATED_KEY = "panelshelf\.progress\.migrated\.v1";$/m
+  // The whole storage-key header, not just the two names: the keys are derived
+  // per reader profile now, so slicing them without `profileKey` would run the
+  // sandbox against a key the browser never uses.
+  const keysStart = source.indexOf(
+    '\nconst READER_PROFILE_STORAGE_KEY = "panelshelf.readerProfile.v1";'
   );
-  assert.ok(constants, "app.js must declare both progress storage keys");
+  const keysEnd = source.indexOf(
+    '\nconst LIBRARY_VIEWS = new Set(["all", "publisher", "chronological"]);'
+  );
+  assert.ok(
+    keysStart > 0 && keysEnd > keysStart,
+    "app.js must declare its storage keys in one block"
+  );
+  const constants = [source.slice(keysStart, keysEnd)];
+  assert.match(
+    constants[0],
+    /^const PROGRESS_STORAGE_KEY = profileKey\("panelshelf\.progress\.v1"\);$/m,
+    "the progress cache must be filed per reader profile"
+  );
+  assert.match(
+    constants[0],
+    /^const PROGRESS_MIGRATED_KEY = profileKey\("panelshelf\.progress\.migrated\.v1"\);$/m,
+    "so must the flag that stops the handover repeating"
+  );
+  // Lives with the other request helpers rather than in the progress block, but
+  // every write below calls it, so it is spliced in the way the listeners are.
+  const headers = source.match(
+    /^function readerHeaders\(\) \{\n[\s\S]*?^\}$/m
+  );
+  assert.ok(headers, "app.js must name the reader profile on its requests");
   const start = source.indexOf("\nconst progressPushTimers = new Map();");
   const end = source.indexOf("\nfunction persistReaderPreferences()");
   assert.ok(
@@ -558,7 +584,7 @@ const progressSource = (async () => {
   );
   assert.ok(onHide, "app.js must flush pending progress when the tab is hidden");
   assert.ok(onUnload, "app.js must flush pending progress on unload");
-  return `${constants[0]}\n${source.slice(start, end)}\n${onHide[0]}\n${onUnload[0]}`;
+  return `${constants[0]}\n${headers[0]}\n${source.slice(start, end)}\n${onHide[0]}\n${onUnload[0]}`;
 })();
 
 // Behavioural tests drive loadProgressFromServer directly, so deleting its one
@@ -584,16 +610,22 @@ test("the library refresh loads progress from the server before rendering", asyn
 
 function progressSandbox(options = {}) {
   const calls = [];
+  const readerNames = [];
   const timers = new Map();
   const storage = new Map();
   const listeners = new Map();
   let nextTimer = 1;
   let batchCalls = 0;
   const deferredBatches = [];
-  if (options.migrated) storage.set("panelshelf.progress.migrated.v1", "1");
+  const readerProfile = options.readerProfile || null;
+  const suffix = readerProfile ? `.${readerProfile}` : "";
+  if (options.migrated) {
+    storage.set(`panelshelf.progress.migrated.v1${suffix}`, "1");
+  }
+  if (readerProfile) storage.set("panelshelf.readerProfile.v1", readerProfile);
 
   const context = {
-    state: { progress: { ...(options.progress || {}) } },
+    state: { progress: { ...(options.progress || {}) }, readerProfile },
     localStorage: {
       getItem: (key) => {
         if (options.storageUnreadable) throw new Error("SecurityError");
@@ -625,6 +657,10 @@ function progressSandbox(options = {}) {
         keepalive: Boolean(init.keepalive)
       };
       calls.push(call);
+      // Alongside `calls` rather than inside it, so that the tests about
+      // debouncing and batching keep asserting the whole request they care
+      // about without also restating a header they do not. Same index.
+      readerNames.push((init.headers || {})["X-PanelShelf-Reader"] || null);
       if (options.onRequest) options.onRequest(context, call);
       if (options.fetchFails) return Promise.reject(new Error("offline"));
       // A batch the server has accepted but not yet applied, or one still on
@@ -659,6 +695,7 @@ function progressSandbox(options = {}) {
   return {
     context,
     calls,
+    readerNames,
     storage,
     ready: progressSource.then((source) => vm.runInContext(source, context)),
     run: (expression) => vm.runInContext(expression, context),
@@ -1236,4 +1273,90 @@ test("a settings dialog whose sources load does open", async () => {
 
   assert.equal(sandbox.context.elements.settingsDialog.open, true);
   assert.ok(sandbox.calls.includes("renderSources"));
+});
+
+test("every progress request names the reader this browser reads as", async () => {
+  // Progress is written through hand-rolled fetches rather than through `api`,
+  // because they need keepalive and their own error handling. Each one has to
+  // carry the header itself, and a miss means writing to the wrong shelf.
+  const sandbox = progressSandbox({ migrated: true, readerProfile: "ana" });
+  await sandbox.ready;
+
+  sandbox.context.state.progress[COMIC_A] = { pageIndex: 1, pageCount: 9 };
+  sandbox.run(`persistProgress("${COMIC_A}")`);
+  sandbox.fireTimers();
+
+  sandbox.context.state.progress[COMIC_B] = { pageIndex: 2, pageCount: 9 };
+  await sandbox.run(`pushProgressBatch(["${COMIC_B}"])`);
+
+  delete sandbox.context.state.progress[COMIC_A];
+  sandbox.run(`persistProgress("${COMIC_A}")`);
+  sandbox.fireTimers();
+
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.ok(sandbox.calls.length >= 4, "the writes and the read all went out");
+  assert.deepEqual(
+    [...new Set(sandbox.readerNames)],
+    ["ana"],
+    `every request named the reader: ${JSON.stringify(sandbox.calls)}`
+  );
+});
+
+test("a browser that has chosen no reader names none", async () => {
+  // The upgrade path: an install nobody splits sends exactly what it always
+  // did, and the server resolves that to the default profile.
+  const sandbox = progressSandbox({ migrated: true });
+  await sandbox.ready;
+
+  sandbox.context.state.progress[COMIC_A] = { pageIndex: 1, pageCount: 9 };
+  sandbox.run(`persistProgress("${COMIC_A}")`);
+  sandbox.fireTimers();
+  await sandbox.run("loadProgressFromServer()");
+
+  assert.deepEqual([...new Set(sandbox.readerNames)], [null]);
+});
+
+test("each reader profile caches its progress under its own key", async () => {
+  // The handover that pushes a browser's stored records to the server runs once
+  // per profile. One shared cache would mean switching readers pushed the last
+  // one's records onto this one's shelf.
+  const shared = progressSandbox({ migrated: true });
+  await shared.ready;
+  shared.context.state.progress[COMIC_A] = { pageIndex: 1, pageCount: 9 };
+  shared.run(`persistProgress("${COMIC_A}")`);
+  assert.ok(shared.storage.has("panelshelf.progress.v1"), [...shared.storage.keys()]);
+
+  const ana = progressSandbox({ migrated: true, readerProfile: "ana" });
+  await ana.ready;
+  ana.context.state.progress[COMIC_A] = { pageIndex: 4, pageCount: 9 };
+  ana.run(`persistProgress("${COMIC_A}")`);
+  assert.ok(ana.storage.has("panelshelf.progress.v1.ana"), [...ana.storage.keys()]);
+  assert.equal(
+    ana.storage.has("panelshelf.progress.v1"),
+    false,
+    "and never over the default reader's cache"
+  );
+});
+
+test("a reader who has never handed over their cache hands it to their own shelf", async () => {
+  // The migration flag is per profile too. Without that, a browser that had
+  // already handed its records to the default profile would hand them to the
+  // next profile as well, the first time it read as somebody else.
+  const sandbox = progressSandbox({
+    readerProfile: "ana",
+    progress: { [COMIC_A]: { pageIndex: 3, pageCount: 9 } }
+  });
+  await sandbox.ready;
+  await sandbox.run("loadProgressFromServer()");
+
+  const merge = sandbox.calls.find((call) => call.url === "/api/progress/merge");
+  assert.ok(merge, "the handover happened");
+  assert.equal(sandbox.readerNames[sandbox.calls.indexOf(merge)], "ana");
+  assert.equal(sandbox.storage.get("panelshelf.progress.migrated.v1.ana"), "1");
+  assert.equal(
+    sandbox.storage.has("panelshelf.progress.migrated.v1"),
+    false,
+    "the default profile's flag is somebody else's"
+  );
 });

@@ -1,13 +1,9 @@
 "use strict";
 
-const PROGRESS_STORAGE_KEY = "panelshelf.progress.v1";
-const PROGRESS_MIGRATED_KEY = "panelshelf.progress.migrated.v1";
-const SKIPS_MIGRATED_KEY = "panelshelf.skips.migrated.v1";
-const READER_STORAGE_KEY = "panelshelf.reader.v1";
-const LIBRARY_VIEW_STORAGE_KEY = "panelshelf.libraryView.v1";
-const CHRONOLOGY_PREFERENCES_STORAGE_KEY =
-  "panelshelf.chronologyPreferences.v1";
-const LIBRARY_VIEWS = new Set(["all", "publisher", "chronological"]);
+// Which reader profile this browser reads as. Per browser rather than per
+// server-side account, because that is what a reader profile is: a namespace
+// the client picks, not an identity the server checks.
+const READER_PROFILE_STORAGE_KEY = "panelshelf.readerProfile.v1";
 
 function readLocalJson(key, fallback) {
   try {
@@ -17,6 +13,45 @@ function readLocalJson(key, fallback) {
     return fallback;
   }
 }
+
+function readReaderProfile() {
+  try {
+    const value = localStorage.getItem(READER_PROFILE_STORAGE_KEY);
+    // The id shape the server uses. Anything else is treated as unset, which
+    // resolves to the default reader profile.
+    return typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,39}$/.test(value)
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const activeReaderProfile = readReaderProfile();
+
+// The caches below are copies of things the server now files per reader, so
+// they are filed per reader here too. One shared cache would be worse than
+// useless: the handover that pushes a browser's stored records to the server
+// runs once per profile, so a set left over from the last profile would be
+// pushed onto this one's shelf.
+//
+// The default profile keeps the bare key, so a browser that never picks a
+// reader finds its cache exactly where it has always been.
+function profileKey(key) {
+  return activeReaderProfile ? `${key}.${activeReaderProfile}` : key;
+}
+
+const PROGRESS_STORAGE_KEY = profileKey("panelshelf.progress.v1");
+const PROGRESS_MIGRATED_KEY = profileKey("panelshelf.progress.migrated.v1");
+const SKIPS_MIGRATED_KEY = profileKey("panelshelf.skips.migrated.v1");
+const CHRONOLOGY_PREFERENCES_STORAGE_KEY = profileKey(
+  "panelshelf.chronologyPreferences.v1"
+);
+// Per browser, not per reader: how a page is fitted and which view was open
+// last are properties of this screen rather than of whoever is reading.
+const READER_STORAGE_KEY = "panelshelf.reader.v1";
+const LIBRARY_VIEW_STORAGE_KEY = "panelshelf.libraryView.v1";
+const LIBRARY_VIEWS = new Set(["all", "publisher", "chronological"]);
 
 function readLibraryView() {
   try {
@@ -46,6 +81,8 @@ const state = {
   automaticOrders: [],
   manualOrders: [],
   progress: readLocalJson(PROGRESS_STORAGE_KEY, {}),
+  readerProfile: activeReaderProfile,
+  readerProfiles: [],
   libraryView: readLibraryView(),
   statusFilter: "all",
   selectedPublisherKey: null,
@@ -184,6 +221,10 @@ const elements = {
   devicePairingSummary: document.querySelector("#devicePairingSummary"),
   devicePairingCode: document.querySelector("#devicePairingCode"),
   devicePairingList: document.querySelector("#devicePairingList"),
+  readerProfileSummary: document.querySelector("#readerProfileSummary"),
+  readerProfileSelect: document.querySelector("#readerProfileSelect"),
+  readerProfileList: document.querySelector("#readerProfileList"),
+  addReaderProfileButton: document.querySelector("#addReaderProfileButton"),
   enablePairingButton: document.querySelector("#enablePairingButton"),
   pairDeviceButton: document.querySelector("#pairDeviceButton"),
   disablePairingButton: document.querySelector("#disablePairingButton"),
@@ -457,6 +498,10 @@ async function api(url, options = {}) {
     ...options,
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
+      // Only the JSON routes need it: covers and pages are loaded with
+      // `image.src`, which carries no headers of its own, and neither of those
+      // is per-reader anyway.
+      ...readerHeaders(),
       ...(options.headers || {})
     }
   });
@@ -474,6 +519,13 @@ async function api(url, options = {}) {
     throw error;
   }
   return result;
+}
+
+// Whose shelf a request is about. The per-reader routes are reached both
+// through `api` and through hand-rolled fetches that need `keepalive` or their
+// own error handling, so the header lives here rather than in one of them.
+function readerHeaders() {
+  return state.readerProfile ? { "X-PanelShelf-Reader": state.readerProfile } : {};
 }
 
 function showToast(message, action = null) {
@@ -751,15 +803,166 @@ function renderDevicePairing(status) {
       seen.textContent = device.lastUsedAt
         ? `last seen ${new Date(device.lastUsedAt).toLocaleDateString()}`
         : "not used yet";
+      // Which shelf this device reads when its requests name nobody — the
+      // answer for a third-party OPDS reader, which has no way to name one.
+      const binding = document.createElement("select");
+      binding.className = "input";
+      binding.title = "Which reader this device is, when it does not say";
+      const unbound = document.createElement("option");
+      unbound.value = "";
+      unbound.textContent = "Whoever asks";
+      binding.append(
+        unbound,
+        ...state.readerProfiles
+          .filter((profile) => !profile.isDefault)
+          .map((profile) => {
+            const option = document.createElement("option");
+            option.value = profile.id;
+            option.textContent = profile.name;
+            return option;
+          })
+      );
+      binding.value = device.readerProfileId || "";
+      binding.addEventListener("change", () => bindDevice(device, binding.value));
       const revoke = document.createElement("button");
       revoke.type = "button";
       revoke.className = "button button-secondary";
       revoke.textContent = "Revoke";
       revoke.addEventListener("click", () => revokeDevice(device));
-      item.append(name, seen, revoke);
+      item.append(name, seen, binding, revoke);
       return item;
     })
   );
+}
+
+// One library, one household — and a shelf each. This is the owner's side of
+// that: naming the readers, and saying which one this browser is. The iPad app
+// owns the same list over the same routes; nothing here is privileged.
+function renderReaderProfiles(status) {
+  const profiles = status.profiles || [];
+  state.readerProfiles = profiles;
+  // The server's answer for this very request, which is the honest thing to
+  // show: it accounts for a stored id that no longer names anything.
+  const current = status.current || "default";
+
+  elements.readerProfileSummary.textContent =
+    profiles.length > 1
+      ? `${profiles.length} readers share this library. Reading positions and hidden branches are kept apart; everything else is shared.`
+      : "One library, one household — and a shelf each. A reader profile keeps two people's reading positions and hidden chronology branches apart. It is not an account: it has no password and grants no access.";
+
+  elements.readerProfileSelect.replaceChildren(
+    ...profiles.map((profile) => {
+      const option = document.createElement("option");
+      option.value = profile.id;
+      option.textContent = profile.name;
+      option.selected = profile.id === current;
+      return option;
+    })
+  );
+
+  elements.readerProfileList.replaceChildren(
+    ...profiles.map((profile) => {
+      const item = document.createElement("li");
+      const name = document.createElement("strong");
+      name.textContent = profile.name;
+      const note = document.createElement("span");
+      note.textContent = profile.isDefault
+        ? "everyone who has not chosen"
+        : profile.id;
+      const rename = document.createElement("button");
+      rename.type = "button";
+      rename.className = "button button-secondary";
+      rename.textContent = "Rename";
+      rename.addEventListener("click", () => renameReaderProfile(profile));
+      item.append(name, note, rename);
+      // The default has nowhere to hand its records to, so it stays.
+      if (!profile.isDefault) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "button button-secondary";
+        remove.textContent = "Delete";
+        remove.addEventListener("click", () => deleteReaderProfile(profile));
+        item.append(remove);
+      }
+      return item;
+    })
+  );
+}
+
+async function loadReaderProfiles() {
+  if (!elements.settingsDialog.open) return;
+  try {
+    renderReaderProfiles(await api("/api/readers"));
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  }
+}
+
+// Switching readers changes what every shelf, every progress record and every
+// hidden branch in this page refers to. Reloading is the honest way to do that:
+// the alternative is invalidating half a dozen caches and hoping.
+function switchReaderProfile(readerProfileId) {
+  try {
+    if (readerProfileId && readerProfileId !== "default") {
+      localStorage.setItem(READER_PROFILE_STORAGE_KEY, readerProfileId);
+    } else {
+      localStorage.removeItem(READER_PROFILE_STORAGE_KEY);
+    }
+  } catch {
+    // A browser that cannot store the choice still gets it for this page load.
+  }
+  state.readerProfile = readerProfileId === "default" ? null : readerProfileId;
+  window.location.reload();
+}
+
+async function addReaderProfile() {
+  const name = window.prompt("Who is reading? This is a name, not a login.");
+  if (name === null) return;
+  try {
+    const status = await api("/api/readers", {
+      method: "POST",
+      body: JSON.stringify({ name })
+    });
+    renderReaderProfiles(status);
+    showToast(`${status.profile.name} can now keep their own place.`);
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  }
+}
+
+async function renameReaderProfile(profile) {
+  const name = window.prompt("Rename this reader", profile.name);
+  if (name === null) return;
+  try {
+    // The id stays put, so nobody's shelf moves.
+    renderReaderProfiles(
+      await api(`/api/readers/${profile.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name })
+      })
+    );
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  }
+}
+
+async function deleteReaderProfile(profile) {
+  if (
+    !window.confirm(
+      `Delete “${profile.name}”? Their reading positions and hidden collections go with them. The library itself is untouched.`
+    )
+  ) {
+    return;
+  }
+  try {
+    renderReaderProfiles(await api(`/api/readers/${profile.id}`, { method: "DELETE" }));
+    await loadDevicePairing();
+    if (state.readerProfile === profile.id) {
+      switchReaderProfile("default");
+    }
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  }
 }
 
 async function loadDevicePairing() {
@@ -768,6 +971,21 @@ async function loadDevicePairing() {
     renderDevicePairing(await api("/api/devices"));
   } catch (error) {
     showFormError(elements.settingsError, error);
+  }
+}
+
+async function bindDevice(device, readerProfileId) {
+  try {
+    renderDevicePairing(
+      await api(`/api/devices/${device.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ readerProfileId: readerProfileId || null })
+      })
+    );
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+    // Put the select back to what the server actually holds.
+    await loadDevicePairing();
   }
 }
 
@@ -1950,10 +2168,13 @@ function sendProgress(comicId) {
   const request = record
     ? fetch(`/api/progress/${comicId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...readerHeaders() },
         body: JSON.stringify(record)
       })
-    : fetch(`/api/progress/${comicId}`, { method: "DELETE" });
+    : fetch(`/api/progress/${comicId}`, {
+        method: "DELETE",
+        headers: readerHeaders()
+      });
   return request.catch(() => {
     // The local copy is authoritative until the server is reachable again.
   });
@@ -1998,7 +2219,7 @@ function pushProgressBatch(comicIds, keepalive = false) {
   trackBatchedComics(batched);
   return fetch("/api/progress/batch", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...readerHeaders() },
     body: JSON.stringify({ records, deleted }),
     keepalive
   })
@@ -2055,12 +2276,12 @@ async function loadSkipsFromServer() {
     if (!skipsMigrated && local.length > 0) {
       const response = await fetch("/api/skips", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...readerHeaders() },
         body: JSON.stringify({ add: local })
       });
       if (!response.ok) throw new Error("Skip migration failed.");
     }
-    const response = await fetch("/api/skips");
+    const response = await fetch("/api/skips", { headers: readerHeaders() });
     if (!response.ok) throw new Error("Skipped collections are unavailable.");
     const remote = await response.json();
     state.skippedChronologyNodeIds = new Set(
@@ -2093,13 +2314,13 @@ async function loadProgressFromServer() {
     if (!progressMigrated && Object.keys(local).length > 0) {
       const response = await fetch("/api/progress/merge", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...readerHeaders() },
         body: JSON.stringify({ records: local })
       });
       if (!response.ok) throw new Error("Progress migration failed.");
       markProgressMigrated();
     }
-    const response = await fetch("/api/progress");
+    const response = await fetch("/api/progress", { headers: readerHeaders() });
     if (!response.ok) throw new Error("Progress is unavailable.");
     const remote = await response.json();
     // A page turn or a collection change during the in-flight request has not
@@ -3740,7 +3961,7 @@ function toggleChronologyNodeSkipped(node) {
   // local decision that must not wait for the NAS.
   fetch("/api/skips", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...readerHeaders() },
     body: JSON.stringify(
       skipping ? { add: [node.id] } : { remove: [node.id] }
     )
@@ -5414,7 +5635,9 @@ function openSettings() {
     // silently made them no-ops when they ran a line too early.
     if (!elements.settingsDialog.open) return;
     pollCoverCache();
-    loadDevicePairing();
+    // Before the pairing list, which draws a profile picker on every device row
+    // and would otherwise draw an empty one on first open.
+    loadReaderProfiles().then(() => loadDevicePairing());
     // Fills the callout's counts, so what needs looking at is visible without
     // opening anything.
     loadLibraryReview();
@@ -6713,6 +6936,12 @@ elements.importOrderInput.addEventListener("change", async () => {
 });
 
 elements.settingsDialog.addEventListener("close", stopCoverCachePolling);
+
+elements.addReaderProfileButton.addEventListener("click", () => addReaderProfile());
+
+elements.readerProfileSelect.addEventListener("change", () => {
+  switchReaderProfile(elements.readerProfileSelect.value);
+});
 
 elements.enablePairingButton.addEventListener("click", async () => {
   if (

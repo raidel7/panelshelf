@@ -3908,6 +3908,41 @@ h2 {
   font-size: 10px;
 }
 
+/* A row can carry two buttons; only the first one is pushed right, or the
+   second would sit against it with no gap. */
+.device-pairing-list button + button {
+  margin-left: 0;
+}
+
+.reader-profile-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.reader-profile-picker select {
+  width: auto;
+  min-width: 140px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.device-pairing-list select {
+  margin-left: auto;
+  width: auto;
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+/* The binding select is the row's right-hand element, so a Revoke button after
+   it must not try to claim the same slot. */
+.device-pairing-list select + button {
+  margin-left: 0;
+}
+
 .provider-state {
   display: inline-flex;
   align-items: center;
