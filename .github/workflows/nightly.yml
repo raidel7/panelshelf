@@ -64,7 +64,25 @@ jobs:
           Unsigned packages — install in DSM via **Package Center → Manual Install**
           and allow packages from any publisher."
           # Replace the rolling release so stale assets never linger.
+          #
+          # The delete has to be seen to have landed before the create. Doing
+          # the two back to back races GitHub's own bookkeeping: on 2026-08-12
+          # this step failed with "a release with the same tag name already
+          # exists: nightly" after every package had already been built, which
+          # is a twenty-minute build thrown away at the last line. `|| true` on
+          # the delete is what let that through — it swallows a failed delete
+          # and hands the problem to a create that cannot survive it.
           gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          for attempt in 1 2 3 4 5; do
+            gh release view nightly >/dev/null 2>&1 || break
+            echo "Previous nightly release still present; retrying delete (${attempt}/5)."
+            sleep 5
+            gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          done
+          if gh release view nightly >/dev/null 2>&1; then
+            echo "The previous nightly release could not be removed." >&2
+            exit 1
+          fi
           gh release create nightly dist/* \
             --target "$GITHUB_SHA" \
             --title "Nightly ${VERSION}" \
