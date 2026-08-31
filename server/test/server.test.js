@@ -1656,8 +1656,8 @@ async function readerProgress(base, headers = {}) {
   return { status: response.status, body: await response.json() };
 }
 
-async function putProgress(base, pageIndex, headers = {}) {
-  const response = await fetch(`${base}/api/progress/${COMIC_ID}`, {
+async function putProgress(base, pageIndex, headers = {}, comicId = COMIC_ID) {
+  const response = await fetch(`${base}/api/progress/${comicId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify({ pageIndex, pageCount: 60 })
@@ -1818,4 +1818,137 @@ test("an unknown reader profile name falls back to the default shelf", async (t)
     ["default"],
     "none of that created a profile"
   );
+});
+
+test("a paired device can be bound to a reader profile", async (t) => {
+  // The answer for a client that cannot name a profile at all. A device token
+  // is a poor key for a person — one iPad, two people, one token — but a good
+  // default for one app on one person's device, which is what every
+  // third-party OPDS reader is.
+  const { base, state } = await startServer(t);
+  await fetch(`${base}/api/readers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ana" })
+  });
+  const { body } = await enablePairing(base);
+
+  const code = await (
+    await fetch(`${base}/api/devices/pairing-code`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${body.token}` }
+    })
+  ).json();
+  const paired = await (
+    await fetch(`${base}/api/devices/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code.code, name: "Ana's reader", readerProfileId: "Ana" })
+    })
+  ).json();
+  assert.equal(paired.device.readerProfileId, "ana", state.logs);
+
+  const asDevice = { Authorization: `Bearer ${paired.token}` };
+  const asOwner = { Authorization: `Bearer ${body.token}` };
+
+  await putProgress(base, 40, asOwner);
+  await putProgress(base, 3, asDevice);
+  assert.equal((await readerProgress(base, asOwner)).body.pageIndex, 40, state.logs);
+  assert.equal((await readerProgress(base, asDevice)).body.pageIndex, 3);
+
+  // A name on the request still wins over the binding.
+  assert.equal(
+    (await readerProgress(base, { ...asDevice, "X-PanelShelf-Reader": "default" })).body.pageIndex,
+    40
+  );
+
+  // And the binding can be changed or taken back off from the owner's browser.
+  const rebound = await fetch(`${base}/api/devices/${paired.device.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...asOwner },
+    body: JSON.stringify({ readerProfileId: null })
+  });
+  assert.equal(rebound.status, 200, state.logs);
+  assert.equal((await rebound.json()).device.readerProfileId, null);
+  assert.equal((await readerProgress(base, asDevice)).body.pageIndex, 40, "back to the default");
+
+  const missing = await fetch(`${base}/api/devices/${paired.device.id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...asOwner },
+    body: JSON.stringify({ readerProfileId: "nobody" })
+  });
+  assert.equal(missing.status, 404, state.logs);
+});
+
+test("deleting a reader profile leaves no device pointing at it", async (t) => {
+  const { base, state } = await startServer(t);
+  await fetch(`${base}/api/readers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ana" })
+  });
+  const { body } = await enablePairing(base);
+  const asOwner = { Authorization: `Bearer ${body.token}` };
+
+  const code = await (
+    await fetch(`${base}/api/devices/pairing-code`, { method: "POST", headers: asOwner })
+  ).json();
+  const paired = await (
+    await fetch(`${base}/api/devices/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code.code, readerProfileId: "ana" })
+    })
+  ).json();
+
+  await fetch(`${base}/api/readers/ana`, { method: "DELETE", headers: asOwner });
+  const devices = await (await fetch(`${base}/api/devices`, { headers: asOwner })).json();
+  const device = devices.devices.find((item) => item.id === paired.device.id);
+  assert.equal(device.readerProfileId, null, state.logs);
+  // And that device now reads the default, rather than a shelf that is gone.
+  await putProgress(base, 12, asOwner);
+  assert.equal(
+    (await readerProgress(base, { Authorization: `Bearer ${paired.token}` })).body.pageIndex,
+    12
+  );
+});
+
+test("a catalogue address can name the reader, and its links keep it", async (t) => {
+  // The last resort: a reader with no username box and no pairing still has an
+  // address bar, which is the one field every OPDS client has.
+  const { base, comicsDirectory, state } = await startServer(t);
+  await fetch(`${base}/api/readers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ana" })
+  });
+  await fsp.writeFile(
+    path.join(comicsDirectory, "Alpha.cbz"),
+    zipBuffer([{ name: "page.png", data: ONE_PIXEL_PNG }])
+  );
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  const comics = await waitFor(`${base}/api/comics`, (list) => list.length === 1);
+
+  const feed = await fetch(`${base}/opds/r/ana/all`);
+  assert.equal(feed.status, 200, state.logs);
+  const body = await feed.text();
+  // Every link in the feed stays under the prefix it arrived under. Without
+  // this, page two of Ana's shelf would quietly be the default reader's.
+  assert.match(body, /href="[^"]*\/opds\/r\/ana\/comics\//);
+  assert.equal(/href="[^"]*\/opds\/(?!r\/ana)/.test(body), false, body);
+
+  // The reading position it reports is the one belonging to that reader.
+  await putProgress(base, 5, { "X-PanelShelf-Reader": "ana" }, comics[0].id);
+  const withProgress = await (await fetch(`${base}/opds/r/ana/all`)).text();
+  assert.match(withProgress, /pse:lastRead="6"/, state.logs);
+  const asDefault = await (await fetch(`${base}/opds/all`)).text();
+  assert.equal(/pse:lastRead=/.test(asDefault), false, "and nobody else's");
+
+  // A name nobody has is the default's shelf under an odd address, not an error.
+  assert.equal((await fetch(`${base}/opds/r/nobody/all`)).status, 200, state.logs);
 });

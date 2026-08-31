@@ -1162,6 +1162,27 @@ class ComicLibrary {
     return this.readerProfiles.resolve(candidate);
   }
 
+  // One channel's answer, or null so the caller can try the next one.
+  matchReaderProfile(candidate) {
+    return this.readerProfiles.match(candidate);
+  }
+
+  // Which shelf a paired device reads when the request names none. Refused
+  // rather than stored loosely: a binding that points at nothing would send a
+  // reader to the default without ever saying why.
+  async bindDeviceToReaderProfile(deviceId, readerProfileId) {
+    const id =
+      readerProfileId === null || readerProfileId === undefined
+        ? null
+        : this.readerProfiles.match(readerProfileId);
+    if (readerProfileId && !id) {
+      throw jsonError("That reader profile does not exist.", "NOT_FOUND");
+    }
+    const device = await this.deviceTokens.bind(deviceId, id);
+    if (!device) throw jsonError("That device is not paired.", "NOT_FOUND");
+    return device;
+  }
+
   async createReaderProfile(name) {
     return this.readerProfiles.create(name);
   }
@@ -1177,6 +1198,9 @@ class ComicLibrary {
     if (!deleted) return false;
     await this.progress.forget(id);
     await this.skips.forget(id);
+    // A device left pointing at a deleted profile would resolve to the default
+    // anyway; unbinding says so out loud rather than leaving the setting to rot.
+    await this.deviceTokens.unbindAll(id);
     return true;
   }
 

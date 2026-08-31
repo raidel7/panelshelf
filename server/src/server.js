@@ -10,6 +10,7 @@ const { ComicLibrary, browseFolders, recentlyAdded } = require("./library");
 const { MAX_ARTWORK_BYTES } = require("./custom-artwork");
 const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
+const { DEFAULT_READER_ID } = require("./reader-profiles");
 const { jsonError } = require("./util");
 
 const VERSION = "0.4.18";
@@ -211,20 +212,33 @@ function basicUsername(request) {
   }
 }
 
-function resolveReaderProfile(request, library) {
-  const named = request.headers[READER_HEADER] || basicUsername(request);
-  return library.resolveReaderProfile(named);
+function resolveReaderProfile(request, library, device, pathName) {
+  return (
+    // The address of the catalogue itself, for a reader with no username box.
+    library.matchReaderProfile(pathName) ||
+    library.matchReaderProfile(request.headers[READER_HEADER]) ||
+    library.matchReaderProfile(basicUsername(request)) ||
+    // Whatever the paired device is set to, when the request itself says
+    // nothing. A name nobody has counts as saying nothing, so a typo falls
+    // through to here rather than past it.
+    library.matchReaderProfile(device && device.readerProfileId) ||
+    DEFAULT_READER_ID
+  );
 }
 
+// Returns the paired device when there is one, so that the reader profile it is
+// bound to can be read without hashing the token a second time. Null means
+// pairing is off or the path was never guarded, not that the caller is anybody.
 function authorize(request, pathname, devices) {
-  if (!devices.enabled) return;
-  if (OPEN_PATHS.has(pathname)) return;
+  if (!devices.enabled) return null;
+  if (OPEN_PATHS.has(pathname)) return null;
   // The app shell and its assets stay open: the page has to load before anyone
   // can type a pairing code into it. Everything it then asks for is guarded.
   const guarded = pathname.startsWith("/api/") || pathname === "/opds" ||
     pathname.startsWith("/opds/");
-  if (!guarded) return;
-  if (devices.verify(presentedToken(request))) return;
+  if (!guarded) return null;
+  const device = devices.verify(presentedToken(request));
+  if (device) return device;
   throw jsonError(
     "This server only answers paired devices.",
     "UNAUTHORIZED"
@@ -454,12 +468,30 @@ async function startServer() {
       pathname = `/api/${pathname.slice(API_PREFIX.length)}`;
     }
 
+    // A catalogue address per reader, for a client that offers neither a
+    // username box nor pairing: `/opds/r/ana/all` is `/opds/all` read as Ana.
+    // The name is the one field every OPDS client has, since it is the address
+    // you type in. Stripped here so that every guard and every route below sees
+    // the ordinary path, and put back on the feed's own links further down —
+    // otherwise page two of a shelf would quietly be somebody else's.
+    const readerPath = pathname.match(/^\/opds\/r\/([^/]{1,60})(\/.*)?$/);
+    const readerPathName = readerPath ? readerPath[1] : null;
+    if (readerPath) {
+      pathname = `/opds${readerPath[2] || ""}`;
+      requestUrl.pathname = pathname;
+    }
+
     try {
       guardRequest(request, pathname);
-      authorize(request, pathname, library.deviceTokens);
+      const pairedDevice = authorize(request, pathname, library.deviceTokens);
       // Whose shelf this request is about. Resolved once, so that every route
       // below gets the same answer and none of them has to work it out again.
-      const readerProfileId = resolveReaderProfile(request, library);
+      const readerProfileId = resolveReaderProfile(
+        request,
+        library,
+        pairedDevice,
+        readerPathName
+      );
 
       if (request.method === "GET" && pathname === "/api/health") {
         return sendJson(response, 200, {
@@ -816,7 +848,11 @@ async function startServer() {
       if (request.method === "POST" && pathname === "/api/devices/pair") {
         const body = await readJsonBody(request);
         const paired = await library.deviceTokens.redeemPairingCode(body.code, {
-          name: body.name
+          name: body.name,
+          // Named at pairing time, so a third-party OPDS reader lands on the
+          // right shelf from its very first request. An unknown name binds
+          // nothing rather than failing the pairing.
+          readerProfileId: library.matchReaderProfile(body.readerProfileId)
         });
         // Set for a browser redeeming a code; a native client ignores it and
         // keeps the token from the body instead.
@@ -827,6 +863,20 @@ async function startServer() {
       const deviceMatch = pathname.match(
         /^\/api\/devices\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
       );
+      // Which shelf this device reads when a request names none. `null` takes
+      // the binding back off.
+      if (request.method === "PUT" && deviceMatch) {
+        const body = await readJsonBody(request);
+        const device = await library.bindDeviceToReaderProfile(
+          deviceMatch[1],
+          body?.readerProfileId ?? null
+        );
+        return sendJson(response, 200, {
+          device,
+          devices: library.deviceTokens.list()
+        });
+      }
+
       if (request.method === "DELETE" && deviceMatch) {
         const revoked = await library.deviceTokens.revoke(deviceMatch[1]);
         if (!revoked) throw jsonError("That device is not paired.", "NOT_FOUND");
@@ -977,7 +1027,17 @@ async function startServer() {
           readerProfileId
         );
         if (catalog) {
-          const body = Buffer.from(catalog.body);
+          // Every link the catalogue builds is absolute and rooted at `/opds`,
+          // so restoring the prefix is an exact substitution on the href rather
+          // than a guess. Titles and summaries are left alone.
+          const body = Buffer.from(
+            readerPathName
+              ? catalog.body.replaceAll(
+                  `href="${baseUrl}/opds`,
+                  `href="${baseUrl}/opds/r/${encodeURIComponent(readerPathName)}`
+                )
+              : catalog.body
+          );
           response.writeHead(200, {
             "Content-Type": `${catalog.type}; charset=utf-8`,
             "Content-Length": body.length,

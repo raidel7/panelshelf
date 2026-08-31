@@ -116,6 +116,7 @@ as a hash here.
 | POST | `/api/devices/disable` | Turn it off; paired devices are kept |
 | POST | `/api/devices/pairing-code` | An eight-character code, good for five minutes, once |
 | POST | `/api/devices/pair` | Exchange a code for a token; needs no token itself |
+| PUT | `/api/devices/:deviceId` | Bind it to a [reader profile](#reader-profiles), or `null` to unbind |
 | DELETE | `/api/devices/:deviceId` | Revoke a device, effective on its next request |
 
 Clients send `Authorization: Bearer <token>`. OPDS readers, which can only send
@@ -694,28 +695,42 @@ nothing for a server nobody has split.
 
 ### Which profile a request is about
 
-Resolved in three steps, first match winning.
+Resolved in four steps, first answer winning.
 
-**1. Named.** Send `X-PanelShelf-Reader: <name or id>`. A third-party OPDS
-reader cannot send a header PanelShelf invented, and does not have to: put the
-profile name in the **username** box and the device token in the password box.
-The username was already being decoded and discarded, so it costs a reader
-nothing but typing.
+**1. In the address.** `GET /opds/r/ana/all` is `/opds/all` read as Ana. The
+catalog address is the one field every OPDS client has, so this is the fallback
+for a reader that offers neither a username box nor pairing. Every link in the
+returned feed keeps the prefix, so page two of a shelf is still that reader's.
 
-**2. Bound to the device.** *Not yet implemented.* A paired device will be
-bindable to a profile, so a reader with no username box still lands on the right
-shelf.
+**2. Named on the request.** Send `X-PanelShelf-Reader: <name or id>`. A
+third-party OPDS reader cannot send a header PanelShelf invented, and does not
+have to: put the profile name in the **username** box and the device token in
+the password box. The username was already being decoded and discarded, so it
+costs a reader nothing but typing.
 
-**3. Default.** Nothing named, nothing bound.
+**3. Bound to the device.** A paired device can be bound to a profile, either
+when it pairs (`readerProfileId` in the `POST /api/devices/pair` body) or
+afterwards with `PUT /api/devices/:deviceId`. A request carrying that token and
+naming nobody reads that profile's shelf. A device token is a poor key for a
+person — one iPad, two people, one token — but a good default for one app on
+one person's device, which is what a third-party reader is.
 
-A name that matches no profile resolves to the default rather than creating one.
-Being wrong about your own name should show you the wrong shelf, never lose you
-the right one. Ids are matched first, then display names, both
+**4. Default.** Nothing named, nothing bound.
+
+A name that matches no profile is treated as though none were given: it falls
+through to the next step, and to the default if there is none. Nothing creates a
+profile. Being wrong about your own name should show you the wrong shelf, never
+lose you the right one. Ids are matched first, then display names, both
 case-insensitively — so `ana`, `Ana` and `ANA` are the same profile, and `anna`
-is the default.
+is nobody.
 
 Renaming a profile never changes its id, because the id is what every record is
-filed under.
+filed under. Deleting one deletes its shelf and unbinds any device pointing at
+it.
+
+None of this authenticates anything. Naming a profile grants no access;
+[device pairing](#device-pairing) is still the only thing that decides who may
+talk to this server at all.
 
 ## Reading progress API
 

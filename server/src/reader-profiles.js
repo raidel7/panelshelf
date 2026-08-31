@@ -184,26 +184,31 @@ class ReaderProfileStore {
     return this.profiles.has(readerId(id) || "");
   }
 
-  // What a request's reader profile comes down to, and the reason nothing else
-  // in the server has to think about it. Takes whatever a client offered — an
-  // id, a display name, an OPDS username box, or nothing — and returns an id
-  // that certainly exists.
+  // One channel's answer: an id, a display name, or nothing. Null means this
+  // channel said nothing usable, which lets the caller try the next one — a
+  // name nobody has is the same as no name at all, so a typo in a username box
+  // still falls through to whatever the device itself is bound to.
   //
-  // An unrecognised name resolves to the default rather than creating a
-  // profile. Typing your name into a reader must not be able to strand your
-  // shelf somewhere nothing can find it, and a name is not a credential, so
-  // there is nothing here worth guessing at either.
-  resolve(candidate) {
-    if (typeof candidate !== "string") return DEFAULT_READER_ID;
+  // Ids match first, then display names, both case-insensitively. Nothing here
+  // creates a profile: being wrong about your own name must show you the wrong
+  // shelf, never strand your real one somewhere nothing can find it. A name is
+  // not a credential either, so there is nothing worth guessing at.
+  match(candidate) {
+    if (typeof candidate !== "string") return null;
     const trimmed = candidate.trim();
-    if (!trimmed) return DEFAULT_READER_ID;
+    if (!trimmed) return null;
     const asId = readerId(trimmed);
     if (asId && this.profiles.has(asId)) return asId;
     const wanted = trimmed.toLocaleLowerCase();
     for (const profile of this.profiles.values()) {
       if (profile.name.toLocaleLowerCase() === wanted) return profile.id;
     }
-    return DEFAULT_READER_ID;
+    return null;
+  }
+
+  // The whole chain's answer, and always an id that exists.
+  resolve(candidate) {
+    return this.match(candidate) || DEFAULT_READER_ID;
   }
 
   async create(nameInput) {

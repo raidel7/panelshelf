@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { jsonError } = require("./util");
+const { normalizeReaderId } = require("./reader-profiles");
 
 // Which devices are allowed to talk to this server, when the owner has decided
 // that should be a question at all.
@@ -61,7 +62,13 @@ function deviceFrom(value) {
     name: typeof value.name === "string" && value.name ? value.name : "Unnamed device",
     createdAt: typeof value.createdAt === "string" ? value.createdAt : null,
     lastUsedAt: typeof value.lastUsedAt === "string" ? value.lastUsedAt : null,
-    expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : null
+    expiresAt: typeof value.expiresAt === "string" ? value.expiresAt : null,
+    // Whose shelf this device reads when it does not say. A device token is a
+    // poor key for a reader profile — one iPad, two people, one token — but a
+    // good default for the client that cannot name one at all: a third-party
+    // OPDS reader is one app on one person's device, whatever the household
+    // does with the tablet it runs on.
+    readerProfileId: normalizeReaderId(value.readerProfileId)
   };
 }
 
@@ -162,6 +169,7 @@ class DeviceTokenStore {
       name: String(options.name || "").trim() || "Unnamed device",
       createdAt: new Date().toISOString(),
       lastUsedAt: null,
+      readerProfileId: normalizeReaderId(options.readerProfileId),
       expiresAt:
         expiresInMs === null ? null : new Date(Date.now() + expiresInMs).toISOString()
     };
@@ -192,8 +200,34 @@ class DeviceTokenStore {
       name: device.name,
       createdAt: device.createdAt,
       lastUsedAt: device.lastUsedAt,
-      expiresAt: device.expiresAt
+      expiresAt: device.expiresAt,
+      readerProfileId: device.readerProfileId || null
     };
+  }
+
+  // Binding is a setting on the device, not a claim about it: it says which
+  // shelf to show when the request names none, and null takes that back.
+  // Whether the profile exists is the library's question, not this store's.
+  async bind(deviceId, readerProfileId) {
+    const device = this.devices.get(deviceId);
+    if (!device) return null;
+    device.readerProfileId = normalizeReaderId(readerProfileId);
+    await this.persist();
+    return this.publicDevice(device);
+  }
+
+  // A profile nobody uses leaves no device pointing at it.
+  async unbindAll(readerProfileId) {
+    const id = normalizeReaderId(readerProfileId);
+    if (!id) return 0;
+    let unbound = 0;
+    for (const device of this.devices.values()) {
+      if (device.readerProfileId !== id) continue;
+      device.readerProfileId = null;
+      unbound += 1;
+    }
+    if (unbound) await this.persist();
+    return unbound;
   }
 
   list() {
