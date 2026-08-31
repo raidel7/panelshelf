@@ -4,7 +4,7 @@ Updated: 2026-08-29
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.4.17, build 1040 | Released. The developer's NAS runs 0.4.16. |
+| **Server and web** | 0.4.18, build 1041 | Released. The developer's NAS runs 0.4.16. |
 | **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
@@ -99,6 +99,7 @@ The current build provides:
 | 0.4.16 / 1038 | Device pairing, a versioned API, and incremental library changes |
 | 0.4.16 / 1039 | Library folders no longer opens empty over a configured library |
 | 0.4.17 / 1040 | Storylines, chosen covers, order portability, duplicates, bulk editing |
+| 0.4.18 / 1041 | OPDS page streaming, so third-party readers page instead of downloading |
 
 Nothing is unreleased on `main`. The 0.4.14 heading covers 1035 and 1036 as
 point fixes; the storyline and library-editing scope filed under 0.4.17 in
@@ -596,8 +597,10 @@ and Franco-Belgian publishers.
 
 ## Delivery sequence
 
-Server milestones continue from 0.4.17. The numbers 0.4.4 through 0.4.17 are
-spent; anything planned takes 0.4.18 or later. Section numbers are stable
+Server milestones continue from 0.4.18. The numbers 0.4.4 through 0.4.18 are
+spent; anything planned takes 0.4.19 or later. 0.4.18 was not a planned
+milestone: it answers the question of how anyone reads comfortably on an iPad
+while the first-party client is still unreleased. Section numbers are stable
 identifiers and are referenced elsewhere in this document, so the gaps below
 are deliberate — those milestones belong to the iPad client and moved with it.
 

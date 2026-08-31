@@ -1,3 +1,35 @@
+# PanelShelf 0.4.18-1041
+
+Third-party comic readers can now page through a comic instead of downloading
+the whole thing first.
+
+## Page streaming for OPDS readers
+
+- PanelShelf implements the [OPDS Page Streaming Extension][pse]. A reader that
+  understands it fetches pages as you turn them, rather than pulling an entire
+  archive down to look at page one. On a phone network, with a collection that
+  runs to hundreds of megabytes, that is the difference between usable and not.
+- Comics you have already started tell the reader where you got to, so it opens
+  on the right page. Reading position lives on the server and is shared, so it
+  is the same position the browser has.
+- The download link is still there for readers that do not understand streaming.
+  Nothing that worked before stops working.
+- Readers authenticate with HTTP Basic when device pairing is on: any username,
+  and the device token as the password.
+
+[pse]: https://vaemendis.net/opds-pse/
+
+This is compatibility by publishing to a standard. PanelShelf does not emulate
+another server's API or present itself as one.
+
+## Validation
+
+- 325 server tests pass, nine of them new. Against a running server the feed
+  advertises the right page count, gains a resume position after reading, hands
+  the page template to the client unaltered, and stays valid XML. Page one of a
+  stream is byte-for-byte the same image as page zero of the internal API, which
+  is the off-by-one this could most easily have got wrong.
+
 # PanelShelf 0.4.17-1040
 
 Storylines, covers you choose, and the tools for tidying a library that has
