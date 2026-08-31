@@ -2,12 +2,41 @@
 
 **Your comics, quietly organized.**
 
-PanelShelf is a lightweight comic library and browser reader packaged natively
-for Synology DSM 7.2 or newer. It scans CBZ and CBR files in one or more
-folders, extracts covers, and serves comic pages without modifying the original
-archives.
+PanelShelf is a comic library and browser reader that installs on Synology
+DSM 7.2 or newer the way any other package does. It scans CBZ and CBR files in
+one or more folders, extracts covers, and serves comic pages without ever
+modifying the original archives.
+
+**No Docker.** No Container Manager, no `compose.yaml`, no bind mounts to get
+right, no reverse proxy to stand up before you can see a cover. Install the
+`.spk` through Package Center and PanelShelf is a DSM application: an icon on
+the desktop, start and stop from Package Center, its own firewall port
+registered for it, and logs where DSM keeps logs.
 
 ![PanelShelf browsing a chronology by publication year](assets/screenshots/chronology-timeline.png)
+
+<details>
+<summary><b>Why native rather than a container</b></summary>
+
+<br>
+
+- **It runs where Container Manager doesn't.** Docker is not offered on every
+  Synology — coverage across the ARM range is partial and the value line has
+  largely gone without, which is why a whole third-party project exists just to
+  sideload it. PanelShelf publishes `x86_64`, `armv8` and `armv7` packages, so a
+  small ARM box is as much a target as a DS1825+.
+- **43 MB, one runtime dependency.** The package is a Node runtime, the server,
+  and `node-unrar-js` for CBR. Nothing to pull, no image layers to
+  garbage-collect, no registry to be reachable at install time.
+- **DSM owns the lifecycle.** It starts on boot, stops on shutdown, and upgrades
+  in place. There is no restart policy to reason about.
+- **Your comics stay exactly where they are.** PanelShelf reads folders you
+  already have, internal or USB, in place — no volume mapping, and it never
+  writes to, moves, or renames an archive.
+- **One process.** A Node server, not a container runtime plus an image plus a
+  supervisor.
+
+</details>
 
 > **This is a preview.** PanelShelf has no user accounts and terminates no TLS
 > of its own. It is built to sit on a home LAN. Please read
@@ -155,15 +184,55 @@ see [SECURITY.md](SECURITY.md).
 - Read-only archive access
 - Read-only OPDS 1.2 catalogs for compatible reader apps, including All
   comics, Publishers, Sources and folders, search, and Reading orders
+- OPDS Page Streaming, so a third-party reader fetches pages as you turn them
+  instead of downloading a whole archive to see page one, and opens on the page
+  you stopped at
 - Portable backup and restore for source settings, manual reading orders,
   confirmed metadata matches, server-side reading progress, and browser-local
   chronology/reader preferences
 - Persistent configuration and library index
 
-## Install on the DS1825+
+**Added since 0.4.14:**
+
+- Cover cache that records each cover's filename, type, dimensions, size and
+  the content fingerprint of the archive it came from, so a sleeping USB disk
+  is never woken to draw a shelf
+- A **Cache all covers** pass in Library settings, resumable, stoppable, and
+  free to re-run because it skips what is already cached
+- Covers and thumbnails are removed when their comic is
+- Optional **device pairing**: an eight-character single-use code with a
+  five-minute life, tokens stored only as SHA-256, revocation effective on the
+  device's next request, and the enabling browser paired in the same step
+- Browser-attack hardening — `Origin` allowlisting, `Host` validation against
+  DNS rebinding, and a JSON-only body requirement on mutating routes
+- `GET /api/changes?since=…` reports what was added, updated and removed since
+  a cursor, so a client syncs the difference instead of the catalogue, and is
+  told to resync rather than handed a history it would misread as complete
+- Every `/api/…` route also served at `/api/v1/…`, with the unversioned form
+  neither deprecated nor moving
+- `npm run conformance` checks a running server against this document,
+  read-only by default
+- **Custom cover artwork** for any comic, and for a reading order — which is
+  what turns an order into a storyline with a cover of its own. Stored in
+  PanelShelf's data directory, never beside your comics, and thumbnailed like
+  any other cover
+- Reading-order **export, import and repair**: a documented format recording
+  title, series, path and content fingerprint rather than bare ids, matching on
+  contents first and reporting what it could not find instead of silently
+  handing back a shorter order
+- **Library review** in Library settings — probable duplicates, grouped with
+  each copy's path, size and source, and reported rather than resolved for you;
+  plus online matches that scored too close to call
+- **Bulk metadata editing** from a search, where a blank field is left alone,
+  and bulk add-to-reading-order; over a thousand matches is refused rather than
+  partly applied
+
+## Install on your Synology
 
 1. Open **DSM → Package Center → Manual Install**.
-2. Select `PanelShelf-x86_64-0.4.11-1032.spk`.
+2. Select the package matching your NAS — `PanelShelf-x86_64-0.4.18-1041.spk`
+   for Intel/AMD models, `armv8` or `armv7` for ARM ones. **DSM → Control Panel
+   → Info Center** names the CPU if you are unsure.
 3. Accept the warning for a third-party package.
 4. Start PanelShelf and click **Open**, or visit:
    `http://YOUR-NAS-IP:8251/`
@@ -243,33 +312,61 @@ unavailable, local scans and reading continue normally and cached confirmed
 matches remain usable. GCD and Open Library cover images are not redistributed;
 PanelShelf keeps using the archive's local cover.
 
-## OPDS reader access
+## Read it in the app you already use
 
-Compatible reader apps can connect to:
+The built-in browser reader is not the only way in. PanelShelf publishes a
+standard **OPDS 1.2** catalog with the **[OPDS Page Streaming Extension][pse]**,
+so a large family of existing comic and ebook readers can browse, search,
+stream and download from it with no PanelShelf-specific support of any kind.
+
+Point the reader at:
 
 `http://YOUR-NAS-IP:8251/opds`
 
-The OPDS 1.2 catalog provides All comics, Publishers, Sources and folders,
-automatic and manual Reading orders, search, local cover images, and direct
-CBZ/CBR acquisition with byte-range support. Reading-order feeds preserve the
-order stored by PanelShelf.
+### Readers that speak it
 
-OPDS access is read-only. Reader-app progress is not synchronized back to
-PanelShelf, because generic OPDS 1.2 does not define a universal progress
-protocol. This preview is intended for a trusted LAN and does not yet protect
-the OPDS catalog with user authentication.
+**Page streaming (PSE)** — pages arrive as you turn them, so opening a 400 MB
+volume does not mean downloading 400 MB first:
 
-### Reading in a third-party app
+| Reader | Platform |
+|---|---|
+| [Chunky Comic Reader](https://apps.apple.com/app/id663567628) | iPad |
+| [Panels](https://panels.app) | iPhone, iPad, Mac |
+| [ComicShare](https://apps.apple.com/app/id642097030) | iPhone, iPad |
+| [Challenger Comics Viewer](https://play.google.com/store/apps/details?id=com.mnm.challenger) | Android |
+| [OPDSy](https://play.google.com/store/apps/details?id=com.opdsy) | Android |
 
-PanelShelf speaks OPDS, so readers that do — Panels, Chunky, KyBook and others —
-can browse, search, download and see covers without any PanelShelf-specific
-support. With device pairing on, they authenticate with HTTP Basic: any
-username, and the device token as the password.
+**Standard OPDS** — browse, search, covers and whole-archive download. These
+work against PanelShelf but fetch the full CBZ/CBR rather than single pages:
 
-It also implements the [OPDS Page Streaming Extension][pse], which is the
-difference between usable and not on a phone network. Without it a reader must
-download an entire archive to look at one page; with it, it fetches pages as you
-turn them.
+| Reader | Platform |
+|---|---|
+| [KOReader](https://koreader.rocks) | Kindle, Kobo, PocketBook, Android, Linux |
+| [Thorium Reader](https://thorium.edrlab.org) | Windows, macOS, Linux |
+| [Librera Reader](https://librera.mobi) | Android |
+| [Moon+ Reader](https://www.moondownload.com) | Android |
+| [KyBook 3](http://kybook-reader.com) | iPhone, iPad |
+| [Foliate](https://johnfactotum.github.io/foliate/) | Linux |
+
+The lists are readers whose own documentation states OPDS — and, in the first
+table, PSE — support. PanelShelf's side is what has been verified here: the feed
+is valid OPDS 1.2, advertises the right page count, and hands over the page
+template unaltered. Any client conforming to those specs should work; if one
+doesn't, that's a bug worth an issue.
+
+### What the catalog offers
+
+All comics, Publishers, Sources and folders, automatic and manual Reading
+orders, search, local cover images, and direct CBZ/CBR acquisition with
+byte-range support. Reading-order feeds preserve the order stored by PanelShelf.
+
+OPDS access is **read-only** — a reader cannot alter your library through it.
+With device pairing on, readers authenticate with HTTP Basic, which is all most
+of them can send: any username, and the device token as the password. With
+pairing off, the catalog is as open as the rest of the server, which is why the
+[Security scope](#security-scope) above matters.
+
+### How page streaming works here
 
 [pse]: https://vaemendis.net/opds-pse/
 
