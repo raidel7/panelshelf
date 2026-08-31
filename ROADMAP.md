@@ -116,9 +116,11 @@ alongside the app.
 
 ### Known gaps in the foundation
 
-- The secure-deployment half of section 8 is untouched: pairing-code redemption
-  is unthrottled, the web is not laid out for a phone, and there is no support
-  bundle. Section 8.
+- Section 8 is code-complete and has run on nothing but a laptop. The NAS is
+  still on 0.4.16-1038, so reader profiles, pairing-code throttling, the
+  forwarded-header handling, the support bundle, and the phone layout have all
+  been written and none of them has been installed. The next thing this needs is
+  hardware, not more code.
 - The cover cache has no size ceiling and no limit on how many thumbnails it
   will generate at once. Section 10.
 - The web viewer still downloads the full library listing, because it needs
@@ -829,14 +831,38 @@ Built:
   restores on 0.4.18 rather than being refused by it.
 - The web side of all of the above: naming the readers, saying which one this
   browser is, and binding a device to one.
+- Rate limiting on pairing-code redemption: ten wrong codes from one caller or
+  a hundred from everyone, per fifteen minutes, then `429` with a `Retry-After`.
+  Callers are counted by IPv6 prefix rather than by address, because a single
+  host owns a whole /64. A fresh code clears the count, and generating one is
+  guarded once pairing is on, so only somebody already paired can do it.
+- `X-Forwarded-For` and `X-Forwarded-Proto` honoured from an address named in
+  `PANELSHELF_TRUSTED_PROXY`, and from nowhere else. With it set, pairing
+  attempts are counted against the caller the proxy reports rather than the
+  proxy, and the device cookie is marked `Secure` on a request that reached the
+  proxy over HTTPS. Both defaults have to be the untrusting one: a `Secure`
+  cookie is never sent over plain HTTP, and a forwarded address from an unnamed
+  source is a value the caller chose.
+- Reverse-proxy and HTTPS documentation, with working DSM Application Portal,
+  nginx and Caddy configuration. The DSM service script reads `PANELSHELF_`
+  settings from `panelshelf.env` beside the data, since the package directory is
+  replaced on every upgrade — parsed rather than sourced, because the server
+  writes to that directory itself.
+- An exportable support bundle: versions, configuration, source arrangement and
+  reachability, counts, device names, and the tail of the log. No device token
+  or its hash, no provider key — not even the masked hint the settings page
+  shows — no page, cover or archive listing, and no record of what anyone has
+  read. Source paths are included, because they are the subject of most of what
+  goes wrong, and the file opens by saying so.
+- Responsive tablet and phone layout: a breakpoint for an iPad, one for a small
+  phone, and one for a phone held sideways, which is the position a comic is
+  actually read in. `dvh` beside every `vh`, so the reader's toolbar stops
+  hanging behind a phone's address bar, and `viewport-fit=cover` with safe-area
+  padding on everything that touches an edge.
 
 Still to do:
 
-- Rate limiting on pairing-code redemption.
-- Responsive tablet and phone improvements on the web.
-- Trusted reverse-proxy and HTTPS documentation.
-- An exportable support bundle with sanitized configuration, versions, and logs
-  — never credentials or comic contents.
+- Nothing. The section is code-complete and has not run on real hardware.
 
 ### Release gates
 
@@ -853,6 +879,12 @@ Still to do:
   cannot silently strand somebody's shelf where nothing can find it.
 - Backup and restore carry every reader profile's progress and skips without
   exporting a reusable device token.
+- A support bundle contains no device token, no token hash, no provider key,
+  and nothing about which comics anyone has read.
+- Turning a proxy's forwarded headers on is an explicit act. Unset, they are
+  ignored however well formed they are.
+- The reader fills a phone's visible viewport, not the taller one it reports
+  with the address bar hidden.
 
 ## 10. 0.7 — Reliability, performance, and administration — server
 
