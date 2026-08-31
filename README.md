@@ -334,7 +334,7 @@ see [SECURITY.md](SECURITY.md).
 ## Install on your Synology
 
 1. Open **DSM → Package Center → Manual Install**.
-2. Select the package matching your NAS — `PanelShelf-x86_64-0.4.18-1041.spk`
+2. Select the package matching your NAS — `PanelShelf-x86_64-0.5.0-1042.spk`
    for Intel/AMD models, `armv8` or `armv7` for ARM ones. **DSM → Control Panel
    → Info Center** names the CPU if you are unsure.
 3. Accept the warning for a third-party package.

@@ -20,7 +20,7 @@ const { createSupportBundle } = require("./support-bundle");
 const { DEFAULT_READER_ID } = require("./reader-profiles");
 const { jsonError } = require("./util");
 
-const VERSION = "0.4.18";
+const VERSION = "0.5.0";
 // The JSON API's own version, which moves independently of the package's.
 // A client asks for `/api/v1/...`; `/api/...` is the same surface under its
 // original name and stays that way, because the iPad client is released from

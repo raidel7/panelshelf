@@ -1,3 +1,102 @@
+# PanelShelf 0.5.0-1042
+
+Two people can share a library without sharing a shelf, and a server that is
+going to sit behind a proxy now has the documentation and the settings to do it.
+
+## Reader profiles
+
+- A household can name its readers in **Library settings**. Each one gets its
+  own reading positions and its own set-aside chronology branches; everything
+  else about the library — sources, metadata, reading orders, storylines,
+  covers — stays shared, because it describes the library rather than the
+  reader.
+- A profile is a namespace, not an account. There is no password, it grants
+  nothing, and device pairing remains the only thing standing between the
+  library and a stranger.
+- Upgrading is silent. Existing progress and skipped branches become the default
+  profile's, and a client that names no profile reads and writes exactly what it
+  did before.
+- Third-party OPDS readers, which cannot send a header PanelShelf invents, are
+  reached three other ways: the reader's name in the HTTP Basic username box, a
+  profile bound to the paired device, or a catalogue address of its own at
+  `/opds/r/<name>`. A name nothing recognises is treated as no name at all, so a
+  typo falls through to the device's own profile rather than stranding a shelf
+  where nothing can find it.
+- Backups carry every profile at schema 1, so a 0.5 backup still restores on
+  0.4.18 rather than being refused by it.
+
+## Pairing codes cost something to guess
+
+- Ten wrong codes from one caller, or a hundred from everyone together, per
+  fifteen minutes, and pairing answers `429` with a `Retry-After`. Generating a
+  fresh code clears the count, and that route needs a token once pairing is on,
+  so only somebody already paired can clear it.
+- Callers are counted by IPv6 prefix rather than by address, because a single
+  host owns a whole /64 and can present a new address for every request.
+- This is not what makes a code hard to guess — eight characters from a
+  thirty-one letter alphabet is 852,891,037,441 codes, each alive five minutes.
+  It is here so a looping client cannot spend the server's time.
+
+## Behind a reverse proxy
+
+- `PANELSHELF_TRUSTED_PROXY` names the addresses whose `X-Forwarded-For` and
+  `X-Forwarded-Proto` are worth reading, or `loopback` for a proxy on the NAS
+  itself. Empty by default, because anyone who can reach the port can write
+  those headers.
+- With it set, pairing attempts are counted against the caller the proxy reports
+  rather than against the proxy, and the device cookie is marked `Secure` on any
+  request that reached the proxy over HTTPS.
+- Working configuration for DSM's Application Portal, nginx and Caddy is in the
+  README.
+- On DSM these settings live in `panelshelf.env` beside the data, so an upgrade
+  does not overwrite them. The file is parsed rather than sourced: PanelShelf
+  writes to that directory itself, and a settings file that could run commands
+  is a worse thing to keep there than one that cannot.
+
+## Support bundle
+
+- **Library settings → Download support bundle** collects versions, how the
+  server is configured, every source and whether it is reachable, counts of
+  comics and reading positions, the names and dates of paired devices, and the
+  end of the log.
+- It carries no device token or token hash, no metadata provider key — not even
+  the masked hint the settings page shows — no page, cover or archive listing,
+  and no record of what anyone has read. Tokens and keys that turn up in the log
+  are replaced in place, so the line still says what happened.
+- It does carry the full path of every source folder, because a path is the
+  subject of most of what goes wrong. A path can contain a person's name, so the
+  file opens by saying in words what is in it.
+
+## A phone, a tablet, and a phone held sideways
+
+- Breakpoints for an iPad, for a small phone, and for a phone turned sideways —
+  which is the position a comic is actually read in, and has about four hundred
+  points of height to spend.
+- The reader used to hang its toolbar behind a phone's address bar: `100vh` is
+  measured with the browser's own chrome hidden, and the only gesture in the
+  reader is a page turn, which never scrolls it away. Every full-height surface
+  now states the visible height beside it.
+- The reader fills a notched screen, and every control that would land under the
+  notch or the home indicator is padded clear of it.
+
+## Also fixed
+
+- A malformed `POST /api/skips` answered `500` instead of `400`. Present since
+  0.4.13.
+- A reader profile named with an accent — "Ana María" — matched nothing in the
+  `X-PanelShelf-Reader` header and quietly wrote to the default shelf, because
+  header bytes are decoded as latin1.
+
+## Validation
+
+- 397 server tests pass, thirty-eight of them new, plus 18/18 API conformance
+  checks against a running server. Two bugs were found by running the real
+  server rather than by the suite: the accented-name header above, and a support
+  bundle that named every source while saying nothing about whether any of them
+  was plugged in.
+- Not yet installed on Synology hardware. The developer's NAS is still on
+  0.4.16-1038.
+
 # PanelShelf 0.4.18-1041
 
 Third-party comic readers can now page through a comic instead of downloading

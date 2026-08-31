@@ -1,10 +1,10 @@
 # PanelShelf Roadmap
 
-Updated: 2026-08-30
+Updated: 2026-08-31
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.4.18, build 1041 | Released. The developer's NAS runs 0.4.16. |
+| **Server and web** | 0.5.0, build 1042 | Released. The developer's NAS runs 0.4.16. |
 | **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
@@ -100,6 +100,7 @@ The current build provides:
 | 0.4.16 / 1039 | Library folders no longer opens empty over a configured library |
 | 0.4.17 / 1040 | Storylines, chosen covers, order portability, duplicates, bulk editing |
 | 0.4.18 / 1041 | OPDS page streaming, so third-party readers page instead of downloading |
+| 0.5.0 / 1042 | Reader profiles, pairing-code limits, trusted proxies, support bundle, phone layout |
 
 Nothing is unreleased on `main`. The 0.4.14 heading covers 1035 and 1036 as
 point fixes. The iPad client cannot pair yet — that is client work, and pairing
@@ -600,8 +601,8 @@ and Franco-Belgian publishers.
 
 ## Delivery sequence
 
-Server milestones continue from 0.4.18. The numbers 0.4.4 through 0.4.18 are
-spent; anything planned takes 0.4.19 or later. 0.4.18 was not a planned
+Server milestones continue from 0.5.0. The numbers 0.4.4 through 0.4.18 are
+spent, and so is 0.5.0; anything planned takes 0.5.1 or later. 0.4.18 was not a planned
 milestone: it answers the question of how anyone reads comfortably on an iPad
 while the first-party client is still unreleased. Section numbers are stable
 identifiers and are referenced elsewhere in this document, so the gaps below
@@ -612,7 +613,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 | 5 | 0.4.15 — Offline shelf and cover cache | **Done** — 0.4.15 | — |
 | 6 | 0.4.16 — Sync API hardening | **Done** — 0.4.16 | — |
 | 7 | 0.4.17 — Storylines and advanced library editing | **Done** — 0.4.17 | — |
-| 8 | 0.5 — Reader profiles and secure deployment | Planned | 1–2 weeks |
+| 8 | 0.5 — Reader profiles and secure deployment | **Done** — 0.5.0, untested on hardware | — |
 | 10 | 0.7 — Reliability, performance, administration | Planned | 3–5 weeks |
 | 11 | 0.9 — Synology marketplace candidate | Planned | 3–6 weeks plus review |
 | 12 | 1.0 — Public release | Planned | After the gates above |
