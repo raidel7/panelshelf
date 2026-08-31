@@ -124,6 +124,21 @@ HTTP Basic, put the token in the password field and anything in the username.
 `/api/health` and `/api/discovery` stay open so a client can tell a wrong
 address from an unpaired server.
 
+Wrong codes are counted. Ten from one caller, or a hundred from all callers
+together, within fifteen minutes, and `POST /api/devices/pair` answers `429`
+with a `Retry-After` telling you when the next attempt is allowed. Generating a
+fresh pairing code clears both counts — that route needs a token once pairing is
+on, so the only person who can clear them is one already paired, which is also
+the only person who would want to. Ten wrong codes is far more than anyone
+mistypes, and the second count exists because one IPv6 machine owns a whole /64
+and can present a new address for every request; callers are counted by prefix
+rather than by address for the same reason.
+
+None of that is what makes a code hard to guess. Eight characters from a
+thirty-one letter alphabet is 852,891,037,441 codes and each lives five minutes;
+the limit is there so a looping client cannot spend the server's time, and so
+the guarantee is a sentence rather than an arithmetic argument.
+
 If pairing is on and every client has lost its token, recovery means setting
 `enabled` to `false` in `devices.json` in the data directory, over SSH.
 

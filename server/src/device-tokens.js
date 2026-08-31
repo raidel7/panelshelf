@@ -25,6 +25,13 @@ const PAIRING_TTL_MS = 5 * 60 * 1000;
 // No 0/O or 1/I/L: this gets read off a screen and typed into a tablet.
 const PAIRING_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const PAIRING_LENGTH = 8;
+// A household pairs one device at a time and a code lives five minutes, so
+// twenty outstanding at once is already generous. The ceiling is here because
+// generating a code needs no credential while pairing is off, and a caller
+// looping on that route would otherwise grow this map for as long as it ran.
+// Once pairing is on the route is guarded, which is why evicting the oldest is
+// safe: nobody but the owner can push their own fresh code out of the map.
+const MAX_LIVE_PAIRING_CODES = 20;
 // Stamping a last-used time on every request would write the file on every
 // request. The display is "roughly when", so a minute of drift costs nothing.
 const LAST_USED_PERSIST_MS = 60 * 1000;
@@ -143,6 +150,12 @@ class DeviceTokenStore {
     // map from growing on a server nobody ever pairs with successfully.
     for (const [existing, expiry] of this.pairings) {
       if (expiry <= Date.now()) this.pairings.delete(existing);
+    }
+    // Insertion order, so the oldest still-live code is the first one out.
+    while (this.pairings.size > MAX_LIVE_PAIRING_CODES) {
+      const oldest = this.pairings.keys().next().value;
+      if (oldest === undefined || oldest === code) break;
+      this.pairings.delete(oldest);
     }
     this.pairings.set(code, expiresAt);
     return { code, expiresAt: new Date(expiresAt).toISOString() };

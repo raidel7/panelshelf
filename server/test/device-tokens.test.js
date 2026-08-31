@@ -147,3 +147,28 @@ test("a corrupt device file resets rather than refusing to start", async (t) => 
   assert.equal(reopened.enabled, false, "resets closed, not open");
   assert.deepEqual(reopened.list(), []);
 });
+
+test("outstanding pairing codes stay bounded, newest kept", async (t) => {
+  const { created } = await store(t);
+
+  // Generating a code needs no credential while pairing is off, so a caller
+  // looping on that route must not be able to grow this map without limit.
+  const codes = [];
+  for (let index = 0; index < 200; index += 1) {
+    codes.push((await created.createPairingCode()).code);
+  }
+  assert.ok(created.pairings.size <= 20, `saw ${created.pairings.size} live codes`);
+
+  // The newest survives, which is the one the owner is reading off the screen
+  // right now. Anything else would let a flood push their code out from under
+  // them between generating it and typing it in.
+  const newest = codes[codes.length - 1];
+  const redeemed = await created.redeemPairingCode(newest, { name: "iPad" });
+  assert.match(redeemed.token, /^pst_/);
+
+  // And an old one is gone rather than lingering as a second live credential.
+  await assert.rejects(
+    () => created.redeemPairingCode(codes[0], { name: "Chancer" }),
+    (error) => error.code === "INVALID_PAIRING_CODE"
+  );
+});

@@ -10,6 +10,7 @@ const { ComicLibrary, browseFolders, recentlyAdded } = require("./library");
 const { MAX_ARTWORK_BYTES } = require("./custom-artwork");
 const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
+const { AttemptLimiter, clientKey } = require("./rate-limit");
 const { DEFAULT_READER_ID } = require("./reader-profiles");
 const { jsonError } = require("./util");
 
@@ -276,6 +277,7 @@ function sendError(response, error) {
     SCAN_RUNNING: 409,
     UNAUTHORIZED: 401,
     INVALID_PAIRING_CODE: 400,
+    TOO_MANY_PAIRING_ATTEMPTS: 429,
     INVALID_READER_PROFILE: 400,
     TOO_MANY_READER_PROFILES: 400,
     INVALID_ARTWORK: 400,
@@ -309,6 +311,12 @@ function sendError(response, error) {
     UNSUPPORTED_MEDIA_TYPE: 415
   };
   const status = statusByCode[error.code] || 500;
+  // Set before sendJson writes the head, which merges what is already there.
+  // A 429 with no Retry-After tells a client to back off without telling it
+  // how far, and the honest answer is one this server already knows.
+  if (status === 429 && Number.isFinite(error.retryAfterSeconds)) {
+    response.setHeader("Retry-After", String(error.retryAfterSeconds));
+  }
   sendJson(response, status, {
     error: {
       code: error.code || "INTERNAL_ERROR",
@@ -468,6 +476,11 @@ async function startServer() {
   // which must still be answerable rather than a 404.
   let advertisement = null;
   let advertisementError = null;
+
+  // Per server rather than per module: a process running two of these — the
+  // tests do, dozens of times — must not have one of them spend the other's
+  // budget and fail a run for reasons that have nothing to do with the case.
+  const pairingAttempts = new AttemptLimiter();
 
   const server = http.createServer(async (request, response) => {
     setSecurityHeaders(response);
@@ -856,18 +869,36 @@ async function startServer() {
       }
 
       if (request.method === "POST" && pathname === "/api/devices/pairing-code") {
+        // Asking for a fresh code is the gesture of someone who means to pair
+        // right now, and it is a guarded route once pairing is on. Clearing
+        // the attempt budget here is what keeps a stranger on the LAN from
+        // spending it and leaving the household unable to add a tablet.
+        pairingAttempts.reset();
         return sendJson(response, 200, await library.deviceTokens.createPairingCode());
       }
 
       if (request.method === "POST" && pathname === "/api/devices/pair") {
+        // The one route that hands out a credential to a caller holding none,
+        // so it is the one route worth counting wrong answers on.
+        const attemptKey = clientKey(request);
+        pairingAttempts.check(attemptKey);
         const body = await readJsonBody(request);
-        const paired = await library.deviceTokens.redeemPairingCode(body.code, {
-          name: body.name,
-          // Named at pairing time, so a third-party OPDS reader lands on the
-          // right shelf from its very first request. An unknown name binds
-          // nothing rather than failing the pairing.
-          readerProfileId: library.matchReaderProfile(body.readerProfileId)
-        });
+        let paired;
+        try {
+          paired = await library.deviceTokens.redeemPairingCode(body.code, {
+            name: body.name,
+            // Named at pairing time, so a third-party OPDS reader lands on the
+            // right shelf from its very first request. An unknown name binds
+            // nothing rather than failing the pairing.
+            readerProfileId: library.matchReaderProfile(body.readerProfileId)
+          });
+        } catch (error) {
+          // Only a wrong code counts. A malformed body is a client bug and a
+          // person retyping their tablet's name should not spend the budget
+          // that protects the code itself.
+          if (error.code === "INVALID_PAIRING_CODE") pairingAttempts.fail(attemptKey);
+          throw error;
+        }
         // Set for a browser redeeming a code; a native client ignores it and
         // keeps the token from the body instead.
         response.setHeader("Set-Cookie", deviceCookieHeader(paired.token));
