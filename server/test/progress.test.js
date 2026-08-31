@@ -157,6 +157,7 @@ const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { ProgressStore } = require("../src/progress");
+const { DEFAULT_READER_ID: READER } = require("../src/reader-profiles");
 
 async function temporaryStore() {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-progress-"));
@@ -168,49 +169,49 @@ async function temporaryStore() {
 test("save stamps lastReadAt and round-trips through disk", async () => {
   const { directory, store } = await temporaryStore();
 
-  const saved = await store.save(COMIC_A, { pageIndex: 13, pageCount: 32 });
+  const saved = await store.save(READER, COMIC_A, { pageIndex: 13, pageCount: 32 });
   assert.equal(saved.pageIndex, 13);
   assert.ok(Date.parse(saved.lastReadAt) > 0);
 
   const reopened = new ProgressStore(directory);
   await reopened.initialize();
-  assert.equal(reopened.get(COMIC_A).pageIndex, 13);
+  assert.equal(reopened.get(READER, COMIC_A).pageIndex, 13);
 });
 
 test("save rejects an invalid comic id", async () => {
   const { store } = await temporaryStore();
-  await assert.rejects(() => store.save("nope", { pageIndex: 1 }), {
+  await assert.rejects(() => store.save(READER, "nope", { pageIndex: 1 }), {
     code: "NOT_FOUND"
   });
 });
 
 test("remove deletes a record", async () => {
   const { store } = await temporaryStore();
-  await store.save(COMIC_A, { pageIndex: 3 });
-  await store.remove(COMIC_A);
-  assert.equal(store.get(COMIC_A), null);
+  await store.save(READER, COMIC_A, { pageIndex: 3 });
+  await store.remove(READER, COMIC_A);
+  assert.equal(store.get(READER, COMIC_A), null);
 });
 
 test("merge applies newest-wins and persists", async () => {
   const { directory, store } = await temporaryStore();
-  await store.save(COMIC_A, { pageIndex: 3 });
+  await store.save(READER, COMIC_A, { pageIndex: 3 });
 
-  await store.merge({
+  await store.merge(READER, {
     [COMIC_A]: { pageIndex: 30, lastReadAt: "2000-01-01T00:00:00.000Z" },
     [COMIC_B]: { pageIndex: 7, lastReadAt: "2026-08-12T00:00:00.000Z" }
   });
 
   const reopened = new ProgressStore(directory);
   await reopened.initialize();
-  assert.equal(reopened.get(COMIC_A).pageIndex, 3, "older incoming record loses");
-  assert.equal(reopened.get(COMIC_B).pageIndex, 7);
+  assert.equal(reopened.get(READER, COMIC_A).pageIndex, 3, "older incoming record loses");
+  assert.equal(reopened.get(READER, COMIC_B).pageIndex, 7);
 });
 
 test("initialize tolerates a missing file", async () => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-progress-"));
   const store = new ProgressStore(directory);
   await store.initialize();
-  assert.deepEqual(store.exportData(), {});
+  assert.deepEqual(store.exportData(READER), {});
 });
 
 test("initialize tolerates a corrupt file, preserving it and starting empty", async () => {
@@ -227,7 +228,7 @@ test("initialize tolerates a corrupt file, preserving it and starting empty", as
     console.warn = originalWarn;
   }
 
-  assert.deepEqual(store.exportData(), {});
+  assert.deepEqual(store.exportData(READER), {});
 
   const entries = await fsp.readdir(directory);
   assert.equal(entries.includes("progress.json"), false);
@@ -242,10 +243,10 @@ test("save serializes concurrent writes so the persisted file is never torn", as
   const { directory, store } = await temporaryStore();
 
   await Promise.all([
-    store.save(COMIC_A, { pageIndex: 1 }),
-    store.merge({ [COMIC_B]: { pageIndex: 2, lastReadAt: "2026-08-12T00:00:00.000Z" } }),
-    store.save(COMIC_A, { pageIndex: 3 }),
-    store.merge({ [COMIC_B]: { pageIndex: 4, lastReadAt: "2026-08-12T00:00:01.000Z" } })
+    store.save(READER, COMIC_A, { pageIndex: 1 }),
+    store.merge(READER, { [COMIC_B]: { pageIndex: 2, lastReadAt: "2026-08-12T00:00:00.000Z" } }),
+    store.save(READER, COMIC_A, { pageIndex: 3 }),
+    store.merge(READER, { [COMIC_B]: { pageIndex: 4, lastReadAt: "2026-08-12T00:00:01.000Z" } })
   ]);
 
   const raw = await fsp.readFile(path.join(directory, "progress.json"), "utf8");
@@ -254,8 +255,8 @@ test("save serializes concurrent writes so the persisted file is never torn", as
 
   const reopened = new ProgressStore(directory);
   await reopened.initialize();
-  assert.ok(reopened.get(COMIC_A), "comic A record should have persisted");
-  assert.ok(reopened.get(COMIC_B), "comic B record should have persisted");
+  assert.ok(reopened.get(READER, COMIC_A), "comic A record should have persisted");
+  assert.ok(reopened.get(READER, COMIC_B), "comic B record should have persisted");
 });
 
 const canRestrictOwnWrites = typeof process.getuid === "function" && process.getuid() !== 0;
@@ -269,7 +270,7 @@ test(
     await fsp.chmod(directory, 0o500);
     let firstError = null;
     try {
-      await store.save(COMIC_A, { pageIndex: 1 });
+      await store.save(READER, COMIC_A, { pageIndex: 1 });
       assert.fail("expected the write to fail while the directory is read-only");
     } catch (error) {
       firstError = error;
@@ -278,23 +279,23 @@ test(
     }
     assert.ok(firstError, "the failing save should reject with its own error");
 
-    const saved = await store.save(COMIC_B, { pageIndex: 2 });
+    const saved = await store.save(READER, COMIC_B, { pageIndex: 2 });
     assert.equal(saved.pageIndex, 2);
 
     const reopened = new ProgressStore(directory);
     await reopened.initialize();
-    assert.equal(reopened.get(COMIC_B).pageIndex, 2, "the later write should have reached disk");
+    assert.equal(reopened.get(READER, COMIC_B).pageIndex, 2, "the later write should have reached disk");
   }
 );
 
 test("applyBatch stamps server time and applies over a newer stored record", async () => {
   const { directory, store } = await temporaryStore();
-  await store.save(COMIC_A, { pageIndex: 3, pageCount: 30 });
-  await store.save(COMIC_B, { pageIndex: 4, pageCount: 30 });
+  await store.save(READER, COMIC_A, { pageIndex: 3, pageCount: 30 });
+  await store.save(READER, COMIC_B, { pageIndex: 4, pageCount: 30 });
 
   // A client whose clock runs slow: the incoming stamp is older than the one
   // already stored, which merge would reject. A deliberate write must not care.
-  const applied = await store.applyBatch({
+  const applied = await store.applyBatch(READER, {
     records: {
       [COMIC_A]: {
         pageIndex: 29,
@@ -316,80 +317,80 @@ test("applyBatch stamps server time and applies over a newer stored record", asy
 
   const reopened = new ProgressStore(directory);
   await reopened.initialize();
-  assert.equal(reopened.get(COMIC_A).pageIndex, 29);
-  assert.equal(reopened.get(COMIC_B), null);
+  assert.equal(reopened.get(READER, COMIC_A).pageIndex, 29);
+  assert.equal(reopened.get(READER, COMIC_B), null);
 });
 
 test("applyBatch tolerates missing halves and an empty batch", async () => {
   const { store } = await temporaryStore();
-  await store.save(COMIC_A, { pageIndex: 3 });
+  await store.save(READER, COMIC_A, { pageIndex: 3 });
 
-  assert.deepEqual(await store.applyBatch({}), store.exportData());
-  await store.applyBatch({ deleted: [COMIC_A] });
-  assert.equal(store.get(COMIC_A), null);
-  await store.applyBatch({ records: { [COMIC_B]: { pageIndex: 1 } } });
-  assert.equal(store.get(COMIC_B).pageIndex, 1);
+  assert.deepEqual(await store.applyBatch(READER, {}), store.exportData(READER));
+  await store.applyBatch(READER, { deleted: [COMIC_A] });
+  assert.equal(store.get(READER, COMIC_A), null);
+  await store.applyBatch(READER, { records: { [COMIC_B]: { pageIndex: 1 } } });
+  assert.equal(store.get(READER, COMIC_B).pageIndex, 1);
 });
 
 test("applyBatch rejects a bad batch without applying any of it", async () => {
   const { store } = await temporaryStore();
-  await store.save(COMIC_A, { pageIndex: 3 });
+  await store.save(READER, COMIC_A, { pageIndex: 3 });
 
   // A syntactically invalid id is a bad request, not a missing comic, and
   // unlike save()'s guard this one is reachable over HTTP: the batch route has
   // no id regex to pre-filter it.
   await assert.rejects(
-    () => store.applyBatch({ records: { nope: { pageIndex: 1 } }, deleted: [COMIC_A] }),
+    () => store.applyBatch(READER, { records: { nope: { pageIndex: 1 } }, deleted: [COMIC_A] }),
     { code: "INVALID_PROGRESS" }
   );
-  await assert.rejects(() => store.applyBatch({ deleted: [COMIC_A, "nope"] }), {
+  await assert.rejects(() => store.applyBatch(READER, { deleted: [COMIC_A, "nope"] }), {
     code: "INVALID_PROGRESS"
   });
-  await assert.rejects(() => store.applyBatch({ deleted: [COMIC_A, 7] }), {
+  await assert.rejects(() => store.applyBatch(READER, { deleted: [COMIC_A, 7] }), {
     code: "INVALID_PROGRESS"
   });
-  await assert.rejects(() => store.applyBatch({ records: [] }), {
+  await assert.rejects(() => store.applyBatch(READER, { records: [] }), {
     code: "INVALID_PROGRESS"
   });
-  await assert.rejects(() => store.applyBatch({ deleted: {} }), {
+  await assert.rejects(() => store.applyBatch(READER, { deleted: {} }), {
     code: "INVALID_PROGRESS"
   });
-  await assert.rejects(() => store.applyBatch("nope"), { code: "INVALID_PROGRESS" });
+  await assert.rejects(() => store.applyBatch(READER, "nope"), { code: "INVALID_PROGRESS" });
 
-  assert.equal(store.get(COMIC_A).pageIndex, 3, "a rejected batch changes nothing");
+  assert.equal(store.get(READER, COMIC_A).pageIndex, 3, "a rejected batch changes nothing");
 });
 
 test("applyBatch stages the whole batch before applying any of it", async () => {
   const { directory, store } = await temporaryStore();
-  await store.save(COMIC_A, { pageIndex: 3 });
-  await store.save(COMIC_B, { pageIndex: 4 });
+  await store.save(READER, COMIC_A, { pageIndex: 3 });
+  await store.save(READER, COMIC_B, { pageIndex: 4 });
 
   // The valid record comes first, so a store that assigned as it walked the
   // batch would already have applied it by the time the bad key threw.
   await assert.rejects(
     () =>
-      store.applyBatch({
+      store.applyBatch(READER, {
         records: { [COMIC_A]: { pageIndex: 20 }, nope: { pageIndex: 1 } }
       }),
     { code: "INVALID_PROGRESS" }
   );
-  assert.equal(store.get(COMIC_A).pageIndex, 3, "the earlier record is untouched");
+  assert.equal(store.get(READER, COMIC_A).pageIndex, 3, "the earlier record is untouched");
 
   // Same again, but the throw comes from normalizeRecord partway through a
   // batch whose ids are all well formed.
   await assert.rejects(
     () =>
-      store.applyBatch({
+      store.applyBatch(READER, {
         records: { [COMIC_A]: { pageIndex: 20 }, [COMIC_B]: "not an object" }
       }),
     { code: "INVALID_PROGRESS" }
   );
-  assert.equal(store.get(COMIC_A).pageIndex, 3, "the earlier record is untouched");
-  assert.equal(store.get(COMIC_B).pageIndex, 4);
+  assert.equal(store.get(READER, COMIC_A).pageIndex, 3, "the earlier record is untouched");
+  assert.equal(store.get(READER, COMIC_B).pageIndex, 4);
 
   const reopened = new ProgressStore(directory);
   await reopened.initialize();
-  assert.equal(reopened.get(COMIC_A).pageIndex, 3, "and nothing reached disk");
+  assert.equal(reopened.get(READER, COMIC_A).pageIndex, 3, "and nothing reached disk");
 });
 
 test("a queued deletion loses to a position read after it", async () => {
@@ -485,22 +486,22 @@ test("merge accepts a bare record map, records with deletions, or either alone",
   });
 
   // The web viewer's shape: a bare map, no envelope. It must keep working.
-  await store.merge({ [COMIC_A]: dated("2026-08-13T10:00:00.000Z") });
-  assert.equal(store.get(COMIC_A).pageIndex, 5);
+  await store.merge(READER, { [COMIC_A]: dated("2026-08-13T10:00:00.000Z") });
+  assert.equal(store.get(READER, COMIC_A).pageIndex, 5);
 
   // The app's shape, carrying both at once.
-  await store.merge({
+  await store.merge(READER, {
     records: { [COMIC_B]: dated("2026-08-13T11:00:00.000Z", 9) },
     deleted: { [COMIC_A]: "2026-08-13T11:00:00.000Z" }
   });
-  assert.equal(store.get(COMIC_A), null, "the deletion applied");
-  assert.equal(store.get(COMIC_B).pageIndex, 9, "the record applied");
+  assert.equal(store.get(READER, COMIC_A), null, "the deletion applied");
+  assert.equal(store.get(READER, COMIC_B).pageIndex, 9, "the record applied");
 
   // Deletions alone, with no records key at all.
-  await store.merge({ deleted: { [COMIC_B]: "2026-08-13T12:00:00.000Z" } });
-  assert.equal(store.get(COMIC_B), null);
+  await store.merge(READER, { deleted: { [COMIC_B]: "2026-08-13T12:00:00.000Z" } });
+  assert.equal(store.get(READER, COMIC_B), null);
 
   // And an envelope that deletes something already gone is not an error.
-  await store.merge({ records: {}, deleted: { [COMIC_B]: "2026-08-13T13:00:00.000Z" } });
-  assert.equal(store.get(COMIC_B), null);
+  await store.merge(READER, { records: {}, deleted: { [COMIC_B]: "2026-08-13T13:00:00.000Z" } });
+  assert.equal(store.get(READER, COMIC_B), null);
 });

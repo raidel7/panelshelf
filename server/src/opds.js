@@ -197,16 +197,22 @@ function acquisitionFeed({
   return document.replace("</feed>", `${page.links.join("\n")}\n</feed>`);
 }
 
-function publicComics(library) {
+function publicComics(library, readerProfileId) {
   return library
     .listComics()
     .filter((comic) => comic.available !== false)
     .map((comic) => {
       const record = library.publicComic(comic);
-      // Reading position is server-side and shared, so the catalogue can say
-      // where the reader got to and a streaming reader can open there. Attached
-      // here rather than threaded through three feed builders.
-      const progress = library.getProgress ? library.getProgress(comic.id) : null;
+      // Reading position is server-side, so the catalogue can say where this
+      // reader got to and a streaming reader can open there. Attached here
+      // rather than threaded through three feed builders.
+      //
+      // Which reader is a question the catalogue does not answer itself: it is
+      // resolved at the request, from the Basic username, the paired device, or
+      // the default, and arrives here already decided.
+      const progress = library.getProgress
+        ? library.getProgress(readerProfileId, comic.id)
+        : null;
       return progress ? { ...record, progress } : record;
     });
 }
@@ -238,8 +244,8 @@ function sourceFolders(comics, sourceId, prefix) {
   return { children, direct, prefix: normalizedPrefix };
 }
 
-function createOpdsCatalog(library, requestUrl, baseUrl) {
-  const comics = publicComics(library);
+function createOpdsCatalog(library, requestUrl, baseUrl, readerProfileId) {
+  const comics = publicComics(library, readerProfileId);
   const updated = latestUpdate(comics);
   const root = absolute(baseUrl, "/opds");
   const pathname = requestUrl.pathname.replace(/\/+$/, "") || "/opds";

@@ -4,6 +4,10 @@ const fsp = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { jsonError } = require("./util");
+const {
+  DEFAULT_READER_ID,
+  normalizeReaderId
+} = require("./reader-profiles");
 
 // Which chronology branches a reader has set aside. Server-owned for the same
 // reason reading progress is: it is per-reader state, not per-device, and a
@@ -15,7 +19,9 @@ const { jsonError } = require("./util");
 // when a disconnected USB source is plugged in again, so nothing prunes them.
 
 // Long enough for a deep branch under an encoded source key, short enough that
-// a malformed client cannot fill the disk one request at a time.
+// a malformed client cannot fill the disk one request at a time. The ceiling is
+// per reader profile, and the number of those is capped in turn, so the bound
+// on the whole file is still a bound.
 const MAX_NODE_ID = 512;
 const MAX_NODE_IDS = 20_000;
 
@@ -37,6 +43,29 @@ function normalizeNodeIds(value) {
   return [...seen];
 }
 
+// Node ids for every reader profile, as they sit on disk:
+//
+//   { "readers": { "default": ["chronology/source:…"], "ana": [] } }
+//
+// Anything else — a `{nodeIds: […]}` wrapper, or a bare array — is what this
+// file held before reader profiles existed, and belongs to the default profile.
+function normalizeByReader(value) {
+  const byReader = new Map();
+  const readers =
+    value && typeof value === "object" && !Array.isArray(value) && value.readers;
+  if (readers && typeof readers === "object" && !Array.isArray(readers)) {
+    for (const [candidate, nodeIds] of Object.entries(readers)) {
+      const readerId = normalizeReaderId(candidate);
+      if (!readerId) continue;
+      byReader.set(readerId, new Set(normalizeNodeIds(nodeIds?.nodeIds ?? nodeIds)));
+    }
+  } else {
+    byReader.set(DEFAULT_READER_ID, new Set(normalizeNodeIds(value?.nodeIds ?? value)));
+  }
+  if (!byReader.has(DEFAULT_READER_ID)) byReader.set(DEFAULT_READER_ID, new Set());
+  return byReader;
+}
+
 async function atomicWriteJson(filePath, value) {
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
   const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
@@ -49,7 +78,11 @@ async function atomicWriteJson(filePath, value) {
 class SkipStore {
   constructor(dataDirectory) {
     this.filePath = path.join(dataDirectory, "skips.json");
-    this.nodeIds = new Set();
+    // Reader profile id to that reader's set aside branches. A branch one
+    // person hides is hidden on every client they use and on none of anybody
+    // else's, which is the whole reason this is server-owned and namespaced
+    // rather than either local or shared.
+    this.byReader = new Map([[DEFAULT_READER_ID, new Set()]]);
     // Serialized like the progress store's, and never left rejected: one
     // transient write failure must not disable every write after it.
     this.writeQueue = Promise.resolve();
@@ -61,12 +94,11 @@ class SkipStore {
       raw = await fsp.readFile(this.filePath, "utf8");
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
-      this.nodeIds = new Set();
+      this.byReader = new Map([[DEFAULT_READER_ID, new Set()]]);
       return;
     }
     try {
-      const parsed = JSON.parse(raw);
-      this.nodeIds = new Set(normalizeNodeIds(parsed?.nodeIds ?? parsed));
+      this.byReader = normalizeByReader(JSON.parse(raw));
     } catch {
       // Soft, re-syncable data: keep the bad file for inspection rather than
       // refusing to start.
@@ -80,20 +112,49 @@ class SkipStore {
       } catch {
         console.warn(`Skip file ${this.filePath} is corrupt and was reset.`);
       }
-      this.nodeIds = new Set();
+      this.byReader = new Map([[DEFAULT_READER_ID, new Set()]]);
     }
+  }
+
+  // Refuses anything that is not a reader profile id, for the reason the
+  // progress store does: resolution happens once at the HTTP boundary, so a
+  // missing id here is a bug rather than an anonymous request, and hiding a
+  // branch on the wrong person's chronology is not a good way to report it.
+  readerKey(readerProfileId) {
+    const id = normalizeReaderId(readerProfileId);
+    if (!id) {
+      throw jsonError(
+        "A skipped collection needs a reader profile.",
+        "INVALID_READER_PROFILE"
+      );
+    }
+    return id;
+  }
+
+  nodeIdsFor(readerProfileId) {
+    return this.byReader.get(this.readerKey(readerProfileId)) || new Set();
   }
 
   persist() {
     const next = this.writeQueue
       .catch(() => {})
-      .then(() => atomicWriteJson(this.filePath, { nodeIds: [...this.nodeIds] }));
+      .then(() => atomicWriteJson(this.filePath, this.snapshot()));
     this.writeQueue = next.catch(() => {});
     return next;
   }
 
-  list() {
-    return { nodeIds: [...this.nodeIds] };
+  // A reader who has set nothing aside is not written out; the profile itself
+  // lives in readers.json.
+  snapshot() {
+    const readers = {};
+    for (const [readerProfileId, nodeIds] of this.byReader) {
+      if (nodeIds.size) readers[readerProfileId] = [...nodeIds];
+    }
+    return { readers };
+  }
+
+  list(readerProfileId) {
+    return { nodeIds: [...this.nodeIdsFor(readerProfileId)] };
   }
 
   // Skipping is a deliberate action on a named branch, and adding a branch
@@ -101,7 +162,8 @@ class SkipStore {
   // reconcile: additions and removals apply as sent. Both clients converge
   // because the set is the whole state — unlike a reading position, where
   // "page 40" from a stale device would undo "page 60" from a fresh one.
-  async apply(input) {
+  async apply(readerProfileId, input) {
+    const readerKey = this.readerKey(readerProfileId);
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw jsonError("Skip changes must be an object.", "INVALID_SKIPS");
     }
@@ -119,7 +181,7 @@ class SkipStore {
     // Removals apply first, so a request that both adds and removes the same
     // branch ends up skipping it — the add is the newer intent in every client
     // that sends both, which is the migration replaying a stored set.
-    const next = new Set(this.nodeIds);
+    const next = new Set(this.nodeIdsFor(readerKey));
     for (const id of remove) next.delete(id);
     for (const id of add) next.add(id);
     if (next.size > MAX_NODE_IDS) {
@@ -131,18 +193,35 @@ class SkipStore {
         "TOO_MANY_SKIPS"
       );
     }
-    this.nodeIds = next;
+    this.byReader.set(readerKey, next);
     await this.persist();
-    return this.list();
+    return this.list(readerKey);
   }
 
-  exportData() {
-    return [...this.nodeIds];
+  // A profile nobody uses takes its hidden branches with it.
+  async forget(readerProfileId) {
+    const id = normalizeReaderId(readerProfileId);
+    if (!id || id === DEFAULT_READER_ID) return false;
+    if (!this.byReader.delete(id)) return false;
+    await this.persist();
+    return true;
+  }
+
+  exportData(readerProfileId) {
+    return [...this.nodeIdsFor(readerProfileId)];
+  }
+
+  exportAll() {
+    return this.snapshot();
   }
 
   async restoreData(value) {
-    this.nodeIds = new Set(normalizeNodeIds(value?.nodeIds ?? value));
+    this.byReader = normalizeByReader(value);
     await this.persist();
+  }
+
+  settled() {
+    return this.writeQueue;
   }
 }
 

@@ -1642,3 +1642,180 @@ test("the catalogue advertises streaming with a real page count", async (t) => {
   assert.match(feed, /pse:count="2"/);
   assert.match(feed, /\{pageNumber\}/, "the template reaches the client unescaped");
 });
+
+// --- Reader profiles -------------------------------------------------------
+//
+// One library, one household — and a shelf each. What follows is the whole of
+// the server's share: which reader a request is about, and the two files that
+// answer differently depending on the answer.
+
+const COMIC_ID = "f".repeat(24);
+
+async function readerProgress(base, headers = {}) {
+  const response = await fetch(`${base}/api/progress/${COMIC_ID}`, { headers });
+  return { status: response.status, body: await response.json() };
+}
+
+async function putProgress(base, pageIndex, headers = {}) {
+  const response = await fetch(`${base}/api/progress/${COMIC_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({ pageIndex, pageCount: 60 })
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test("a server nobody has split reads and writes exactly as it did", async (t) => {
+  // The upgrade path. An install that never creates a second profile must not
+  // notice that any of this exists.
+  const { base, state } = await startServer(t);
+
+  const readers = await (await fetch(`${base}/api/readers`)).json();
+  assert.equal(readers.current, "default", state.logs);
+  assert.deepEqual(
+    readers.profiles.map((profile) => profile.id),
+    ["default"]
+  );
+  assert.equal(readers.profiles[0].isDefault, true);
+
+  assert.equal((await putProgress(base, 12)).status, 200, state.logs);
+  assert.equal((await readerProgress(base)).body.pageIndex, 12);
+});
+
+test("a reader profile is created, renamed, and deleted", async (t) => {
+  const { base, state } = await startServer(t);
+
+  const created = await fetch(`${base}/api/readers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ana" })
+  });
+  assert.equal(created.status, 201, state.logs);
+  const { profile } = await created.json();
+  assert.equal(profile.id, "ana");
+
+  const renamed = await fetch(`${base}/api/readers/ana`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ana María" })
+  });
+  assert.equal(renamed.status, 200, state.logs);
+  // Renaming leaves the id alone: it is what the shelf is filed under.
+  assert.equal((await renamed.json()).profile.id, "ana");
+
+  // A name is not a credential, so asking for a bad one is a plain 400 rather
+  // than anything that leaks whether it exists.
+  const blank = await fetch(`${base}/api/readers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "   " })
+  });
+  assert.equal(blank.status, 400, state.logs);
+
+  assert.equal((await fetch(`${base}/api/readers/ana`, { method: "DELETE" })).status, 200);
+  assert.equal((await fetch(`${base}/api/readers/ana`, { method: "DELETE" })).status, 404);
+  // The default has nowhere to hand its records to, so it stays.
+  const refused = await fetch(`${base}/api/readers/default`, { method: "DELETE" });
+  assert.equal(refused.status, 400, state.logs);
+});
+
+test("a named reader profile gets its own shelf", async (t) => {
+  const { base, state } = await startServer(t);
+  await fetch(`${base}/api/readers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ana" })
+  });
+
+  const asAna = { "X-PanelShelf-Reader": "Ana" };
+  await putProgress(base, 40);
+  await putProgress(base, 3, asAna);
+
+  assert.equal((await readerProgress(base)).body.pageIndex, 40, state.logs);
+  assert.equal((await readerProgress(base, asAna)).body.pageIndex, 3);
+
+  // Set-aside branches follow the same reader, for the same reason: a branch
+  // one person hides has to stay visible to the other.
+  const node = "chronology/source:src_1/folder:Secret%20Wars";
+  await fetch(`${base}/api/skips`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...asAna },
+    body: JSON.stringify({ add: [node] })
+  });
+  assert.deepEqual((await (await fetch(`${base}/api/skips`, { headers: asAna })).json()).nodeIds, [
+    node
+  ]);
+  assert.deepEqual((await (await fetch(`${base}/api/skips`)).json()).nodeIds, []);
+
+  // A reader who has not opened the comic has no record of it, rather than
+  // inheriting somebody else's.
+  const fresh = { "X-PanelShelf-Reader": "ana" };
+  await fetch(`${base}/api/progress/${COMIC_ID}`, { method: "DELETE", headers: fresh });
+  assert.equal((await readerProgress(base, fresh)).status, 404, state.logs);
+  assert.equal((await readerProgress(base)).body.pageIndex, 40, "and the other shelf is untouched");
+
+  // And the id answers alongside the name, since that is what a client stores.
+  assert.equal(
+    (await (await fetch(`${base}/api/readers`, { headers: { "X-PanelShelf-Reader": "ana" } })).json())
+      .current,
+    "ana"
+  );
+});
+
+test("an OPDS reader names its profile in the username box", async (t) => {
+  // The field is already on screen next to the password box, and the server was
+  // already decoding it and throwing it away. No extension, no invented header.
+  const { base, state } = await startServer(t);
+  await fetch(`${base}/api/readers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ana" })
+  });
+  const { body } = await enablePairing(base);
+
+  const as = (username) => ({
+    Authorization: `Basic ${Buffer.from(`${username}:${body.token}`).toString("base64")}`
+  });
+
+  await putProgress(base, 40, as("panelshelf"));
+  await putProgress(base, 3, as("Ana"));
+  assert.equal(
+    (await readerProgress(base, as("panelshelf"))).body.pageIndex,
+    40,
+    state.logs
+  );
+  assert.equal((await readerProgress(base, as("Ana"))).body.pageIndex, 3);
+
+  // The password is still the only thing that authorizes: naming a profile
+  // grants nothing on its own.
+  const noToken = await fetch(`${base}/api/progress`, {
+    headers: { Authorization: `Basic ${Buffer.from("Ana:").toString("base64")}` }
+  });
+  assert.equal(noToken.status, 401, state.logs);
+
+  // And the catalogue builds under a named reader rather than refusing one.
+  const feed = await fetch(`${base}/opds/all`, { headers: as("Ana") });
+  assert.equal(feed.status, 200, state.logs);
+});
+
+test("an unknown reader profile name falls back to the default shelf", async (t) => {
+  // A typo in a username box must show the wrong shelf, never lose the right
+  // one — and it must not quietly conjure a profile nothing can find.
+  const { base, state } = await startServer(t);
+  await putProgress(base, 40);
+
+  for (const name of ["anna", "", "  ", "Ana", "../../etc/passwd", "x".repeat(200)]) {
+    const headers = { "X-PanelShelf-Reader": name };
+    assert.equal(
+      (await readerProgress(base, headers)).body.pageIndex,
+      40,
+      `${name} should have resolved to the default: ${state.logs}`
+    );
+  }
+
+  assert.deepEqual(
+    (await (await fetch(`${base}/api/readers`)).json()).profiles.map((p) => p.id),
+    ["default"],
+    "none of that created a profile"
+  );
+});

@@ -663,10 +663,66 @@ nothing and an interrupted one is resumed simply by starting it again. Covers
 whose format cannot be shrunk count as warm: that verdict is recorded, and not
 repeating it is most of the point.
 
+## Reader profiles
+
+PanelShelf holds one library, in whatever arrangement your drive already has,
+for one household. It has no accounts. What it does have is somewhere to put two
+people's shelves, so that you and whoever else reads from this server do not
+overwrite each other's places.
+
+A reader profile is a namespace, not an account. It carries no password and
+grants nothing: naming one is not a claim about who you are, and [device
+pairing](#device-pairing) is still the only thing standing between the library
+and a stranger. Of everything the server stores, exactly two things are filed
+per reader — reading progress and set-aside chronology branches. Sources,
+metadata, reading orders, storylines, artwork and the index itself stay shared,
+because they describe the library rather than the reader.
+
+(Unrelated to an *organization profile*, which is how a source is arranged on
+disk. Different thing, unfortunate word.)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/readers` | Every profile, and which one this request resolved to |
+| POST | `/api/readers` | Create one from a `{ "name": … }` body |
+| PUT | `/api/readers/:readerId` | Rename one; the id does not change |
+| DELETE | `/api/readers/:readerId` | Delete one, and the shelf that went with it |
+
+The `default` profile always exists and cannot be deleted. Every record written
+before reader profiles existed belongs to it, which is why upgrading changes
+nothing for a server nobody has split.
+
+### Which profile a request is about
+
+Resolved in three steps, first match winning.
+
+**1. Named.** Send `X-PanelShelf-Reader: <name or id>`. A third-party OPDS
+reader cannot send a header PanelShelf invented, and does not have to: put the
+profile name in the **username** box and the device token in the password box.
+The username was already being decoded and discarded, so it costs a reader
+nothing but typing.
+
+**2. Bound to the device.** *Not yet implemented.* A paired device will be
+bindable to a profile, so a reader with no username box still lands on the right
+shelf.
+
+**3. Default.** Nothing named, nothing bound.
+
+A name that matches no profile resolves to the default rather than creating one.
+Being wrong about your own name should show you the wrong shelf, never lose you
+the right one. Ids are matched first, then display names, both
+case-insensitively — so `ana`, `Ana` and `ANA` are the same profile, and `anna`
+is the default.
+
+Renaming a profile never changes its id, because the id is what every record is
+filed under.
+
 ## Reading progress API
 
 Reading progress lives on the server, so every browser — and the companion
-iPad app — shares one reading position per comic.
+iPad app — shares one reading position per comic, per [reader
+profile](#reader-profiles). Requests that name no profile get the default one,
+which is every request that has not asked for anything else.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -678,7 +734,9 @@ iPad app — shares one reading position per comic.
 | POST | `/api/progress/merge` | Reconcile client records against stored ones, newest wins |
 
 `:comicId` is a 24-character lowercase hex id; any other shape falls through to
-the generic `404`.
+the generic `404`. Every route in this table reads and writes one reader
+profile's shelf, resolved as described
+[above](#which-profile-a-request-is-about).
 
 ### Which write to use, and why it matters
 
@@ -778,7 +836,10 @@ two bulk routes.
 
 Backups continue to carry progress. `POST /api/backup/export` always reads it
 from the server store, ignoring any progress the caller sends, and restoring a
-backup replaces the server store.
+backup replaces the server store. A backup carries every reader profile's shelf,
+and still holds the default profile's shelf where it has always been, so a
+backup written by this version restores on an older one — you get the default
+reader's progress back rather than a refused file.
 
 ## Service discovery
 
@@ -828,6 +889,8 @@ PanelShelf JSON file. A backup contains:
 - confirmed online metadata matches
 - reading progress and unread/in-progress/completed/skipped states, taken from
   the server rather than from the browser creating the backup
+- every reader profile, with the reading progress and set-aside chronology
+  branches filed under each
 - selected library view and skipped chronology folders from that browser
 - reader fit and page mode
 

@@ -4,6 +4,10 @@ const crypto = require("node:crypto");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
 const { jsonError } = require("./util");
+const {
+  DEFAULT_READER_ID,
+  normalizeReaderId
+} = require("./reader-profiles");
 
 const COMIC_ID = /^[a-f0-9]{24}$/;
 const MAX_TIMESTAMP = 40;
@@ -52,6 +56,37 @@ function normalizeRecords(value) {
     }
   }
   return records;
+}
+
+// Records for every reader profile, as they sit on disk:
+//
+//   { "readers": { "default": { "<comicId>": {…} }, "ana": {…} } }
+//
+// Anything else is the flat map this file held before reader profiles existed,
+// and belongs to the default profile. "readers" cannot collide with a real key
+// because every other key here is a 24-character comic id.
+function isNamespaced(value) {
+  return plainObject(value) && plainObject(value.readers);
+}
+
+function normalizeByReader(value) {
+  const byReader = new Map();
+  if (!isNamespaced(value)) {
+    // The 0.4.18 shape. Everyone who was reading before profiles existed keeps
+    // reading exactly what they were, under the profile every unnamed request
+    // resolves to.
+    byReader.set(DEFAULT_READER_ID, normalizeRecords(value));
+    return byReader;
+  }
+  for (const [candidate, records] of Object.entries(value.readers)) {
+    const readerId = normalizeReaderId(candidate);
+    if (!readerId) continue;
+    byReader.set(readerId, normalizeRecords(records));
+  }
+  if (!byReader.has(DEFAULT_READER_ID)) {
+    byReader.set(DEFAULT_READER_ID, {});
+  }
+  return byReader;
 }
 
 function timestampValue(record) {
@@ -118,7 +153,11 @@ async function atomicWriteJson(filePath, value) {
 class ProgressStore {
   constructor(dataDirectory) {
     this.filePath = path.join(dataDirectory, "progress.json");
-    this.records = {};
+    // Reader profile id to that reader's records. One library, one index, one
+    // set of sources — and a shelf each, because where somebody got to in a
+    // comic is the one thing here that is about the reader rather than the
+    // library.
+    this.byReader = new Map([[DEFAULT_READER_ID, {}]]);
     // Serializes writes on this instance so overlapping save/remove/merge
     // calls (e.g. an iPad auto-saving while a browser is also open) never
     // race on the same file.
@@ -131,11 +170,11 @@ class ProgressStore {
       raw = await fsp.readFile(this.filePath, "utf8");
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
-      this.records = {};
+      this.byReader = new Map([[DEFAULT_READER_ID, {}]]);
       return;
     }
     try {
-      this.records = normalizeRecords(JSON.parse(raw));
+      this.byReader = normalizeByReader(JSON.parse(raw));
     } catch {
       // Invalid JSON should not brick the whole server over soft,
       // re-syncable data: preserve the bad file for inspection and start
@@ -155,12 +194,46 @@ class ProgressStore {
           : `Progress file ${this.filePath} is corrupt and was reset. ` +
               `The original could not be preserved.`
       );
-      this.records = {};
+      this.byReader = new Map([[DEFAULT_READER_ID, {}]]);
     }
   }
 
-  get(comicId) {
-    return this.records[comicId] ? structuredClone(this.records[comicId]) : null;
+  // Every method below takes the reader profile explicitly, and this refuses
+  // anything that is not one. The id is decided once, at the HTTP boundary,
+  // where an unknown name resolves to the default; by the time a request
+  // reaches the store there is nothing left to guess, and guessing here would
+  // mean quietly filing one person's position on another person's shelf.
+  readerKey(readerProfileId) {
+    const id = normalizeReaderId(readerProfileId);
+    if (!id) {
+      throw jsonError(
+        "A reading position needs a reader profile.",
+        "INVALID_READER_PROFILE"
+      );
+    }
+    return id;
+  }
+
+  // Reading does not create a shelf; only writing does. Otherwise a client
+  // asking after a profile that no longer exists would leave a bucket behind
+  // on every request.
+  recordsFor(readerProfileId) {
+    return this.byReader.get(this.readerKey(readerProfileId)) || {};
+  }
+
+  writableRecordsFor(readerProfileId) {
+    const id = this.readerKey(readerProfileId);
+    let records = this.byReader.get(id);
+    if (!records) {
+      records = {};
+      this.byReader.set(id, records);
+    }
+    return records;
+  }
+
+  get(readerProfileId, comicId) {
+    const record = this.recordsFor(readerProfileId)[comicId];
+    return record ? structuredClone(record) : null;
   }
 
   persist() {
@@ -172,12 +245,23 @@ class ProgressStore {
     // outcome of its own write via `next`.
     const next = this.writeQueue
       .catch(() => {})
-      .then(() => atomicWriteJson(this.filePath, this.records));
+      .then(() => atomicWriteJson(this.filePath, this.snapshot()));
     this.writeQueue = next.catch(() => {});
     return next;
   }
 
-  async save(comicId, input) {
+  // A reader with nothing on their shelf is not written out: an empty map
+  // carries no information, and the profile itself is recorded in readers.json
+  // rather than here.
+  snapshot() {
+    const readers = {};
+    for (const [readerProfileId, records] of this.byReader) {
+      if (Object.keys(records).length) readers[readerProfileId] = records;
+    }
+    return { readers };
+  }
+
+  async save(readerProfileId, comicId, input) {
     if (!COMIC_ID.test(comicId)) {
       throw jsonError("Comic not found.", "NOT_FOUND");
     }
@@ -185,17 +269,17 @@ class ProgressStore {
     // The server clock is authoritative here; a client-supplied lastReadAt
     // is deliberately discarded and replaced with the save time.
     record.lastReadAt = new Date().toISOString();
-    this.records[comicId] = record;
+    this.writableRecordsFor(readerProfileId)[comicId] = record;
     await this.persist();
     // The record we just built, not a re-read: a backup restore that replaced
-    // this.records during the await would make the re-read return null, and the
+    // this.byReader during the await would make the re-read return null, and the
     // route would answer a successful PUT with `200 null`, which a typed client
     // cannot decode.
     return structuredClone(record);
   }
 
-  async remove(comicId) {
-    delete this.records[comicId];
+  async remove(readerProfileId, comicId) {
+    delete this.writableRecordsFor(readerProfileId)[comicId];
     await this.persist();
   }
 
@@ -203,12 +287,13 @@ class ProgressStore {
   // record is stamped with server time and applied unconditionally, so a
   // client with a skewed clock cannot have its own action discarded. The whole
   // batch is validated before anything is applied, and lands in one write.
-  async applyBatch(input) {
+  async applyBatch(readerProfileId, input) {
+    this.readerKey(readerProfileId);
     if (!plainObject(input)) {
       throw jsonError("Batch must be an object.", "INVALID_PROGRESS");
     }
-    const { records = {}, deleted = [] } = input;
-    if (!plainObject(records)) {
+    const { records: incoming = {}, deleted = [] } = input;
+    if (!plainObject(incoming)) {
       throw jsonError("Batch records must be an object.", "INVALID_PROGRESS");
     }
     if (!Array.isArray(deleted)) {
@@ -219,7 +304,7 @@ class ProgressStore {
     // A malformed id is a bad request rather than a missing comic: unlike
     // save()'s guard, this one is reachable over HTTP, since the batch route
     // carries its ids in the body where no path regex pre-filters them.
-    for (const [comicId, candidate] of Object.entries(records)) {
+    for (const [comicId, candidate] of Object.entries(incoming)) {
       if (!COMIC_ID.test(comicId)) {
         throw jsonError("Progress ids must be comic ids.", "INVALID_PROGRESS");
       }
@@ -230,10 +315,11 @@ class ProgressStore {
         throw jsonError("Progress ids must be comic ids.", "INVALID_PROGRESS");
       }
     }
-    Object.assign(this.records, staged);
-    for (const comicId of deleted) delete this.records[comicId];
+    const records = this.writableRecordsFor(readerProfileId);
+    Object.assign(records, staged);
+    for (const comicId of deleted) delete records[comicId];
     await this.persist();
-    return this.exportData();
+    return this.exportData(readerProfileId);
   }
 
   // Reconciliation. Accepts either a bare map of records — what the web viewer
@@ -241,24 +327,48 @@ class ProgressStore {
   // Records are merged first and deletions reconciled against the result, so a
   // client that somehow sent both for one comic gets a defined outcome rather
   // than one that depends on key order.
-  async merge(input) {
+  async merge(readerProfileId, input) {
+    const readerKey = this.readerKey(readerProfileId);
     const bare = plainObject(input) && !("records" in input) && !("deleted" in input);
     const records = bare ? input : input?.records;
-    this.records = applyDeletions(
-      mergeRecords(this.records, records),
-      bare ? null : input?.deleted
+    this.byReader.set(
+      readerKey,
+      applyDeletions(
+        mergeRecords(this.recordsFor(readerKey), records),
+        bare ? null : input?.deleted
+      )
     );
     await this.persist();
-    return this.exportData();
+    return this.exportData(readerKey);
   }
 
-  exportData() {
-    return structuredClone(this.records);
+  // A profile nobody uses takes its shelf with it. Nothing else in the data
+  // directory has to be told: the rest describes the library.
+  async forget(readerProfileId) {
+    const id = normalizeReaderId(readerProfileId);
+    if (!id || id === DEFAULT_READER_ID) return false;
+    if (!this.byReader.delete(id)) return false;
+    await this.persist();
+    return true;
+  }
+
+  exportData(readerProfileId) {
+    return structuredClone(this.recordsFor(readerProfileId));
+  }
+
+  // Every reader's records, for a backup that has to be able to put the whole
+  // household back.
+  exportAll() {
+    return structuredClone(this.snapshot());
   }
 
   async restoreData(value) {
-    this.records = normalizeRecords(value);
+    this.byReader = normalizeByReader(value);
     await this.persist();
+  }
+
+  settled() {
+    return this.writeQueue;
   }
 }
 

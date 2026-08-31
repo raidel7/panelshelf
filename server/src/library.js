@@ -19,6 +19,10 @@ const { parseComicInfo } = require("./metadata");
 const { MetadataOverrideStore } = require("./metadata-overrides");
 const { ProgressStore } = require("./progress");
 const {
+  ReaderProfileStore,
+  DEFAULT_READER_ID
+} = require("./reader-profiles");
+const {
   cleanTitle,
   comicId,
   fileFingerprint,
@@ -471,6 +475,7 @@ class ComicLibrary {
       fetchImpl: options.fetchImpl
     });
     this.metadataOverrides = new MetadataOverrideStore(dataDirectory);
+    this.readerProfiles = new ReaderProfileStore(dataDirectory);
     this.progress = new ProgressStore(dataDirectory);
     this.skips = new SkipStore(dataDirectory);
     this.bulkMetadata = new BulkMetadataMatcher(dataDirectory, {
@@ -489,6 +494,7 @@ class ComicLibrary {
     await fsp.mkdir(this.tempDirectory, { recursive: true });
     await this.enrichment.initialize();
     await this.metadataOverrides.initialize();
+    await this.readerProfiles.initialize();
     await this.progress.initialize();
     await this.skips.initialize();
     await this.coverCache.initialize();
@@ -557,7 +563,7 @@ class ComicLibrary {
   // Built once per version of the index and kept: walking tens of thousands of
   // comics into a tree costs real time on a NAS, and a client browsing the
   // chronology asks for one node after another.
-  chronology(nodeId) {
+  chronology(readerProfileId, nodeId) {
     if (!this.chronologyTree) {
       this.chronologyTree = buildChronology(this.comics);
     }
@@ -565,7 +571,7 @@ class ComicLibrary {
       this.chronologyTree,
       nodeId,
       (comic) => this.compactComic(comic),
-      this.skips.list().nodeIds
+      this.skips.list(readerProfileId).nodeIds
     );
   }
 
@@ -673,16 +679,26 @@ class ComicLibrary {
         metadataOverrides: this.metadataOverrides.exportData(),
         // Progress is deliberately sourced from the server-side store, not the
         // caller's browserState. Any progress the caller sends is ignored.
+        //
+        // The browser block carries the default reader profile's shelf, which
+        // is what it carried before profiles existed; `readers` below carries
+        // the household. Keeping both means a 0.5 backup still says something
+        // true to a 0.4.18 server rather than being refused by it.
         browser: normalizeBrowserState({
           ...browserState,
-          progress: this.progress.exportData(),
+          progress: this.progress.exportData(DEFAULT_READER_ID),
           // Skipped branches are server-owned too, so the caller's copy is
           // ignored the same way its progress is.
           chronologyPreferences: {
             ...(browserState?.chronologyPreferences || {}),
-            skippedNodeIds: this.skips.exportData()
+            skippedNodeIds: this.skips.exportData(DEFAULT_READER_ID)
           }
-        })
+        }),
+        readers: {
+          profiles: this.readerProfiles.exportData(),
+          progress: this.progress.exportAll().readers,
+          skips: this.skips.exportAll().readers
+        }
       }
     };
   }
@@ -717,8 +733,9 @@ class ComicLibrary {
       readingOrders: this.readingOrders.exportData(),
       metadataMatches: this.enrichment.exportMatches(),
       metadataOverrides: this.metadataOverrides.exportData(),
-      progress: this.progress.exportData(),
-      skips: this.skips.exportData()
+      readerProfiles: this.readerProfiles.exportData(),
+      progress: this.progress.exportAll(),
+      skips: this.skips.exportAll()
     };
     try {
       this.config = backup.data.config;
@@ -726,16 +743,28 @@ class ComicLibrary {
       await this.readingOrders.restoreData(backup.data.readingOrders);
       await this.enrichment.restoreMatches(backup.data.metadataMatches);
       await this.metadataOverrides.restoreData(backup.data.metadataOverrides);
-      await this.progress.restoreData(backup.data.browser.progress);
-      await this.skips.restoreData(
-        backup.data.browser.chronologyPreferences.skippedNodeIds
-      );
+      // A backup with a `readers` block describes the whole household. One
+      // without it is from before reader profiles existed, and everything it
+      // holds belongs to the default profile — which is exactly what the store
+      // does with the flat shapes the browser block carries.
+      if (backup.data.readers) {
+        await this.readerProfiles.restoreData(backup.data.readers.profiles);
+        await this.progress.restoreData({ readers: backup.data.readers.progress });
+        await this.skips.restoreData({ readers: backup.data.readers.skips });
+      } else {
+        await this.readerProfiles.restoreData([]);
+        await this.progress.restoreData(backup.data.browser.progress);
+        await this.skips.restoreData(
+          backup.data.browser.chronologyPreferences.skippedNodeIds
+        );
+      }
     } catch (error) {
       this.config = previous.config;
       await atomicWriteJson(this.configPath, this.config).catch(() => {});
       await this.readingOrders.restoreData(previous.readingOrders).catch(() => {});
       await this.enrichment.restoreMatches(previous.metadataMatches).catch(() => {});
       await this.metadataOverrides.restoreData(previous.metadataOverrides).catch(() => {});
+      await this.readerProfiles.restoreData(previous.readerProfiles).catch(() => {});
       await this.progress.restoreData(previous.progress).catch(() => {});
       await this.skips.restoreData(previous.skips).catch(() => {});
       throw error;
@@ -1079,9 +1108,14 @@ class ComicLibrary {
     return this.readingOrders.delete(id);
   }
 
-  listProgress() {
+  // Reading position and set-aside branches take the reader profile first,
+  // because it is the one argument that decides whose shelf is being touched.
+  // Nothing below defaults it: the id is resolved once, where the request comes
+  // in, so a caller that has not thought about it gets an error rather than
+  // somebody else's shelf.
+  listProgress(readerProfileId) {
     const known = new Set(this.comics.map((comic) => comic.id));
-    const records = this.progress.exportData();
+    const records = this.progress.exportData(readerProfileId);
     // A comic that is temporarily missing (e.g. a disconnected USB source)
     // keeps its record in the store; it's just hidden from this list.
     for (const comicId of Object.keys(records)) {
@@ -1090,32 +1124,60 @@ class ComicLibrary {
     return records;
   }
 
-  getProgress(comicId) {
-    return this.progress.get(comicId);
+  getProgress(readerProfileId, comicId) {
+    return this.progress.get(readerProfileId, comicId);
   }
 
-  async saveProgress(comicId, input) {
-    return this.progress.save(comicId, input);
+  async saveProgress(readerProfileId, comicId, input) {
+    return this.progress.save(readerProfileId, comicId, input);
   }
 
-  async removeProgress(comicId) {
-    return this.progress.remove(comicId);
+  async removeProgress(readerProfileId, comicId) {
+    return this.progress.remove(readerProfileId, comicId);
   }
 
-  async mergeProgress(input) {
-    return this.progress.merge(input);
+  async mergeProgress(readerProfileId, input) {
+    return this.progress.merge(readerProfileId, input);
   }
 
-  listSkips() {
-    return this.skips.list();
+  listSkips(readerProfileId) {
+    return this.skips.list(readerProfileId);
   }
 
-  async applySkips(input) {
-    return this.skips.apply(input);
+  async applySkips(readerProfileId, input) {
+    return this.skips.apply(readerProfileId, input);
   }
 
-  async applyProgressBatch(input) {
-    return this.progress.applyBatch(input);
+  async applyProgressBatch(readerProfileId, input) {
+    return this.progress.applyBatch(readerProfileId, input);
+  }
+
+  // Who is reading. A namespace and nothing more: creating one grants nothing,
+  // and pairing is still the only thing between the library and a stranger.
+  listReaderProfiles() {
+    return this.readerProfiles.list();
+  }
+
+  resolveReaderProfile(candidate) {
+    return this.readerProfiles.resolve(candidate);
+  }
+
+  async createReaderProfile(name) {
+    return this.readerProfiles.create(name);
+  }
+
+  async renameReaderProfile(id, name) {
+    return this.readerProfiles.rename(id, name);
+  }
+
+  // A profile nobody uses takes its shelf and its hidden branches with it.
+  // Nothing else has to be told, because nothing else was ever per-reader.
+  async deleteReaderProfile(id) {
+    const deleted = await this.readerProfiles.delete(id);
+    if (!deleted) return false;
+    await this.progress.forget(id);
+    await this.skips.forget(id);
+    return true;
   }
 
   async scan(input = {}) {

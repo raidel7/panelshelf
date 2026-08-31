@@ -182,6 +182,40 @@ function presentedToken(request) {
   return cookieToken(request);
 }
 
+// Which reader profile a request is for.
+//
+// Naming one is not authenticating: a profile is a namespace, it carries no
+// password, and this runs whether or not pairing is on. What decides who may
+// talk to this server is `authorize` below, and only that.
+//
+// First-party clients send the name outright. A third-party OPDS reader cannot
+// send a header PanelShelf invented, but it does not need to: it already puts a
+// username box on screen next to the password box, and `presentedToken` decodes
+// that username and throws it away. So the reader profile rides in a field the
+// client already shows, with the device token staying where it was.
+//
+// Anything unrecognised — a typo, a blank, a name from a profile since deleted
+// — resolves to the default rather than creating a profile. Being wrong about
+// your own name should show you the wrong shelf, not lose you the right one.
+const READER_HEADER = "x-panelshelf-reader";
+
+function basicUsername(request) {
+  const basic = String(request.headers.authorization || "").match(/^Basic\s+(.+)$/i);
+  if (!basic) return null;
+  try {
+    const decoded = Buffer.from(basic[1].trim(), "base64").toString("utf8");
+    const separator = decoded.indexOf(":");
+    return separator === -1 ? decoded : decoded.slice(0, separator);
+  } catch {
+    return null;
+  }
+}
+
+function resolveReaderProfile(request, library) {
+  const named = request.headers[READER_HEADER] || basicUsername(request);
+  return library.resolveReaderProfile(named);
+}
+
 function authorize(request, pathname, devices) {
   if (!devices.enabled) return;
   if (OPEN_PATHS.has(pathname)) return;
@@ -214,6 +248,8 @@ function sendError(response, error) {
     SCAN_RUNNING: 409,
     UNAUTHORIZED: 401,
     INVALID_PAIRING_CODE: 400,
+    INVALID_READER_PROFILE: 400,
+    TOO_MANY_READER_PROFILES: 400,
     INVALID_ARTWORK: 400,
     INVALID_ORDER_DOCUMENT: 400,
     COVER_WARMUP_RUNNING: 409,
@@ -234,6 +270,8 @@ function sendError(response, error) {
     INVALID_PROVIDER: 400,
     INVALID_PROVIDER_RECORD: 400,
     INVALID_PROGRESS: 400,
+    INVALID_SKIPS: 400,
+    TOO_MANY_SKIPS: 400,
     INVALID_BACKUP: 400,
     METADATA_NOT_CONFIGURED: 400,
     PROVIDER_INVALID_REQUEST: 400,
@@ -419,6 +457,9 @@ async function startServer() {
     try {
       guardRequest(request, pathname);
       authorize(request, pathname, library.deviceTokens);
+      // Whose shelf this request is about. Resolved once, so that every route
+      // below gets the same answer and none of them has to work it out again.
+      const readerProfileId = resolveReaderProfile(request, library);
 
       if (request.method === "GET" && pathname === "/api/health") {
         return sendJson(response, 200, {
@@ -705,6 +746,47 @@ async function startServer() {
         );
       }
 
+      // Who is reading. The list answers with the profile this very request
+      // resolved to, so a client can show which shelf it is looking at without
+      // having to work out the resolution rules itself — particularly an OPDS
+      // reader's owner wondering whether the username box took.
+      if (request.method === "GET" && pathname === "/api/readers") {
+        return sendJson(response, 200, {
+          current: readerProfileId,
+          profiles: library.listReaderProfiles()
+        });
+      }
+
+      if (request.method === "POST" && pathname === "/api/readers") {
+        const body = await readJsonBody(request);
+        const profile = await library.createReaderProfile(body?.name);
+        return sendJson(response, 201, {
+          profile,
+          profiles: library.listReaderProfiles()
+        });
+      }
+
+      const readerMatch = pathname.match(/^\/api\/readers\/([a-z0-9][a-z0-9-]{0,39})$/);
+      if (request.method === "PUT" && readerMatch) {
+        const body = await readJsonBody(request);
+        const profile = await library.renameReaderProfile(readerMatch[1], body?.name);
+        return sendJson(response, 200, {
+          profile,
+          profiles: library.listReaderProfiles()
+        });
+      }
+
+      if (request.method === "DELETE" && readerMatch) {
+        // Not idempotent the way a progress delete is: deleting a reader
+        // profile throws away a shelf, so a client that names one that is not
+        // there has the wrong idea about this server and should hear so.
+        const deleted = await library.deleteReaderProfile(readerMatch[1]);
+        if (!deleted) {
+          throw jsonError("That reader profile does not exist.", "NOT_FOUND");
+        }
+        return sendJson(response, 200, { profiles: library.listReaderProfiles() });
+      }
+
       if (request.method === "GET" && pathname === "/api/devices") {
         return sendJson(response, 200, {
           enabled: library.deviceTokens.enabled,
@@ -767,7 +849,7 @@ async function startServer() {
       }
 
       if (request.method === "GET" && pathname === "/api/progress") {
-        return sendJson(response, 200, library.listProgress());
+        return sendJson(response, 200, library.listProgress(readerProfileId));
       }
 
       if (request.method === "POST" && pathname === "/api/progress/merge") {
@@ -775,8 +857,8 @@ async function startServer() {
         // The whole body, so `deleted` reaches the store. A body that is just a
         // map of records — what the web viewer sends — still works: the store
         // recognises the bare form.
-        await library.mergeProgress(body);
-        return sendJson(response, 200, library.listProgress());
+        await library.mergeProgress(readerProfileId, body);
+        return sendJson(response, 200, library.listProgress(readerProfileId));
       }
 
       // Deliberate bulk write, as opposed to /merge's reconciliation: the
@@ -785,15 +867,15 @@ async function startServer() {
       // never treated as a comic id.
       if (request.method === "POST" && pathname === "/api/progress/batch") {
         const body = await readJsonBody(request, MAX_BACKUP_BODY);
-        await library.applyProgressBatch(body);
-        return sendJson(response, 200, library.listProgress());
+        await library.applyProgressBatch(readerProfileId, body);
+        return sendJson(response, 200, library.listProgress(readerProfileId));
       }
 
       const progressMatch = pathname.match(/^\/api\/progress\/([a-f0-9]{24})$/);
       if (progressMatch) {
         const comicId = progressMatch[1];
         if (request.method === "GET") {
-          const record = library.getProgress(comicId);
+          const record = library.getProgress(readerProfileId, comicId);
           if (!record) {
             throw jsonError("Progress not found.", "NOT_FOUND");
           }
@@ -801,12 +883,16 @@ async function startServer() {
         }
         if (request.method === "PUT") {
           const body = await readJsonBody(request);
-          return sendJson(response, 200, await library.saveProgress(comicId, body));
+          return sendJson(
+            response,
+            200,
+            await library.saveProgress(readerProfileId, comicId, body)
+          );
         }
         if (request.method === "DELETE") {
           // Idempotent: deleting an id with no record still returns 200, so an
           // offline client replaying a queued delete never gets an error.
-          await library.removeProgress(comicId);
+          await library.removeProgress(readerProfileId, comicId);
           return sendJson(response, 200, { deleted: true, id: comicId });
         }
       }
@@ -838,14 +924,18 @@ async function startServer() {
       // Which chronology branches the reader has set aside. Server-owned like
       // reading progress: a branch hidden in the browser is hidden on the iPad.
       if (request.method === "GET" && pathname === "/api/skips") {
-        return sendJson(response, 200, library.listSkips());
+        return sendJson(response, 200, library.listSkips(readerProfileId));
       }
 
       // Deliberate, and with nothing to reconcile: the set is the whole state,
       // and adding a branch twice is the same as adding it once.
       if (request.method === "POST" && pathname === "/api/skips") {
         const body = await readJsonBody(request, MAX_BACKUP_BODY);
-        return sendJson(response, 200, await library.applySkips(body));
+        return sendJson(
+          response,
+          200,
+          await library.applySkips(readerProfileId, body)
+        );
       }
 
       // One screen of the chronology: where you are, how you got there, the
@@ -853,7 +943,10 @@ async function startServer() {
       // builds this itself from the full library; a client on the compact
       // listing has none of the fields it needs, so the server walks it.
       if (request.method === "GET" && pathname === "/api/chronology") {
-        const view = library.chronology(requestUrl.searchParams.get("node"));
+        const view = library.chronology(
+          readerProfileId,
+          requestUrl.searchParams.get("node")
+        );
         if (!view) {
           throw jsonError("That collection is not in the chronology.", "NOT_FOUND");
         }
@@ -877,7 +970,12 @@ async function startServer() {
         (pathname === "/opds" || pathname.startsWith("/opds/"))
       ) {
         const baseUrl = `http://${request.headers.host || `localhost:${PORT}`}`;
-        const catalog = createOpdsCatalog(library, requestUrl, baseUrl);
+        const catalog = createOpdsCatalog(
+          library,
+          requestUrl,
+          baseUrl,
+          readerProfileId
+        );
         if (catalog) {
           const body = Buffer.from(catalog.body);
           response.writeHead(200, {

@@ -307,5 +307,6 @@ module.exports = {
   DEFAULT_READER_ID,
   DEFAULT_READER_NAME,
   MAX_PROFILES,
+  normalizeReaderId: readerId,
   slugFrom
 };

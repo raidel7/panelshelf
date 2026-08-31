@@ -1,11 +1,13 @@
 "use strict";
 
 const { jsonError } = require("./util");
+const { normalizeReaderId } = require("./reader-profiles");
 
 const BACKUP_FORMAT = "panelshelf-backup";
 const BACKUP_SCHEMA_VERSION = 1;
 const MAX_BROWSER_PROGRESS = 100_000;
 const MAX_SKIPPED_NODES = 100_000;
+const MAX_READER_PROFILES = 20;
 const LIBRARY_VIEWS = new Set(["all", "publisher", "chronological"]);
 const READER_FITS = new Set(["width", "height"]);
 const READER_MODES = new Set(["single", "double", "manga", "continuous"]);
@@ -47,6 +49,64 @@ function normalizeProgress(value) {
         }
       ])
   );
+}
+
+// Every reader profile's shelf, added in 0.5 without moving the schema past 1.
+//
+// A version number says what a reader must understand to make sense of the
+// file, and this block asks nothing of one that does not: `browser.progress`
+// and `browser.chronologyPreferences.skippedNodeIds` still carry the default
+// profile's state, exactly as they did before profiles existed. So a 0.4.18
+// backup restores here unchanged, and a 0.5 backup restored on 0.4.18 puts back
+// the default reader's shelf rather than refusing the file outright.
+//
+// Absent means absent, not empty: `null` tells the restore to take the browser
+// block as the whole story, which is what an older backup is.
+function normalizeReaders(value) {
+  if (!plainObject(value)) return null;
+  const profiles = Array.isArray(value.profiles) ? value.profiles : [];
+  if (profiles.length > MAX_READER_PROFILES) {
+    throw backupError("This backup contains too many reader profiles.");
+  }
+  const readers = {
+    profiles: profiles
+      .filter(
+        (profile) =>
+          plainObject(profile) &&
+          normalizeReaderId(profile.id) &&
+          typeof profile.name === "string"
+      )
+      .map((profile) => ({
+        id: normalizeReaderId(profile.id),
+        name: profile.name.slice(0, 60),
+        createdAt:
+          typeof profile.createdAt === "string" ? profile.createdAt : null
+      })),
+    progress: {},
+    skips: {}
+  };
+  for (const [candidate, records] of Object.entries(
+    plainObject(value.progress) ? value.progress : {}
+  )) {
+    const readerProfileId = normalizeReaderId(candidate);
+    if (readerProfileId) readers.progress[readerProfileId] = normalizeProgress(records);
+  }
+  for (const [candidate, nodeIds] of Object.entries(
+    plainObject(value.skips) ? value.skips : {}
+  )) {
+    const readerProfileId = normalizeReaderId(candidate);
+    if (!readerProfileId || !Array.isArray(nodeIds)) continue;
+    const unique = [
+      ...new Set(
+        nodeIds.filter((id) => typeof id === "string").map((id) => id.slice(0, 1000))
+      )
+    ];
+    if (unique.length > MAX_SKIPPED_NODES) {
+      throw backupError("This backup contains too many skipped chronology folders.");
+    }
+    readers.skips[readerProfileId] = unique;
+  }
+  return readers;
 }
 
 function normalizeBrowserState(value = {}) {
@@ -117,7 +177,8 @@ function validateBackup(value) {
       metadataOverrides: plainObject(value.data.metadataOverrides)
         ? structuredClone(value.data.metadataOverrides)
         : {},
-      browser: normalizeBrowserState(value.data.browser)
+      browser: normalizeBrowserState(value.data.browser),
+      readers: normalizeReaders(value.data.readers)
     }
   };
 }
@@ -133,8 +194,12 @@ function backupSummary(backup) {
       : 0,
     metadataMatches: Object.keys(data.metadataMatches).length,
     metadataOverrides: Object.keys(data.metadataOverrides || {}).length,
+    // Counted from the default profile, so this number means the same thing it
+    // did before reader profiles existed. `readerProfiles` is what tells you
+    // there is more in the file than one shelf.
     progressRecords: Object.keys(data.browser.progress).length,
-    skippedFolders: data.browser.chronologyPreferences.skippedNodeIds.length
+    skippedFolders: data.browser.chronologyPreferences.skippedNodeIds.length,
+    readerProfiles: data.readers ? data.readers.profiles.length : 1
   };
 }
 
@@ -143,5 +208,6 @@ module.exports = {
   BACKUP_SCHEMA_VERSION,
   backupSummary,
   normalizeBrowserState,
+  normalizeReaders,
   validateBackup
 };

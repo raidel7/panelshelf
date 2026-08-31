@@ -24,11 +24,17 @@ function comic(id, extra = {}) {
   };
 }
 
+// The catalogue is handed a reader profile rather than working one out: which
+// shelf an OPDS request is looking at is decided at the request, from the Basic
+// username or the paired device. This stand-in asserts it arrives.
 function library(comics, progress = {}) {
   return {
     listComics: () => comics,
     publicComic: (item) => item,
-    getProgress: (id) => progress[id] || null
+    getProgress: (readerProfileId, id) => {
+      assert.equal(readerProfileId, READER, "the catalogue names a reader");
+      return progress[id] || null;
+    }
   };
 }
 
@@ -37,11 +43,13 @@ function feed(comics, progress = {}, path = "/opds/all") {
   const result = createOpdsCatalog(
     library(comics, progress),
     new URL(`${base}${path}`),
-    base
+    base,
+    READER
   );
   return result.body;
 }
 
+const READER = "default";
 const ID = "a".repeat(24);
 
 test("the catalogue declares the page streaming namespace", () => {

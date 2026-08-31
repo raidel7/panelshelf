@@ -10,6 +10,7 @@ const {
   inferFilenameMetadata,
   recentlyAdded
 } = require("../src/library");
+const { DEFAULT_READER_ID: READER } = require("../src/reader-profiles");
 const { ONE_PIXEL_PNG, zipBuffer } = require("./helpers");
 
 test("filename metadata infers a parenthetical publication year", () => {
@@ -804,13 +805,13 @@ test("library exposes progress backed by the progress store", async () => {
 
   const comicId = "c".repeat(24);
   library.setComics([{ id: comicId, title: "Test Comic" }]);
-  await library.saveProgress(comicId, { pageIndex: 4, pageCount: 20 });
+  await library.saveProgress(READER, comicId, { pageIndex: 4, pageCount: 20 });
 
-  assert.equal(library.getProgress(comicId).pageIndex, 4);
-  assert.equal(library.listProgress()[comicId].pageIndex, 4);
+  assert.equal(library.getProgress(READER, comicId).pageIndex, 4);
+  assert.equal(library.listProgress(READER)[comicId].pageIndex, 4);
 
-  await library.removeProgress(comicId);
-  assert.equal(library.getProgress(comicId), null);
+  await library.removeProgress(READER, comicId);
+  assert.equal(library.getProgress(READER, comicId), null);
 });
 
 test("listProgress filters to known comics but the store retains records for a disconnected source", async () => {
@@ -821,16 +822,16 @@ test("listProgress filters to known comics but the store retains records for a d
   const knownId = "d".repeat(24);
   const goneId = "e".repeat(24);
   library.setComics([{ id: knownId, title: "Known Comic" }]);
-  await library.saveProgress(knownId, { pageIndex: 1, pageCount: 10 });
-  await library.saveProgress(goneId, { pageIndex: 2, pageCount: 10 });
+  await library.saveProgress(READER, knownId, { pageIndex: 1, pageCount: 10 });
+  await library.saveProgress(READER, goneId, { pageIndex: 2, pageCount: 10 });
 
-  const listed = library.listProgress();
+  const listed = library.listProgress(READER);
   assert.deepEqual(Object.keys(listed).sort(), [knownId]);
 
   // The record for the disconnected comic is still in the underlying store,
   // even though listProgress() hid it because the comic isn't known right now.
-  assert.equal(library.progress.exportData()[goneId].pageIndex, 2);
-  assert.equal(library.getProgress(goneId).pageIndex, 2);
+  assert.equal(library.progress.exportData(READER)[goneId].pageIndex, 2);
+  assert.equal(library.getProgress(READER, goneId).pageIndex, 2);
 });
 
 test("backup exports progress from the store and restores into it", async () => {
@@ -839,16 +840,16 @@ test("backup exports progress from the store and restores into it", async () => 
   await library.initialize();
 
   const comicId = "d".repeat(24);
-  await library.saveProgress(comicId, { pageIndex: 6, pageCount: 12 });
+  await library.saveProgress(READER, comicId, { pageIndex: 6, pageCount: 12 });
 
   const backup = library.createBackup({}, "test");
   assert.equal(backup.data.browser.progress[comicId].pageIndex, 6);
 
-  await library.removeProgress(comicId);
-  assert.equal(library.getProgress(comicId), null);
+  await library.removeProgress(READER, comicId);
+  assert.equal(library.getProgress(READER, comicId), null);
 
   await library.restoreBackup(backup);
-  assert.equal(library.getProgress(comicId).pageIndex, 6);
+  assert.equal(library.getProgress(READER, comicId).pageIndex, 6);
 });
 
 test("backup ignores caller-supplied progress in favor of the store", async () => {
@@ -858,7 +859,7 @@ test("backup ignores caller-supplied progress in favor of the store", async () =
 
   const storeComicId = "d".repeat(24);
   const callerComicId = "e".repeat(24);
-  await library.saveProgress(storeComicId, { pageIndex: 6, pageCount: 12 });
+  await library.saveProgress(READER, storeComicId, { pageIndex: 6, pageCount: 12 });
 
   const backup = library.createBackup(
     { progress: { [callerComicId]: { pageIndex: 9, pageCount: 10 } } },
@@ -880,11 +881,11 @@ test("progress survives a restart", async (t) => {
   const library = new ComicLibrary(dataDirectory);
   await library.initialize();
   const comicId = "f".repeat(24);
-  await library.saveProgress(comicId, { pageIndex: 30, pageCount: 42 });
+  await library.saveProgress(READER, comicId, { pageIndex: 30, pageCount: 42 });
 
   const restarted = new ComicLibrary(dataDirectory);
   await restarted.initialize();
-  const record = restarted.getProgress(comicId);
+  const record = restarted.getProgress(READER, comicId);
   assert.ok(record, "the restarted library must load the stored progress");
   assert.equal(record.pageIndex, 30);
   assert.equal(record.pageCount, 42);
