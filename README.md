@@ -1017,6 +1017,29 @@ sensitive. Choose **Restore backup** to validate and preview counts before
 replacing current settings. Unavailable USB sources remain configured, and a
 quick scan begins after restoration.
 
+## Support bundle
+
+**Library settings → Download support bundle**, or `GET /api/support-bundle`.
+One JSON file to attach to a bug report, holding the things a screenshot cannot
+carry: versions, how this server is configured, the arrangement of every source
+and whether it is reachable, counts of comics and reading positions, the names
+and dates of paired devices, and the last 256 KB of the log.
+
+It does not contain a device token or the hash one is stored as, a metadata
+provider key — not even the four-character hint the settings page shows — any
+comic page, cover or archive listing, or which comics anybody has read. Tokens
+and keys that turn up in the log are replaced in place, so the line still says
+what happened.
+
+It does contain the full path of every source folder, because a path is the
+subject of most of what goes wrong and a bundle that omits them cannot answer
+the questions it exists for. A path can carry a person's name, so the file says
+in words what is in it before anything else, and it is worth reading before
+attaching it to a public issue.
+
+Once [device pairing](#device-pairing) is on, this route needs a token like
+every other.
+
 ## Scan actions
 
 The main button performs a **Quick scan**. Its adjacent menu provides:

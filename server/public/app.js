@@ -194,6 +194,7 @@ const elements = {
   manualPath: document.querySelector("#manualPath"),
   addPathButton: document.querySelector("#addPathButton"),
   exportBackupButton: document.querySelector("#exportBackupButton"),
+  supportBundleButton: document.querySelector("#supportBundleButton"),
   coverCacheSummary: document.querySelector("#coverCacheSummary"),
   openLibraryReviewButton: document.querySelector("#openLibraryReviewButton"),
   bulkBar: document.querySelector("#bulkBar"),
@@ -5719,6 +5720,35 @@ async function exportBackup() {
   }
 }
 
+// Downloaded through `api` and saved from a blob, the way the backup is,
+// rather than pointed at with a link. The route is guarded once pairing is on
+// and a plain navigation carries no Authorization header, so a link would ask
+// an owner to look at a 401 and work out why.
+async function downloadSupportBundle() {
+  clearFormError(elements.settingsError);
+  elements.supportBundleButton.disabled = true;
+  elements.supportBundleButton.textContent = "Collecting…";
+  try {
+    const bundle = await api("/api/support-bundle");
+    const blob = new Blob([`${JSON.stringify(bundle, null, 2)}\n`], {
+      type: "application/json"
+    });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `PanelShelf-support-${bundle.generatedAt.slice(0, 10)}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+    showToast("Support bundle downloaded. Read it before posting it.");
+  } catch (error) {
+    showFormError(elements.settingsError, error);
+  } finally {
+    elements.supportBundleButton.disabled = false;
+    elements.supportBundleButton.textContent = "Download support bundle";
+  }
+}
+
 async function restoreBackupFile(file) {
   clearFormError(elements.settingsError);
   if (!file) return;
@@ -7028,6 +7058,7 @@ elements.cancelCoverCacheButton.addEventListener("click", async () => {
 });
 
 elements.exportBackupButton.addEventListener("click", exportBackup);
+elements.supportBundleButton.addEventListener("click", downloadSupportBundle);
 elements.importBackupButton.addEventListener("click", () =>
   elements.backupFileInput.click()
 );

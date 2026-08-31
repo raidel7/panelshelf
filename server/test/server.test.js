@@ -2121,3 +2121,33 @@ test("the device cookie is Secure exactly when HTTPS is in front", async (t) => 
   assert.match(proxied, /HttpOnly/i);
   assert.match(proxied, /SameSite=Strict/i);
 });
+
+test("the support bundle downloads, and needs a token when pairing is on", async (t) => {
+  const { base, state } = await startServer(t);
+
+  const open = await fetch(`${base}/api/support-bundle`);
+  assert.equal(open.status, 200, state.logs);
+  assert.match(
+    open.headers.get("content-disposition") || "",
+    /attachment; filename="panelshelf-support-\d{4}-\d{2}-\d{2}\.json"/,
+    "offered as a file, not rendered as a page"
+  );
+  const bundle = await open.json();
+  assert.equal(bundle.format, "panelshelf-support-bundle");
+  assert.equal(bundle.panelshelf.version, "0.4.18");
+  assert.ok(bundle.contains.notice, state.logs);
+
+  // Once pairing is on this is a guarded route like any other: it reports
+  // enough about the library that a stranger should not be able to ask for it.
+  const { body } = await enablePairing(base);
+  const anonymous = await fetch(`${base}/api/support-bundle`);
+  assert.equal(anonymous.status, 401, state.logs);
+
+  const paired = await fetch(`${base}/api/support-bundle`, {
+    headers: { Authorization: `Bearer ${body.token}` }
+  });
+  assert.equal(paired.status, 200, state.logs);
+  const withDevice = await paired.json();
+  assert.equal(withDevice.devices.pairingEnabled, true);
+  assert.ok(!JSON.stringify(withDevice).includes(body.token), "never the token itself");
+});

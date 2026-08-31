@@ -16,6 +16,7 @@ const {
   isSecureRequest
 } = require("./forwarded");
 const { AttemptLimiter, clientKey } = require("./rate-limit");
+const { createSupportBundle } = require("./support-bundle");
 const { DEFAULT_READER_ID } = require("./reader-profiles");
 const { jsonError } = require("./util");
 
@@ -556,6 +557,23 @@ async function startServer() {
             : "the mDNS advertisement has not started yet",
           error: advertisementError
         });
+      }
+
+      if (request.method === "GET" && pathname === "/api/support-bundle") {
+        const bundle = await createSupportBundle({
+          library,
+          version: VERSION,
+          apiVersion: API_VERSION
+        });
+        // Offered as a file rather than a page. Whoever asked for this is
+        // about to attach it to something, and a browser that renders it
+        // instead turns that into a copy-and-paste job over a screen of JSON.
+        const stamp = bundle.generatedAt.slice(0, 10);
+        response.setHeader(
+          "Content-Disposition",
+          `attachment; filename="panelshelf-support-${stamp}.json"`
+        );
+        return sendJson(response, 200, bundle);
       }
 
       if (request.method === "GET" && pathname === "/api/config") {
