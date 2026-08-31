@@ -2030,3 +2030,94 @@ test("guessing pairing codes runs out of attempts, and a fresh code restores the
   });
   assert.equal(paired.status, 200, state.logs);
 });
+
+test("behind a named proxy, the forwarded caller is the one counted", async (t) => {
+  const { base, state } = await startServer(t, {
+    // The test server listens on loopback, so it is its own proxy for the
+    // purposes of this: every request already arrives from 127.0.0.1.
+    env: { PANELSHELF_TRUSTED_PROXY: "loopback" }
+  });
+  await enablePairing(base);
+
+  async function guess(forwardedFor) {
+    const response = await fetch(`${base}/api/devices/pair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Forwarded-For": forwardedFor },
+      body: JSON.stringify({ code: "AAAAAAAA", name: "Chancer" })
+    });
+    return response.status;
+  }
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    assert.equal(await guess("203.0.113.7"), 400, `attempt ${attempt}: ${state.logs}`);
+  }
+  assert.equal(await guess("203.0.113.7"), 429, state.logs);
+
+  // The household's other machine reaches the same proxy and has typed nothing
+  // wrong. Without the forwarded address it would share the proxy's count and
+  // be locked out by a stranger's mistakes.
+  assert.equal(await guess("203.0.113.8"), 400, state.logs);
+});
+
+test("an unnamed proxy's headers are ignored", async (t) => {
+  const { base, state } = await startServer(t);
+  await enablePairing(base);
+
+  // Same headers, no PANELSHELF_TRUSTED_PROXY. Every attempt is counted
+  // against the socket, so choosing a fresh forwarded address per request
+  // buys nothing — which is the point, since anyone who can reach this port
+  // can write that header.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const response = await fetch(`${base}/api/devices/pair`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": `203.0.113.${attempt}`
+      },
+      body: JSON.stringify({ code: "AAAAAAAA", name: "Chancer" })
+    });
+    assert.equal(response.status, 400, `attempt ${attempt}: ${state.logs}`);
+  }
+
+  const refused = await fetch(`${base}/api/devices/pair`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": "203.0.113.99" },
+    body: JSON.stringify({ code: "AAAAAAAA", name: "Chancer" })
+  });
+  assert.equal(refused.status, 429, state.logs);
+});
+
+test("the device cookie is Secure exactly when HTTPS is in front", async (t) => {
+  async function cookieFor(t, env, headers) {
+    const { base, state } = await startServer(t, { env });
+    const response = await fetch(`${base}/api/devices/enable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ name: "This browser" })
+    });
+    assert.equal(response.status, 200, state.logs);
+    return response.headers.get("set-cookie") || "";
+  }
+
+  // Plain HTTP on a LAN, which is the default deployment. A Secure cookie
+  // would never be sent back, so the shelf would draw no covers at all.
+  assert.doesNotMatch(await cookieFor(t, {}, {}), /Secure/i);
+
+  // The header alone proves nothing when the owner has named no proxy.
+  assert.doesNotMatch(
+    await cookieFor(t, {}, { "X-Forwarded-Proto": "https" }),
+    /Secure/i
+  );
+
+  // Named, and reporting HTTPS: the token the owner went to the trouble of
+  // encrypting should not travel in clear the first time somebody types the
+  // bare address.
+  const proxied = await cookieFor(
+    t,
+    { PANELSHELF_TRUSTED_PROXY: "loopback" },
+    { "X-Forwarded-Proto": "https" }
+  );
+  assert.match(proxied, /Secure/i);
+  assert.match(proxied, /HttpOnly/i);
+  assert.match(proxied, /SameSite=Strict/i);
+});

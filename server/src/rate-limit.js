@@ -33,12 +33,12 @@ const MAX_TRACKED_CLIENTS = 1024;
 // of callers without meaning to deceive anyone. The first four groups are the
 // prefix the network actually assigns, and that is the unit worth counting.
 // IPv4 has no such slack, so it is counted whole.
-function clientKey(request) {
-  const address = request?.socket?.remoteAddress;
+//
+// Takes an address rather than a request: working out whose address it is —
+// the socket's, or one a trusted proxy forwarded — is a separate question with
+// its own answer in forwarded.js, and this should not have two opinions on it.
+function clientKey(address) {
   if (typeof address !== "string" || !address) return "unknown";
-  // Node reports an IPv4 peer on a dual-stack listener as ::ffff:192.168.1.5.
-  const mapped = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (mapped) return mapped[1];
   if (!address.includes(":")) return address;
   const groups = address.split("%")[0].split(":");
   return groups.slice(0, 4).join(":");
@@ -123,4 +123,10 @@ class AttemptLimiter {
   }
 }
 
-module.exports = { AttemptLimiter, clientKey, WINDOW_MS, PER_CLIENT_FAILURES, GLOBAL_FAILURES };
+module.exports = {
+  AttemptLimiter,
+  clientKey,
+  WINDOW_MS,
+  PER_CLIENT_FAILURES,
+  GLOBAL_FAILURES
+};

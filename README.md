@@ -77,7 +77,8 @@ settings. [Device pairing](#device-pairing) closes that — with it on, every AP
 request and the entire OPDS catalog need a token. Neither arrangement is an
 internet boundary, and PanelShelf terminates no TLS of its own, so do not
 forward that port. If you want remote access, put it behind an authenticated
-HTTPS reverse proxy or a VPN.
+HTTPS reverse proxy or a VPN — [Behind a reverse
+proxy](#behind-a-reverse-proxy) covers the first.
 
 Being "only on the LAN" is not by itself a boundary. Every browser on the
 network can be driven by whichever page it happens to be showing, which makes
@@ -90,9 +91,9 @@ it a usable route in from outside. PanelShelf therefore refuses:
 - a request body that is not `application/json`, which closes the one mutating
   request a browser will send cross-origin without asking permission first
 
-Native clients send no `Origin` and are unaffected. Behind a reverse proxy,
-which legitimately rewrites both headers, set `PANELSHELF_ALLOWED_HOSTS` to the
-names it serves, comma separated.
+Native clients send no `Origin` and are unaffected. A reverse proxy legitimately
+rewrites both headers, so a proxied deployment needs a little configuration —
+see [Behind a reverse proxy](#behind-a-reverse-proxy).
 
 The folder browser exposes only mounted Synology volume paths. PanelShelf never
 offers browsing of DSM system directories.
@@ -141,6 +142,90 @@ the guarantee is a sentence rather than an arithmetic argument.
 
 If pairing is on and every client has lost its token, recovery means setting
 `enabled` to `false` in `devices.json` in the data directory, over SSH.
+
+### Behind a reverse proxy
+
+PanelShelf terminates no TLS of its own and never will: a comics server on a NAS
+has no business holding a certificate or renewing one. HTTPS is the proxy's job,
+and if PanelShelf is to be reachable from anywhere but the LAN, so is
+authentication. Device pairing is a household convenience, not an internet
+boundary — put a real one in front of it, or use a VPN and skip all of this.
+
+Two variables, both empty by default:
+
+| Variable | What it is for |
+|---|---|
+| `PANELSHELF_ALLOWED_HOSTS` | The names the proxy serves, comma separated. Without these a proxied request is refused as a wrong host |
+| `PANELSHELF_TRUSTED_PROXY` | The proxy's own address, comma separated, or `loopback` for one running on the NAS itself |
+
+On DSM, set them in `/var/packages/PanelShelf/var/panelshelf.env` and restart
+the package. That file lives beside the data rather than in the package
+directory, so an upgrade does not overwrite it:
+
+```sh
+PANELSHELF_ALLOWED_HOSTS=comics.example.com
+PANELSHELF_TRUSTED_PROXY=loopback
+```
+
+Only `PANELSHELF_`-prefixed names are read, and the file is parsed rather than
+sourced — PanelShelf writes to that directory itself, and a settings file that
+could run commands is a worse thing to have there than one that cannot. Host,
+port and data directory are not settable from it: the DSM shortcut and the
+firewall rule are written against them.
+
+`PANELSHELF_TRUSTED_PROXY` is what decides whether `X-Forwarded-For` and
+`X-Forwarded-Proto` are read at all. Anyone who can reach this port can write
+those headers, so they are evidence only when they arrive from a machine you
+have named, and by default you have named none. Set it and two things change:
+
+- Pairing attempts are counted against the caller the proxy reports rather than
+  against the proxy, so one stranger's wrong codes no longer lock out the whole
+  household.
+- The device cookie is marked `Secure` on any request the proxy says arrived
+  over HTTPS, so the token does not travel in clear the first time somebody
+  types the bare `http://` address.
+
+Both are the wrong default without it. A `Secure` cookie is never sent over
+plain HTTP, so setting it unconditionally would empty the shelf on every LAN
+install; and believing a forwarded address from an unnamed source would let any
+caller choose which bucket its pairing attempts land in.
+
+Forwarded addresses are read right to left, past hops that are themselves
+trusted, so a caller that pads the header only buries its own address further
+left where nothing looks. Give the proxy's address as it reaches PanelShelf —
+DSM's own Application Portal comes from `loopback`.
+
+**DSM Application Portal.** Control Panel → Login Portal → Advanced → Reverse
+Proxy. Source is HTTPS on the name and port you want; destination is
+`localhost:8251`. Enable **HSTS**, and under Custom Header use **Create →
+WebSocket** — the same entry passes the `X-Forwarded-*` headers. Then set
+`PANELSHELF_TRUSTED_PROXY=loopback` and `PANELSHELF_ALLOWED_HOSTS` to that name.
+
+**nginx.** Comic pages are streamed with range requests, so buffering has to be
+off and the body limit has to clear a backup restore:
+
+```nginx
+location / {
+    proxy_pass         http://127.0.0.1:8251;
+    proxy_http_version 1.1;
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_buffering    off;
+    client_max_body_size 32m;
+}
+```
+
+**Caddy.** `reverse_proxy` sets the forwarded headers itself:
+
+```caddy
+comics.example.com {
+    reverse_proxy 127.0.0.1:8251
+}
+```
+
+In every case the proxy is the thing that must ask who you are. PanelShelf will
+not do it for you.
 
 Found a vulnerability? Please report it privately rather than as an issue —
 see [SECURITY.md](SECURITY.md).
@@ -1060,6 +1145,7 @@ ARMv7 models in particular may have kernel/runtime constraints.
 - Application: `/var/packages/PanelShelf/target`
 - Configuration and index: `/var/packages/PanelShelf/var`
 - Log: `/var/packages/PanelShelf/var/panelshelf.log`
+- Optional settings: `/var/packages/PanelShelf/var/panelshelf.env`
 - Port: `8251/tcp`
 
 Uninstalling the package may remove its private configuration and index. It

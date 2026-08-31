@@ -10,6 +10,11 @@ const { ComicLibrary, browseFolders, recentlyAdded } = require("./library");
 const { MAX_ARTWORK_BYTES } = require("./custom-artwork");
 const { startAdvertisement } = require("./mdns");
 const { comicMime, createOpdsCatalog } = require("./opds");
+const {
+  TrustedProxies,
+  clientAddress,
+  isSecureRequest
+} = require("./forwarded");
 const { AttemptLimiter, clientKey } = require("./rate-limit");
 const { DEFAULT_READER_ID } = require("./reader-profiles");
 const { jsonError } = require("./util");
@@ -35,6 +40,10 @@ const ALLOWED_HOSTS = (process.env.PANELSHELF_ALLOWED_HOSTS || "")
   .split(",")
   .map((value) => value.trim().toLowerCase())
   .filter(Boolean);
+// Whose `X-Forwarded-*` headers are worth reading. Empty by default, which
+// means none: a header anyone can send is only evidence when it arrives from a
+// machine the owner has named. `loopback` covers a proxy on the NAS itself.
+const TRUSTED_PROXIES = new TrustedProxies(process.env.PANELSHELF_TRUSTED_PROXY);
 
 function setSecurityHeaders(response) {
   response.setHeader("X-Content-Type-Options", "nosniff");
@@ -142,8 +151,15 @@ const DEVICE_COOKIE = "panelshelf_device";
 // `guardRequest`, is what makes carrying it on a plain GET safe. No Secure:
 // PanelShelf serves plain HTTP on a LAN, and a Secure cookie would simply never
 // be sent.
-function deviceCookieHeader(token) {
-  const shared = "Path=/; HttpOnly; SameSite=Strict";
+//
+// Secure is added only when this request demonstrably arrived over HTTPS —
+// directly, or through a proxy the owner has named. It cannot be unconditional:
+// a Secure cookie is simply never sent over plain HTTP, so setting it on a LAN
+// deployment would empty every shelf the browser draws. And it cannot be
+// omitted once HTTPS is in front, or the token the owner went to the trouble of
+// encrypting would still leak the first time somebody typed the bare address.
+function deviceCookieHeader(token, secure = false) {
+  const shared = `Path=/; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`;
   if (!token) return `${DEVICE_COOKIE}=; ${shared}; Max-Age=0`;
   // 400 days is the longest most browsers will honour.
   return `${DEVICE_COOKIE}=${token}; ${shared}; Max-Age=${400 * 24 * 60 * 60}`;
@@ -856,7 +872,10 @@ async function startServer() {
       if (request.method === "POST" && pathname === "/api/devices/enable") {
         const body = await readJsonBody(request);
         const paired = await library.enableDevicePairing(body);
-        response.setHeader("Set-Cookie", deviceCookieHeader(paired.token));
+        response.setHeader(
+          "Set-Cookie",
+          deviceCookieHeader(paired.token, isSecureRequest(request, TRUSTED_PROXIES))
+        );
         return sendJson(response, 200, paired);
       }
 
@@ -864,7 +883,10 @@ async function startServer() {
         await library.deviceTokens.setEnabled(false);
         // Emptied rather than left to expire: a cookie for a server that no
         // longer asks for one is just a token sitting in a browser.
-        response.setHeader("Set-Cookie", deviceCookieHeader(null));
+        response.setHeader(
+          "Set-Cookie",
+          deviceCookieHeader(null, isSecureRequest(request, TRUSTED_PROXIES))
+        );
         return sendJson(response, 200, { enabled: false, devices: library.deviceTokens.list() });
       }
 
@@ -880,7 +902,7 @@ async function startServer() {
       if (request.method === "POST" && pathname === "/api/devices/pair") {
         // The one route that hands out a credential to a caller holding none,
         // so it is the one route worth counting wrong answers on.
-        const attemptKey = clientKey(request);
+        const attemptKey = clientKey(clientAddress(request, TRUSTED_PROXIES));
         pairingAttempts.check(attemptKey);
         const body = await readJsonBody(request);
         let paired;
@@ -901,7 +923,10 @@ async function startServer() {
         }
         // Set for a browser redeeming a code; a native client ignores it and
         // keeps the token from the body instead.
-        response.setHeader("Set-Cookie", deviceCookieHeader(paired.token));
+        response.setHeader(
+          "Set-Cookie",
+          deviceCookieHeader(paired.token, isSecureRequest(request, TRUSTED_PROXIES))
+        );
         return sendJson(response, 200, paired);
       }
 

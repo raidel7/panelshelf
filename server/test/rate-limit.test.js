@@ -129,11 +129,10 @@ test("the tracked-client map stays bounded", () => {
   );
 });
 
-test("an IPv4 caller is counted whole, however it reaches the socket", () => {
-  assert.equal(clientKey({ socket: { remoteAddress: "192.168.1.5" } }), "192.168.1.5");
-  // A dual-stack listener reports an IPv4 peer this way, and it is the same
-  // caller as the line above rather than a second one with a fresh budget.
-  assert.equal(clientKey({ socket: { remoteAddress: "::ffff:192.168.1.5" } }), "192.168.1.5");
+test("an IPv4 caller is counted whole", () => {
+  assert.equal(clientKey("192.168.1.5"), "192.168.1.5");
+  assert.equal(clientKey(""), "unknown");
+  assert.equal(clientKey(null), "unknown");
 });
 
 test("an IPv6 caller is counted by prefix, not by address", () => {
@@ -142,16 +141,8 @@ test("an IPv6 caller is counted by prefix, not by address", () => {
   // ceiling meaningless on any network that has IPv6 at all.
   const prefix = "2001:db8:1:2";
   for (const suffix of ["a::1", "b::2", "cafe::3"]) {
-    assert.equal(
-      clientKey({ socket: { remoteAddress: `${prefix}:${suffix}` } }),
-      prefix
-    );
+    assert.equal(clientKey(`${prefix}:${suffix}`), prefix);
   }
   // A link-local address carries a zone that is not part of the prefix.
-  assert.equal(
-    clientKey({ socket: { remoteAddress: "fe80::1c2d:3e4f:5a6b:7c8d%en0" } }),
-    "fe80::1c2d:3e4f"
-  );
-  assert.equal(clientKey({ socket: {} }), "unknown");
-  assert.equal(clientKey(null), "unknown");
+  assert.equal(clientKey("fe80::1c2d:3e4f:5a6b:7c8d%en0"), "fe80::1c2d:3e4f");
 });
