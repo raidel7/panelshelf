@@ -702,11 +702,13 @@ catalog address is the one field every OPDS client has, so this is the fallback
 for a reader that offers neither a username box nor pairing. Every link in the
 returned feed keeps the prefix, so page two of a shelf is still that reader's.
 
-**2. Named on the request.** Send `X-PanelShelf-Reader: <name or id>`. A
-third-party OPDS reader cannot send a header PanelShelf invented, and does not
-have to: put the profile name in the **username** box and the device token in
-the password box. The username was already being decoded and discarded, so it
-costs a reader nothing but typing.
+**2. Named on the request.** Send `X-PanelShelf-Reader: <name or id>`. Prefer
+the id — a header carries bytes, not text, so a display name with an accent in
+it depends on the server reading those bytes back as UTF-8, which it does, but
+the id needs no such rescue. A third-party OPDS reader cannot send a header
+PanelShelf invented, and does not have to: put the profile name in the
+**username** box and the device token in the password box. The username was
+already being decoded and discarded, so it costs a reader nothing but typing.
 
 **3. Bound to the device.** A paired device can be bound to a profile, either
 when it pairs (`readerProfileId` in the `POST /api/devices/pair` body) or

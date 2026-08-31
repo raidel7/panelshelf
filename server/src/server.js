@@ -212,11 +212,25 @@ function basicUsername(request) {
   }
 }
 
+// Header values are bytes, and Node hands them over decoded as latin1. A client
+// that writes "Ana María" into a header sends UTF-8, which arrives here as
+// "Ana MarÃ­a" and matches nothing. Reinterpreting those bytes as UTF-8 gets the
+// name back; pure ASCII is unchanged by the round trip, so the raw value is
+// tried first and this is only the fallback. The Basic username needs none of
+// this — it is base64 of the same bytes, and is already decoded as UTF-8.
+function headerNames(value) {
+  if (typeof value !== "string" || !value) return [];
+  const reinterpreted = Buffer.from(value, "latin1").toString("utf8");
+  return reinterpreted === value ? [value] : [value, reinterpreted];
+}
+
 function resolveReaderProfile(request, library, device, pathName) {
+  const named = headerNames(request.headers[READER_HEADER]);
   return (
     // The address of the catalogue itself, for a reader with no username box.
     library.matchReaderProfile(pathName) ||
-    library.matchReaderProfile(request.headers[READER_HEADER]) ||
+    library.matchReaderProfile(named[0]) ||
+    library.matchReaderProfile(named[1]) ||
     library.matchReaderProfile(basicUsername(request)) ||
     // Whatever the paired device is set to, when the request itself says
     // nothing. A name nobody has counts as saying nothing, so a typo falls

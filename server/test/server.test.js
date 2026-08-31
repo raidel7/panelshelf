@@ -1952,3 +1952,42 @@ test("a catalogue address can name the reader, and its links keep it", async (t)
   // A name nobody has is the default's shelf under an odd address, not an error.
   assert.equal((await fetch(`${base}/opds/r/nobody/all`)).status, 200, state.logs);
 });
+
+test("a reader profile named with an accent survives the header", async (t) => {
+  // Header values are bytes, and Node hands them over decoded as latin1. A
+  // client writing "Ana María" into a header sends UTF-8, which arrives as
+  // "Ana MarÃ­a" and used to match nothing at all — quietly writing to the
+  // default reader's shelf while showing somebody else's name.
+  const { base, state } = await startServer(t);
+  const created = await fetch(`${base}/api/readers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Ana María" })
+  });
+  assert.equal((await created.json()).profile.id, "ana-maria", state.logs);
+
+  await putProgress(base, 40);
+  await putProgress(base, 3, { "X-PanelShelf-Reader": "Ana María" });
+
+  assert.equal((await readerProgress(base)).body.pageIndex, 40, state.logs);
+  for (const name of ["Ana María", "ana-maria", "ANA MARÍA"]) {
+    assert.equal(
+      (await readerProgress(base, { "X-PanelShelf-Reader": name })).body.pageIndex,
+      3,
+      `${name} should have found Ana's shelf: ${state.logs}`
+    );
+  }
+
+  // The username box carries the same name as base64 of the same bytes, which
+  // needed no rescuing — it is decoded as UTF-8 to begin with.
+  const basic = Buffer.from("Ana María:").toString("base64");
+  assert.equal(
+    (await readerProgress(base, { Authorization: `Basic ${basic}` })).body.pageIndex,
+    3,
+    state.logs
+  );
+
+  // And the catalogue address, where the name arrives percent-encoded.
+  const feed = await fetch(`${base}/opds/r/${encodeURIComponent("Ana María")}/all`);
+  assert.equal(feed.status, 200, state.logs);
+});
