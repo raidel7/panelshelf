@@ -69,9 +69,14 @@ select:focus-visible {
 }
 
 .app-shell {
+  /* Named so the safe-area rule at the end of this file can widen it without
+     knowing which breakpoint set it. Every block that changes the gutter sets
+     this rather than the padding. */
+  --shell-gutter: 34px;
+
   width: min(1500px, 100%);
   margin: 0 auto;
-  padding: 0 34px 60px;
+  padding: 0 var(--shell-gutter) 60px;
 }
 
 .topbar {
@@ -233,6 +238,7 @@ select:focus-visible {
   display: grid;
   width: min(330px, calc(100vw - 32px));
   max-height: min(560px, calc(100vh - 110px));
+  max-height: min(560px, calc(100dvh - 110px));
   padding: 8px;
   overflow-y: auto;
   border: 1px solid #4a4453;
@@ -754,6 +760,7 @@ h2 {
 .dialog {
   width: min(640px, calc(100vw - 28px));
   max-height: min(780px, calc(100vh - 32px));
+  max-height: min(780px, calc(100dvh - 32px));
   padding: 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -2657,6 +2664,7 @@ h2 {
   z-index: 60;
   width: min(300px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
   overflow: hidden;
   border: 1px solid #514861;
   border-radius: 15px;
@@ -3336,7 +3344,14 @@ h2 {
 .reader-dialog {
   width: 100vw;
   max-width: none;
+  /* The visible height, not the tall one. A phone measures `vh` with the
+     browser's own chrome hidden, so a full-height reader hangs its toolbar
+     behind the address bar until something scrolls it away — and in here the
+     only gesture is a page turn, which does not. `dvh` tracks what is actually
+     on screen; the `vh` line above it is what a browser that predates `dvh`
+     keeps. */
   height: 100vh;
+  height: 100dvh;
   max-height: none;
   padding: 0;
   border: 0;
@@ -3355,10 +3370,12 @@ h2 {
 }
 
 .reader-toolbar {
+  --reader-gutter: 14px;
+
   z-index: 4;
   display: grid;
   align-items: center;
-  padding: 0 14px;
+  padding: 0 var(--reader-gutter);
   border-bottom: 1px solid rgba(255, 255, 255, .1);
   background: rgba(16, 15, 20, .96);
   grid-template-columns: minmax(42px, 1fr) minmax(0, 2.5fr) minmax(220px, 1fr);
@@ -4207,6 +4224,7 @@ h2 {
 .metadata-dialog {
   width: min(1120px, calc(100vw - 28px));
   max-height: min(900px, calc(100vh - 24px));
+  max-height: min(900px, calc(100dvh - 24px));
 }
 
 .metadata-dialog .dialog-footer > div {
@@ -4625,7 +4643,9 @@ h2 {
 
 @media (max-width: 720px) {
   .app-shell {
-    padding: 0 18px 40px;
+    --shell-gutter: 18px;
+
+    padding: 0 var(--shell-gutter) 40px;
   }
 
   .topbar {
@@ -4923,7 +4943,8 @@ h2 {
   }
 
   .reader-toolbar {
-    padding: 0 8px;
+    --reader-gutter: 8px;
+
     grid-template-columns: 40px minmax(0, 1fr) minmax(108px, auto);
     gap: 4px;
   }
@@ -5299,5 +5320,180 @@ h2 {
   .bulk-bar {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+/* Tablets, small phones, and a phone held sideways.
+ *
+ * Everything above already has a 720px breakpoint, which is a phone held
+ * upright and nothing else. Three cases were left on the desktop layout: an
+ * iPad, which is 768 to 1024 points wide and got 34px of margin and a topbar
+ * built for 1500; a small phone, where two columns of cover at 390 points is
+ * tighter than the gaps assume; and any phone turned sideways to read, which
+ * is the position this app is actually used in and has barely 400 points of
+ * height to spend.
+ *
+ * Widest first, so a phone picks up the tablet rules and then overrides them,
+ * and last in the file so none of it needs a specificity fight to land. */
+
+/* An iPad, and a narrow desktop window. Nothing here changes the shape of the
+ * layout; it buys back the horizontal room the desktop margins were spending
+ * on a screen four hundred points wider. */
+@media (max-width: 1080px) {
+  .app-shell {
+    --shell-gutter: 22px;
+
+    padding-bottom: 48px;
+  }
+
+  .topbar {
+    min-height: 78px;
+    gap: 14px;
+  }
+
+  /* The wordmark keeps its logo; what goes is the reserved column that was
+     holding a third of a tablet's width for a two-line title. */
+  .brand {
+    min-width: 0;
+  }
+
+  .search {
+    width: min(320px, 34vw);
+  }
+
+  .comic-grid {
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 26px 16px;
+  }
+
+  .collection-grid {
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+    gap: 26px 15px;
+  }
+}
+
+/* A small phone: 390 points and under, which is most of them. The 720px block
+ * already went to two columns; this is about the gaps and paddings around
+ * them, which were still sized for a screen twice as wide. */
+@media (max-width: 430px) {
+  .app-shell {
+    --shell-gutter: 14px;
+
+    padding-bottom: 36px;
+  }
+
+  .comic-grid,
+  .collection-grid {
+    gap: 20px 10px;
+  }
+
+  /* Full bleed. A rounded card inset from both edges spends thirty points of a
+     three-hundred-and-ninety point screen on showing you the screen.
+     `.dialog` alone is enough for all nine variants: each one sets its own
+     width earlier in this file at the same specificity, and this is last. */
+  .dialog {
+    width: 100vw;
+    max-width: none;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .dialog-header,
+  .dialog-content,
+  .dialog-footer {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  /* Two buttons side by side inside a fourteen-point margin leaves each one
+     too narrow to read its own label. */
+  .data-backup-actions,
+  .cover-cache-actions,
+  .device-pairing-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .structure-summary,
+  .bulk-metadata-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-year-header strong {
+    font-size: 28px;
+  }
+
+  /* These bleed to the edge by cancelling the shell gutter, so they have to
+     be told when it changes. */
+  .continue-section,
+  .focused-timeline {
+    margin-right: calc(var(--shell-gutter, 14px) * -1);
+    margin-left: calc(var(--shell-gutter, 14px) * -1);
+  }
+
+  .continue-section {
+    padding-right: var(--shell-gutter, 14px);
+    padding-left: var(--shell-gutter, 14px);
+  }
+}
+
+/* Safe areas, which exist only because the viewport meta says viewport-fit=cover.
+ *
+ * Last, and outside every media query, because it widens whatever gutter is in
+ * force rather than choosing one: `max` takes the inset when there is one and
+ * the breakpoint's own value when there is not, so this is a no-op on every
+ * screen without a notch — which is all of them except a phone held sideways. */
+@supports (padding: max(0px, env(safe-area-inset-left))) {
+  .app-shell {
+    padding-right: max(var(--shell-gutter), env(safe-area-inset-right));
+    padding-left: max(var(--shell-gutter), env(safe-area-inset-left));
+  }
+
+  .reader-toolbar {
+    padding-right: max(var(--reader-gutter), env(safe-area-inset-right));
+    padding-left: max(var(--reader-gutter), env(safe-area-inset-left));
+  }
+
+  /* The home indicator sits over the bottom of the page image. Padding the
+     stage rather than the dialog keeps the toolbar flush against the top. */
+  .reader-stage {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .dialog-footer {
+    padding-bottom: max(17px, env(safe-area-inset-bottom));
+  }
+}
+
+/* A phone held sideways, which is how a comic gets read.
+ *
+ * Around 400 points of height, and the toolbar was taking 58 of them. The
+ * short-viewport rule further up is scoped to a fine pointer because it was
+ * written for a small desktop window; this is the touch half of the same
+ * problem and has to be its own rule — a phone matches one and a laptop the
+ * other, and neither should get the other's.
+ *
+ * Only the reader is touched. Shrinking the whole app for a short window would
+ * change the library on a laptop nobody resized on purpose. */
+@media (max-height: 500px) and (orientation: landscape) and (pointer: coarse) {
+  .reader-shell {
+    grid-template-rows: 44px 1fr;
+  }
+
+  .reader-button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .reader-mode-label select {
+    height: 30px;
+  }
+
+  /* The page number and the series line are three of the toolbar's forty-four
+     points, and neither is why anyone opened the comic. */
+  .reader-title span,
+  .reader-title small {
+    display: none;
   }
 }

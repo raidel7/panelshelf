@@ -1360,3 +1360,62 @@ test("a reader who has never handed over their cache hands it to their own shelf
     "the default profile's flag is somebody else's"
   );
 });
+
+test("the layout answers a tablet, a small phone, and a phone on its side", async () => {
+  const [document, styles] = await Promise.all([
+    fsp.readFile(path.join(publicDirectory, "index.html"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "styles.css"), "utf8")
+  ]);
+
+  // Safe-area insets are inert without this, so the reader would keep the
+  // black bars the browser inserts rather than filling the screen.
+  assert.match(document, /viewport-fit=cover/);
+  assert.match(document, /id="supportBundleButton"/);
+
+  for (const query of [
+    "@media (max-width: 1080px)",
+    "@media (max-width: 430px)",
+    "@media (max-height: 500px) and (orientation: landscape) and (pointer: coarse)"
+  ]) {
+    assert.ok(styles.includes(query), `missing breakpoint: ${query}`);
+  }
+
+  // A phone measures `vh` with the browser chrome hidden. Every full-height
+  // surface needs the visible height beside it, or its bottom edge sits behind
+  // the address bar — and in the reader nothing scrolls it out of the way.
+  const fullHeight = [...styles.matchAll(/^\s*(?:max-)?height:.*100vh.*$/gm)];
+  assert.ok(fullHeight.length > 0, "expected some full-height rules to check");
+  for (const match of fullHeight) {
+    const after = styles.slice(match.index + match[0].length, match.index + match[0].length + 120);
+    assert.match(
+      after,
+      /100dvh/,
+      `a 100vh rule with no dvh companion: ${match[0].trim()}`
+    );
+  }
+});
+
+test("the safe-area rule can still widen whichever gutter is in force", async () => {
+  const styles = await fsp.readFile(path.join(publicDirectory, "styles.css"), "utf8");
+
+  // It works by taking the larger of the inset and the breakpoint's own value,
+  // which only holds while it is the last word on those two properties. A
+  // media query appended below this would silently take the padding back and
+  // put the controls under the notch again.
+  const safeArea = styles.lastIndexOf("env(safe-area-inset-left)");
+  assert.ok(safeArea > 0, "the safe-area block is missing");
+
+  for (const declaration of ["--shell-gutter:", "--reader-gutter:"]) {
+    const last = styles.lastIndexOf(declaration);
+    assert.ok(last > 0, `${declaration} is missing`);
+    assert.ok(
+      last < safeArea,
+      `${declaration} is set after the safe-area rule, which undoes it`
+    );
+  }
+
+  // And the gutters have to reach the padding through the variable, or the
+  // safe-area rule would be widening a number nothing else uses.
+  assert.match(styles, /padding:\s*0 var\(--shell-gutter\) 60px/);
+  assert.match(styles, /padding:\s*0 var\(--reader-gutter\)/);
+});
