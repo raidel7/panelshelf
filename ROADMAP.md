@@ -116,8 +116,9 @@ alongside the app.
 
 ### Known gaps in the foundation
 
-- Reading progress and skipped branches are single shared namespaces, so two
-  people reading the same library overwrite each other's shelves. Section 8.
+- The secure-deployment half of section 8 is untouched: pairing-code redemption
+  is unthrottled, the web is not laid out for a phone, and there is no support
+  bundle. Section 8.
 - The cover cache has no size ceiling and no limit on how many thumbnails it
   will generate at once. Section 10.
 - The web viewer still downloads the full library listing, because it needs
@@ -812,14 +813,25 @@ OPDS client has, the address of the catalog itself.
 
 ### Scope
 
+Built:
+
 - Reading progress and skipped branches namespaced by reader-profile id, with
   existing records migrating into a default reader profile so nobody loses
   their place or their hidden branches.
-- Reader-profile listing and deletion on the server, so a client can offer the
-  switch and clean up after one nobody uses.
+- Reader-profile listing, creation, renaming and deletion on the server, so a
+  client can offer the switch and clean up after one nobody uses. Deleting one
+  takes its shelf and unbinds whatever pointed at it.
 - Reader-profile resolution from the Basic username, a bound device, or a
   per-reader catalog URL, so a third-party OPDS reader sees one person's shelf.
-- An optional reader-profile binding on each paired device.
+- An optional reader-profile binding on each paired device, set when it pairs
+  or afterwards from the owner's browser.
+- Backups carrying every reader profile at schema 1, so a 0.5 backup still
+  restores on 0.4.18 rather than being refused by it.
+- The web side of all of the above: naming the readers, saying which one this
+  browser is, and binding a device to one.
+
+Still to do:
+
 - Rate limiting on pairing-code redemption.
 - Responsive tablet and phone improvements on the web.
 - Trusted reverse-proxy and HTTPS documentation.
@@ -835,9 +847,10 @@ OPDS client has, the address of the catalog itself.
 - Upgrading from 0.4.18 leaves existing progress and skips intact under the
   default reader profile. A client that names no reader profile and is bound to
   none still reads and writes exactly what it did before.
-- A wrong or unknown reader-profile name resolves to the default rather than
-  creating one, so a typo in an OPDS client's username box cannot silently
-  strand somebody's shelf in a profile nobody can find.
+- A wrong or unknown reader-profile name never creates a profile. It is treated
+  as though no name were given, falling through to whatever the device is bound
+  to and to the default after that, so a typo in an OPDS client's username box
+  cannot silently strand somebody's shelf where nothing can find it.
 - Backup and restore carry every reader profile's progress and skips without
   exporting a reusable device token.
 
