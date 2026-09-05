@@ -287,6 +287,45 @@ function sendJson(response, status, value) {
   response.end(body);
 }
 
+// The library listing, which is the one response here that is not small.
+//
+// `sendJson` builds the whole document as a string and then copies it into a
+// buffer. For a hundred thousand comics that is a 113 MB string and a 113 MB
+// buffer, on top of the 113 MB of records the caller built to pass in — three
+// copies of the same answer alive at once, to serve one request. A NAS with a
+// gigabyte of memory does not have that to spare, and a scan may be running.
+//
+// So records are projected and written one block at a time, and the array the
+// old path built up front never exists. Costs the Content-Length header, which
+// only a progress bar would have wanted.
+async function sendJsonArray(response, status, items, project) {
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+
+  const BLOCK = 512 * 1024;
+  let pending = "";
+  const flush = () => {
+    if (pending === "") return Promise.resolve();
+    const chunk = pending;
+    pending = "";
+    return response.write(chunk)
+      ? Promise.resolve()
+      : new Promise((resolve) => response.once("drain", resolve));
+  };
+
+  pending = "[";
+  for (let index = 0; index < items.length; index += 1) {
+    if (index > 0) pending += ",";
+    pending += JSON.stringify(project(items[index]));
+    if (pending.length >= BLOCK) await flush();
+  }
+  pending += "]";
+  await flush();
+  await new Promise((resolve) => response.end(resolve));
+}
+
 function sendError(response, error) {
   const statusByCode = {
     NOT_FOUND: 404,
@@ -1056,7 +1095,7 @@ async function startServer() {
         } else if (bounded) {
           comics = comics.slice(0, limit);
         }
-        return sendJson(response, 200, comics.map(project));
+        return sendJsonArray(response, 200, comics, project);
       }
 
       // Which chronology branches the reader has set aside. Server-owned like

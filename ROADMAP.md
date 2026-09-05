@@ -925,6 +925,21 @@ was making features exist. This is making them keep working.
   and a reader on the same shelf no longer open the same archive twice.
 - One-click sanitized diagnostics, delivered early as the support bundle in
   section 8. Log rotation, the other half of that line, is still to do.
+- **Two ceilings on what the index costs to write.** The whole document was
+  built as one string and copied into a buffer to be written: at 100,000 comics
+  that is 180 MB of string and 180 MB of buffer alive at once, on top of the
+  records they came from. Records now go out in blocks and nothing bigger than a
+  block is held. Indentation went with them — nobody reads a hundred thousand
+  records by hand, and it was 31% of the file. Peak resident set during a scan
+  fell from 1,664 MB to 1,036 MB, the index from 183.6 MB to 126.7 MB, and the
+  scan is no slower.
+- **The library listing is streamed rather than assembled.** Answering
+  `GET /api/comics` built an array of every projected record, serialised it to
+  one string, and copied that into a buffer — three copies of the same answer to
+  serve one request. Now projected and written a block at a time: 115 MB of
+  extra resident set per request at 25,000 comics became 49 MB, at the same
+  speed. The response is chunked, which costs a `Content-Length` only a progress
+  bar wanted.
 - **A quadratic in the scanner, found by the profile above.** Move detection
   asks whether a candidate's old path is still there, once per file for every
   comic sharing its fingerprint — a synchronous `existsSync` each time, holding
@@ -951,10 +966,27 @@ was making features exist. This is making them keep working.
 
 ### Still to do
 
-Everything else in Scope. Two of the remaining items now have evidence behind
-them rather than a guess — see the profile — and the next worth taking is a
-ceiling on the log, which is small, self-contained, and the only unbounded file
-left on the disk.
+Everything else in Scope, and two things the profile found that are only half
+answered.
+
+The first is what the browser holds. The listing is 113 MB at 100,000 comics
+because every record carries five metadata blocks — the merged one the interface
+reads, and the four inputs it was merged from. Only the merged one is drawn in a
+list; the others are there for the metadata dialog, which has a per-comic route
+of its own to fetch them from. Moving them off the listing is the fix, and it is
+not a change to make without being able to run the interface: the shelf reads
+those blocks in a handful of places, and losing one silently costs a badge or a
+sort order rather than raising anything. `sourceMetadata` is not read by any
+client in this repository and is still sent, but it is documented API surface,
+so the iPad app has to be checked before it goes.
+
+The second is the scan's gigabyte. What remains after the write fix is mostly
+the records themselves — a rebuild holds the previous index and the new one at
+the same time, by design, because that is what lets a comic that moved keep its
+identity.
+
+The next piece worth taking is a ceiling on the log, which is small,
+self-contained, and the only unbounded file left on the disk.
 
 ### What a large library actually costs
 
@@ -964,24 +996,27 @@ are roughly two and a half times larger, so scale the sizes accordingly.
 
 | | 5,000 | 25,000 | 100,000 |
 | --- | --- | --- | --- |
-| Scan | 1.6 s | 7.8 s | 31.9 s |
-| Scan rate | 3,197/s | 3,215/s | 3,134/s |
-| `library.json` | 9.2 MB | 45.9 MB | 183.6 MB |
-| Restart | 0.06 s | 0.26 s | 1.16 s |
+| Scan | 1.6 s | 7.4 s | 31.8 s |
+| Scan rate | 3,197/s | 3,363/s | 3,143/s |
+| `library.json` | 6.3 MB | 31.6 MB | 126.7 MB |
+| Restart | 0.06 s | 0.25 s | 1.15 s |
 | Compact listing | 0.8 MB | 3.9 MB | 15.7 MB |
 | Full listing | 5.6 MB | 28.3 MB | 113.3 MB |
-| Peak resident set | 186 MB | 893 MB | 1,664 MB |
+| Peak resident set, scan | 186 MB | 689 MB | 1,036 MB |
 
 The scan rate is flat across a twentyfold range, which is the thing worth
 knowing: nothing in the ordinary path is quadratic. A restart of the largest
 library takes about a second.
 
-Two numbers are a problem. Peak resident set during a scan reaches 1.7 GB at
-100,000 comics, which is more memory than most of the ARM models the packages
-are built for have in total — the ARMv7 line in particular. And the full listing
-is 113 MB, which the web viewer still asks for.
+The index and the scan's peak memory are what they are after the two fixes
+below; before them they were 183.6 MB and 1,664 MB. A gigabyte at 100,000
+comics is still more than the smallest ARM models have, and the full listing is
+still 113 MB on the wire — the server no longer holds three copies of it to
+send one, but the browser that asked still receives all of it.
 
-Neither has been reproduced on hardware. Both belong to this section.
+None of this has been reproduced on hardware, and the corpus carries almost no
+metadata: it understates every metadata block and overstates the structural
+fields, so a real library's records are larger and differently shaped.
 
 ### Release gates
 

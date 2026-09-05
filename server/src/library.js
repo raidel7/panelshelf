@@ -122,6 +122,56 @@ async function atomicWriteJson(filePath, value) {
   await fsp.rename(temporary, filePath);
 }
 
+// The index, which is the one file here that is not small.
+//
+// `atomicWriteJson` builds the whole document as a string and hands it to
+// `writeFile`, which converts it to a buffer: at 100,000 comics that is a
+// 180 MB string and a 180 MB buffer, on top of the 500 MB of comic records
+// they were built from, all live at the same moment. The peak, not the total,
+// is what decides whether the ARM packages can carry a library this size.
+//
+// So the records go out one at a time and nothing bigger than one of them is
+// ever held. Indentation goes with them: nobody reads a hundred thousand
+// records by hand, and it was 31% of the file. One record per line keeps it
+// greppable, and leaves the door open to reading it back the same way.
+async function atomicWriteIndex(filePath, { scannedAt, comics }) {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  const temporary = `${filePath}.${process.pid}.tmp`;
+  const handle = await fsp.open(temporary, "w", 0o600);
+  try {
+    const out = handle.createWriteStream();
+    // Gathered into blocks rather than written per record. Awaiting each of a
+    // hundred thousand records costs more in promises than the write it is
+    // waiting for, and a block this size is still nothing next to the document
+    // it replaces.
+    const BLOCK = 512 * 1024;
+    let pending = "";
+    const flush = async () => {
+      if (pending === "") return;
+      const chunk = pending;
+      pending = "";
+      if (!out.write(chunk)) await new Promise((resolve) => out.once("drain", resolve));
+    };
+    const push = async (text) => {
+      pending += text;
+      if (pending.length >= BLOCK) await flush();
+    };
+
+    await push(`{\n"scannedAt": ${JSON.stringify(scannedAt ?? null)},\n"comics": [\n`);
+    for (let index = 0; index < comics.length; index += 1) {
+      await push(index === 0 ? JSON.stringify(comics[index]) : `,\n${JSON.stringify(comics[index])}`);
+    }
+    await push("\n]\n}\n");
+    await flush();
+    await new Promise((resolve, reject) => {
+      out.end((error) => (error ? reject(error) : resolve()));
+    });
+  } finally {
+    await handle.close().catch(() => {});
+  }
+  await fsp.rename(temporary, filePath);
+}
+
 async function readJson(filePath, fallback) {
   try {
     return JSON.parse(await fsp.readFile(filePath, "utf8"));
@@ -537,7 +587,7 @@ class ComicLibrary {
       await this.enrichment.reconcile(this.comics);
       await this.pruneCoverCache();
       await this.pruneArtwork();
-      await atomicWriteJson(this.indexPath, {
+      await atomicWriteIndex(this.indexPath, {
         scannedAt: saved.scannedAt || null,
         comics: this.comics
       });
@@ -669,7 +719,7 @@ class ComicLibrary {
     await this.pruneCoverCache();
     await this.pruneArtwork();
     this.pageCache.clear();
-    await atomicWriteJson(this.indexPath, {
+    await atomicWriteIndex(this.indexPath, {
       scannedAt: new Date().toISOString(),
       comics: this.comics
     });
@@ -1628,7 +1678,7 @@ class ComicLibrary {
       await this.pruneCoverCache();
       await this.pruneArtwork();
       this.pageCache.clear();
-      await atomicWriteJson(this.indexPath, {
+      await atomicWriteIndex(this.indexPath, {
         scannedAt: new Date().toISOString(),
         comics: this.comics
       });

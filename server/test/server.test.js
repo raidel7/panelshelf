@@ -2162,3 +2162,46 @@ test("the support bundle downloads, and needs a token when pairing is on", async
   assert.equal(withDevice.devices.pairingEnabled, true);
   assert.ok(!JSON.stringify(withDevice).includes(body.token), "never the token itself");
 });
+
+test("the library listing is streamed, and is still one well-formed array", async (t) => {
+  // The listing is written a block at a time rather than built whole, which
+  // moves the commas and the brackets into hand-written code. Nothing catches a
+  // trailing comma except reading the thing back.
+  const { base, comicsDirectory, state } = await startServer(t);
+
+  const empty = await fetch(`${base}/api/comics`);
+  assert.equal(empty.status, 200, state.logs);
+  assert.equal(empty.headers.get("content-type"), "application/json; charset=utf-8");
+  assert.deepEqual(await empty.json(), [], "no library is an empty array, not nothing");
+
+  for (const name of ["Alpha", "Bravo", "Charlie"]) {
+    await fsp.writeFile(
+      path.join(comicsDirectory, `${name}.cbz`),
+      zipBuffer([{ name: "page.png", data: ONE_PIXEL_PNG }])
+    );
+  }
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [comicsDirectory] })
+  });
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 3);
+
+  const listing = await (await fetch(`${base}/api/comics`)).json();
+  assert.ok(Array.isArray(listing), "an array");
+  assert.ok(listing.length > 0, "with the library in it");
+  for (const comic of listing) {
+    assert.equal(typeof comic.id, "string");
+    assert.ok("metadata" in comic, "the full record, not the compact one");
+  }
+
+  // One comic is the case a hand-rolled separator gets wrong.
+  const single = await (await fetch(`${base}/api/comics?limit=1`)).json();
+  assert.equal(single.length, 1);
+  assert.deepEqual(single[0], listing[0], "and it is the same record as before");
+
+  const compact = await (await fetch(`${base}/api/comics?view=compact`)).json();
+  assert.equal(compact.length, listing.length);
+  assert.equal("metadata" in compact[0], false, "compact is still compact");
+});
