@@ -1309,6 +1309,40 @@ class ComicLibrary {
       previousByFingerprint.set(comic.fingerprint, matches);
     }
     const claimedComicIds = new Set();
+    // Move detection asks whether a candidate's old path is still there, and it
+    // asks about the same handful of paths once per file that shares their
+    // fingerprint. A library holding several copies of one archive — a rescued
+    // download, a backup folder left beside the originals — turns that into a
+    // synchronous stat per copy per file, which is quadratic in how duplicated
+    // the library is and blocks the event loop while it runs. Whether a path
+    // exists does not change usefully inside one scan, so it is asked once.
+    const pathExistence = new Map();
+    const pathStillThere = (candidatePath) => {
+      let answer = pathExistence.get(candidatePath);
+      if (answer === undefined) {
+        answer = fs.existsSync(candidatePath);
+        pathExistence.set(candidatePath, answer);
+      }
+      return answer;
+    };
+    // A comic that turns up under a new path and whose contents match exactly
+    // one comic we can no longer find has moved, and keeps its id — and with it
+    // its reading position. More than one candidate is not a move but a
+    // duplicate, and guessing between them would hand one comic's progress to
+    // another, so nothing is claimed at all.
+    const findMovedPrior = (fingerprint, source) => {
+      const candidates = previousByFingerprint.get(fingerprint);
+      if (!candidates || candidates.length === 0) return null;
+      let found = null;
+      for (const candidate of candidates) {
+        if (claimedComicIds.has(candidate.id)) continue;
+        if (!comicBelongsToSource(candidate, source)) continue;
+        if (pathStillThere(candidate.path)) continue;
+        if (found) return null;
+        found = candidate;
+      }
+      return found;
+    };
     const selectedSourceIds = new Set(selectedSources.map((source) => source.id));
     const discovered = new Map();
 
@@ -1370,15 +1404,16 @@ class ComicLibrary {
           unchanged && prior.fingerprint && !options.forceFingerprint
             ? prior.fingerprint
             : await fileFingerprint(filePath, stat.size);
-        const moveMatches = (previousByFingerprint.get(fingerprint) || [])
-          .filter(
-            (candidate) =>
-              comicBelongsToSource(candidate, source) &&
-              !fs.existsSync(candidate.path) &&
-              !claimedComicIds.has(candidate.id)
-          );
-        const movedPrior =
-          !prior && moveMatches.length === 1 ? moveMatches[0] : null;
+        // Only a file we have no record of can be one that moved: a path we
+        // already know is not a move, it is the same comic where it always
+        // was. Working that out first is what keeps a rebuild linear — every
+        // file in an indexed library has a prior, so on a rebuild this whole
+        // search is skipped rather than run and thrown away.
+        //
+        // Within the search, cheapest first. The identity checks are memory;
+        // the existence check is a syscall, and it earns its place only on a
+        // candidate that has survived the other two.
+        const movedPrior = prior ? null : findMovedPrior(fingerprint, source);
         const identity = prior || movedPrior;
         const stableId = identity?.id || comicId(filePath);
         claimedComicIds.add(stableId);

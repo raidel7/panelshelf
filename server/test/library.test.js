@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -1491,4 +1492,105 @@ test("a shelf of uncached covers does not open every archive at once", async (t)
 
   assert.ok(peak <= 2, `saw ${peak} archives open at once`);
   assert.equal(library.coverCacheStatus().cache.covers, 3, "and all three were cached");
+});
+
+// --- Move detection, and what it is allowed to cost -------------------------
+
+async function duplicateLibrary(t, copies) {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-dupes-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "Comics");
+  await fsp.mkdir(source, { recursive: true });
+  // Byte-identical, so every one of them shares a fingerprint. A library like
+  // this is not hypothetical: a rescued download, or a backup folder left
+  // beside the originals, produces exactly this shape.
+  const archive = zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }]);
+  for (let index = 0; index < copies; index += 1) {
+    await fsp.writeFile(path.join(source, `Copy ${index}.cbz`), archive);
+  }
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+  await library.saveConfig([source]);
+  await library.scan();
+  return { library, source };
+}
+
+test("a rebuild does not hunt for moves among files that never moved", async (t) => {
+  // Move detection asks whether a candidate's old path is still there. Asked
+  // once per file per comic sharing its fingerprint, that is quadratic in how
+  // duplicated the library is — and `existsSync` is synchronous, so the scan
+  // holds the event loop while it runs and the server stops answering.
+  //
+  // A file that already has a record cannot be one that moved, so the search
+  // does not belong on that path at all. Counted rather than timed, because a
+  // clock on a shared machine proves nothing.
+  const copies = 60;
+  const { library } = await duplicateLibrary(t, copies);
+
+  const realExistsSync = fs.existsSync;
+  let calls = 0;
+  fs.existsSync = (...args) => {
+    calls += 1;
+    return realExistsSync(...args);
+  };
+  t.after(() => {
+    fs.existsSync = realExistsSync;
+  });
+
+  const result = await library.scan({ action: "full" });
+
+  assert.equal(result.foundComics, copies, "every copy is still its own comic");
+  assert.ok(
+    calls < copies * 2,
+    `${calls} existence checks for ${copies} files; the search is back on the hot path`
+  );
+});
+
+test("a comic that moves keeps its identity, and its reading position with it", async (t) => {
+  const { library, source } = await duplicateLibrary(t, 1);
+  const [before] = library.listComics();
+  await library.saveProgress(READER, before.id, { pageIndex: 4 });
+
+  await fsp.mkdir(path.join(source, "Filed"), { recursive: true });
+  await fsp.rename(
+    path.join(source, "Copy 0.cbz"),
+    path.join(source, "Filed", "Copy 0.cbz")
+  );
+  await library.scan({ action: "full" });
+
+  const [after] = library.listComics();
+  assert.equal(after.id, before.id, "the same comic, in a new place");
+  assert.equal(library.getProgress(READER, after.id).pageIndex, 4);
+});
+
+test("two identical comics do not trade identities when one of them moves", async (t) => {
+  // Guessing between duplicates would hand one comic's reading position to
+  // another, which is worse than losing it: the reader is returned to a page
+  // they never reached, in a comic they may never have opened.
+  const { library, source } = await duplicateLibrary(t, 2);
+  const before = library.listComics().map((comic) => comic.id).sort();
+
+  await fsp.mkdir(path.join(source, "Filed"), { recursive: true });
+  await fsp.rename(
+    path.join(source, "Copy 0.cbz"),
+    path.join(source, "Filed", "Copy 0.cbz")
+  );
+  await library.scan({ action: "full" });
+
+  const after = library.listComics();
+  assert.equal(after.length, 2, "still two comics, not one and not three");
+  const survivor = after.find((comic) => comic.path.includes("Filed"));
+  const stayed = after.find((comic) => !comic.path.includes("Filed"));
+  assert.ok(survivor && stayed);
+  assert.notEqual(survivor.id, stayed.id, "and they are not the same comic");
+  // The one that did not move keeps what it had; the ambiguous one is new.
+  assert.ok(before.includes(stayed.id), "the comic that stayed put kept its id");
 });

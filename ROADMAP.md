@@ -925,6 +925,16 @@ was making features exist. This is making them keep working.
   and a reader on the same shelf no longer open the same archive twice.
 - One-click sanitized diagnostics, delivered early as the support bundle in
   section 8. Log rotation, the other half of that line, is still to do.
+- **A quadratic in the scanner, found by the profile above.** Move detection
+  asks whether a candidate's old path is still there, once per file for every
+  comic sharing its fingerprint — a synchronous `existsSync` each time, holding
+  the event loop. In a library carrying several copies of one archive (a rescued
+  download, a backup folder beside the originals) that is quadratic: a rebuild
+  of 4,000 identical files took 33.8 s and 3,600 stat calls per 60 files. A file
+  that already has a record cannot be one that moved, so the search does not
+  belong on that path at all. Now 1.0 s for the same 4,000, and a full rebuild
+  costs what a quick scan costs. The regression test counts syscalls rather than
+  seconds.
 - **A reader that cannot be got stuck in.** Tapping a comic while the server was
   unreachable opened the reader onto "Loading page…" and left it there: `fetch`
   has no timeout of its own, and neither does an `<img>`. The worst case is not
@@ -935,12 +945,43 @@ was making features exist. This is making them keep working.
   abandons the request instead of leaving it running. Product principle 6 with
   the reader included: a failure nobody can act on is the one that matters.
 
+- **Large-library profiling**, and the quadratic it found. `npm run profile
+  <count>` builds a synthetic library shaped like a real one and measures the
+  scan, the index, a restart, and both listing shapes. Numbers below.
+
 ### Still to do
 
-Everything else in Scope. The next piece worth taking is large-library
-profiling, because the remaining items are guesses without it: the eviction
-order above is reasoned from a 15:1 size ratio and a claim about what readers
-look at, and neither has been measured.
+Everything else in Scope. Two of the remaining items now have evidence behind
+them rather than a guess — see the profile — and the next worth taking is a
+ceiling on the log, which is small, self-contained, and the only unbounded file
+left on the disk.
+
+### What a large library actually costs
+
+Measured on a laptop, so these find algorithmic cliffs rather than NAS seconds.
+The corpus is synthetic and carries almost no metadata; a real library's records
+are roughly two and a half times larger, so scale the sizes accordingly.
+
+| | 5,000 | 25,000 | 100,000 |
+| --- | --- | --- | --- |
+| Scan | 1.6 s | 7.8 s | 31.9 s |
+| Scan rate | 3,197/s | 3,215/s | 3,134/s |
+| `library.json` | 9.2 MB | 45.9 MB | 183.6 MB |
+| Restart | 0.06 s | 0.26 s | 1.16 s |
+| Compact listing | 0.8 MB | 3.9 MB | 15.7 MB |
+| Full listing | 5.6 MB | 28.3 MB | 113.3 MB |
+| Peak resident set | 186 MB | 893 MB | 1,664 MB |
+
+The scan rate is flat across a twentyfold range, which is the thing worth
+knowing: nothing in the ordinary path is quadratic. A restart of the largest
+library takes about a second.
+
+Two numbers are a problem. Peak resident set during a scan reaches 1.7 GB at
+100,000 comics, which is more memory than most of the ARM models the packages
+are built for have in total — the ARMv7 line in particular. And the full listing
+is 113 MB, which the web viewer still asks for.
+
+Neither has been reproduced on hardware. Both belong to this section.
 
 ### Release gates
 
