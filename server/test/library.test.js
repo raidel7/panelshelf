@@ -1377,3 +1377,118 @@ test("a scan stamps addedAt once and keeps it across rescans", async (t) => {
   assert.equal(recent.length, 1);
   assert.equal(recent[0].title, "Second");
 });
+
+// --- Cover cache ceiling and generation queue ------------------------------
+
+// Three comics, one source, and a data directory that goes when the test does.
+async function libraryOfThree(t, options = {}) {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-ceiling-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const comicDirectory = path.join(directory, "Comics");
+  await fsp.mkdir(comicDirectory, { recursive: true });
+  for (const name of ["Issue 01", "Issue 02", "Issue 03"]) {
+    await fsp.writeFile(
+      path.join(comicDirectory, `${name}.cbz`),
+      zipBuffer([{ name: "001.png", data: ONE_PIXEL_PNG }])
+    );
+  }
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const dataDirectory = path.join(directory, "data");
+  const library = new ComicLibrary(dataDirectory, options);
+  await library.initialize();
+  await library.saveConfig([comicDirectory]);
+  await library.scan();
+  return { library, dataDirectory, comicDirectory };
+}
+
+function cachedFiles(dataDirectory) {
+  return fsp
+    .readdir(path.join(dataDirectory, "covers"))
+    .then((files) => files.filter((file) => !file.endsWith(".tmp")).sort());
+}
+
+test("the cover cache stops growing once it reaches its ceiling", async (t) => {
+  // Without this the cache is unbounded: a hundred thousand comics is tens of
+  // gigabytes of first pages nobody asked to store.
+  const oneCover = ONE_PIXEL_PNG.length;
+  const { library, dataDirectory } = await libraryOfThree(t, {
+    coverCacheBudgetBytes: oneCover * 2
+  });
+
+  for (const comic of library.listComics()) await library.cover(comic.id);
+
+  const stats = library.coverCacheStatus().cache;
+  assert.ok(stats.bytes <= oneCover * 2, `held ${stats.bytes} against ${oneCover * 2}`);
+  assert.ok(stats.evicted > 0, "something was actually given up");
+  assert.equal(
+    (await cachedFiles(dataDirectory)).length,
+    stats.covers,
+    "and the files went with the record, rather than being orphaned on disk"
+  );
+});
+
+test("a cover dropped by the ceiling is simply made again when asked for", async (t) => {
+  // Eviction has to be invisible apart from the cost. Everything here is
+  // derived data, so a missing file is a rebuild, never an error.
+  const { library } = await libraryOfThree(t, {
+    coverCacheBudgetBytes: ONE_PIXEL_PNG.length * 2
+  });
+  const comics = library.listComics();
+  for (const comic of comics) await library.cover(comic.id);
+
+  const evicted = comics.find(
+    (comic) => !library.coverCache.get(comic.id, library.cacheKey(comic))?.cover
+  );
+  assert.ok(evicted, "the ceiling dropped at least one cover");
+
+  const again = await library.cover(evicted.id);
+  assert.deepEqual(again.buffer, ONE_PIXEL_PNG);
+});
+
+test("two requests for the same uncached cover decode it once", async (t) => {
+  // A shelf drawing the same card twice, or a warm-up meeting a reader on the
+  // same comic. Opening the archive twice is the cost the queue removes.
+  const { library } = await libraryOfThree(t);
+  const [comic] = library.listComics();
+
+  const [first, second] = await Promise.all([
+    library.cover(comic.id, { thumbnail: true }),
+    library.cover(comic.id, { thumbnail: true })
+  ]);
+
+  assert.deepEqual(first.buffer, second.buffer);
+  assert.equal(library.coverCacheStatus().queue.coalesced, 1, "one of them was free");
+});
+
+test("a shelf of uncached covers does not open every archive at once", async (t) => {
+  // The ceiling that matters here is memory: each of these holds a full-size
+  // page while it works, and a shelf is sixty cards.
+  const { library } = await libraryOfThree(t, {
+    coverCacheBudgetBytes: 0
+  });
+
+  let live = 0;
+  let peak = 0;
+  const pages = library.pagesForComic.bind(library);
+  library.pagesForComic = async (comic) => {
+    live += 1;
+    peak = Math.max(peak, live);
+    try {
+      return await pages(comic);
+    } finally {
+      live -= 1;
+    }
+  };
+
+  await Promise.all(library.listComics().map((comic) => library.cover(comic.id)));
+
+  assert.ok(peak <= 2, `saw ${peak} archives open at once`);
+  assert.equal(library.coverCacheStatus().cache.covers, 3, "and all three were cached");
+});

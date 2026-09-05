@@ -1,6 +1,6 @@
 # PanelShelf Roadmap
 
-Updated: 2026-08-31
+Updated: 2026-09-04
 
 | Component | Version | State |
 | --- | --- | --- |
@@ -102,8 +102,9 @@ The current build provides:
 | 0.4.18 / 1041 | OPDS page streaming, so third-party readers page instead of downloading |
 | 0.5.0 / 1042 | Reader profiles, pairing-code limits, trusted proxies, support bundle, phone layout |
 
-Nothing is unreleased on `main`. The 0.4.14 heading covers 1035 and 1036 as
-point fixes. The iPad client cannot pair yet — that is client work, and pairing
+`main` is ahead of 0.5.0 by the cover cache ceiling and the cover generation
+queue, which are the first of section 10 and are unreleased. The 0.4.14 heading
+covers 1035 and 1036 as point fixes. The iPad client cannot pair yet — that is client work, and pairing
 stays off until it can.
 
 ### Companion iPad app
@@ -122,8 +123,10 @@ alongside the app.
   forwarded-header handling, the support bundle, and the phone layout have all
   been written and none of them has been installed. The next thing this needs is
   hardware, not more code.
-- The cover cache has no size ceiling and no limit on how many thumbnails it
-  will generate at once. Section 10.
+- The cover cache's ceiling and generation limit are written and, like
+  everything since 0.4.16, have never run on a NAS. The numbers behind them —
+  4 GB, two at a time, covers before thumbnails — are reasoned rather than
+  measured. Section 10.
 - The web viewer still downloads the full library listing, because it needs
   fields the compact record drops.
 - No marketplace-ready support workflow.
@@ -614,7 +617,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 | 6 | 0.4.16 — Sync API hardening | **Done** — 0.4.16 | — |
 | 7 | 0.4.17 — Storylines and advanced library editing | **Done** — 0.4.17 | — |
 | 8 | 0.5 — Reader profiles and secure deployment | **Done** — 0.5.0, untested on hardware | — |
-| 10 | 0.7 — Reliability, performance, administration | Planned | 3–5 weeks |
+| 10 | 0.7 — Reliability, performance, administration | **In progress** | 3–5 weeks |
 | 11 | 0.9 — Synology marketplace candidate | Planned | 3–6 weeks plus review |
 | 12 | 1.0 — Public release | Planned | After the gates above |
 
@@ -889,6 +892,13 @@ Still to do:
 
 ## 10. 0.7 — Reliability, performance, and administration — server
 
+### Goal
+
+Everything here is about what the server does when it is not being watched: a
+library four times bigger than the one it was written against, a disk that fills
+up, a scan that runs at three in the morning. The work of the earlier milestones
+was making features exist. This is making them keep working.
+
 ### Scope
 
 - Thumbnail generation queue limits and storage quotas.
@@ -900,6 +910,41 @@ Still to do:
 - Log rotation and one-click sanitized diagnostics.
 - Dependency and package vulnerability review.
 - Upgrade, downgrade, restart, and unexpected-power-loss testing.
+
+### Done
+
+- **Cover cache ceiling and generation limit.** `covers/` had no bound and
+  nothing limited how many covers were generated at once, which are two versions
+  of the same problem: derived data with no ceiling. The cache now has a byte
+  budget (`PANELSHELF_COVER_CACHE_MB`, 4096 by default, `0` to remove it) and
+  gives up full covers before thumbnails, coldest first — the reverse of what a
+  plain least-recently-used cache would do, because a thumbnail is fifteen times
+  smaller and is wanted on every card drawn, while a full cover is one detail
+  view. Generation runs through a queue (`PANELSHELF_COVER_CONCURRENCY`, 2 by
+  default) that also answers duplicate requests with one decode, so a warm-up
+  and a reader on the same shelf no longer open the same archive twice.
+- One-click sanitized diagnostics, delivered early as the support bundle in
+  section 8. Log rotation, the other half of that line, is still to do.
+
+### Still to do
+
+Everything else in Scope. The next piece worth taking is large-library
+profiling, because the remaining items are guesses without it: the eviction
+order above is reasoned from a 15:1 size ratio and a claim about what readers
+look at, and neither has been measured.
+
+### Release gates
+
+- The cover cache does not exceed its configured ceiling, and a cover it gives
+  up is rebuilt on the next request rather than reported as missing.
+- Cover generation holds no more full-size pages in memory than its limit
+  allows, however many cards a shelf draws at once.
+- A scan of 25,000 comics completes without the server becoming unresponsive to
+  reading requests.
+- The log cannot grow without bound.
+- An index migration that fails leaves the previous index intact and readable.
+- A disconnected source is reported as disconnected rather than as an empty
+  library, on every surface that lists it.
 
 ## 11. 0.9 — Synology marketplace candidate
 

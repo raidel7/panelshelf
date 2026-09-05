@@ -1130,9 +1130,16 @@ function renderCoverCache(status) {
     return;
   }
 
+  // The ceiling is worth stating even when nothing has been dropped yet: it is
+  // the answer to why the number stops climbing, which is otherwise the sort of
+  // thing that reads as a bug.
+  const ceiling = cache.budgetBytes ? ` of ${formatSize(cache.budgetBytes)}` : "";
   const held = cache.covers
-    ? `${cache.covers} covers and ${cache.thumbnails} thumbnails cached, about ${formatSize(cache.bytes)}.`
+    ? `${cache.covers} covers and ${cache.thumbnails} thumbnails cached, about ${formatSize(cache.bytes)}${ceiling}.`
     : "No covers cached yet.";
+  const reclaimed = cache.evicted
+    ? ` ${cache.evicted} older ${cache.evicted === 1 ? "image has" : "images have"} been dropped to stay inside it; they are rebuilt when asked for.`
+    : "";
   const failed = warmup.failed
     ? ` ${warmup.failed} could not be read.`
     : "";
@@ -1142,7 +1149,7 @@ function renderCoverCache(status) {
       : warmup.status === "cancelled"
         ? " Last pass was stopped."
         : "";
-  elements.coverCacheSummary.textContent = `${held}${finished}`;
+  elements.coverCacheSummary.textContent = `${held}${finished}${reclaimed}`;
 }
 
 async function pollCoverCache() {

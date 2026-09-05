@@ -969,10 +969,21 @@ test("the cover cache reports what it holds and whether a warm-up is running", a
   const body = await response.json();
   assert.deepEqual(
     body.cache,
-    { comics: 0, covers: 0, thumbnails: 0, bytes: 0 },
+    {
+      comics: 0,
+      covers: 0,
+      thumbnails: 0,
+      bytes: 0,
+      budgetBytes: 4096 * 1024 * 1024,
+      evicted: 0
+    },
     "an empty library has cached nothing"
   );
   assert.equal(body.warmup.status, "idle");
+  // The settings panel shows how far behind cover generation is, so the queue
+  // reports itself alongside what it produced.
+  assert.equal(body.queue.concurrency, 2);
+  assert.equal(body.queue.active, 0);
 });
 
 test("warming the cache fills it for every comic, once", async (t) => {

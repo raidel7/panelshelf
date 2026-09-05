@@ -753,16 +753,48 @@ deliberately instead.
 | POST | `/api/covers/cache/warm` | Start a warm-up over every comic |
 | POST | `/api/covers/cache/warm/cancel` | Stop the running warm-up |
 
-`GET` answers with `cache` — the number of comics recorded, covers and
-thumbnails held, and their total bytes — and `warmup`, carrying `status`
-(`idle`, `running`, `complete` or `cancelled`), `total`, `processed`,
-`generated`, `alreadyCached`, `failed` and the title in hand. Starting one while
-another is running answers `409 COVER_WARMUP_RUNNING`.
+`GET` answers with three parts. `cache` gives the number of comics recorded,
+covers and thumbnails held, their total bytes, the ceiling in force
+(`budgetBytes`) and how many images have been given up to stay inside it
+(`evicted`). `warmup` carries `status` (`idle`, `running`, `complete` or
+`cancelled`), `total`, `processed`, `generated`, `alreadyCached`, `failed` and
+the title in hand. `queue` reports the generation limit and what it is doing:
+`concurrency`, `active`, `queued`, `peakQueued`, `completed`, `failed` and
+`coalesced`. Starting a warm-up while another is running answers
+`409 COVER_WARMUP_RUNNING`.
 
 A warm-up skips any comic already cached, so running it twice costs almost
 nothing and an interrupted one is resumed simply by starting it again. Covers
 whose format cannot be shrunk count as warm: that verdict is recorded, and not
 repeating it is most of the point.
+
+#### What it is allowed to cost
+
+Everything in `covers/` is derived data that can be rebuilt from the archives,
+so the only real question is how much disk it may occupy while it waits to be
+useful. Unbounded, a hundred thousand comics is tens of gigabytes of first pages
+nobody asked to store.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `PANELSHELF_COVER_CACHE_MB` | `4096` | Ceiling on `covers/`. `0` removes it |
+| `PANELSHELF_COVER_CONCURRENCY` | `2` | How many covers may be generated at once |
+
+When the ceiling is reached, full-size covers are given up before thumbnails,
+coldest first. That is deliberately not what a plain least-recently-used cache
+would do: a thumbnail is about fifteen times smaller and is wanted every time a
+card is drawn, while a full cover is one detail view. Anything dropped is
+rebuilt the next time it is asked for, so the only cost is the archive read.
+
+A comic whose cover cannot be shrunk keeps its record even when both its files
+go. That verdict costs no disk and is the one thing here that is expensive to
+work out again.
+
+The concurrency limit is a memory ceiling before it is a politeness one. Each
+cover being generated holds a full-size page in memory, and a shelf drawing
+sixty uncached cards would otherwise start sixty of them. Requests for the same
+cover are answered by one decode rather than several, so a warm-up and a reader
+browsing the same shelf do not duplicate each other's work.
 
 ## Reader profiles
 

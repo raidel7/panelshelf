@@ -1419,3 +1419,13 @@ test("the safe-area rule can still widen whichever gutter is in force", async ()
   assert.match(styles, /padding:\s*0 var\(--shell-gutter\) 60px/);
   assert.match(styles, /padding:\s*0 var\(--reader-gutter\)/);
 });
+
+test("the cover cache tells the owner what its ceiling is", async () => {
+  // A number that stops climbing with no explanation reads as a bug. The
+  // ceiling is stated whether or not anything has been dropped yet.
+  const application = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+
+  assert.match(application, /cache\.budgetBytes \? ` of \$\{formatSize\(cache\.budgetBytes\)\}`/);
+  assert.match(application, /cache\.evicted/);
+  assert.match(application, /rebuilt when asked for/);
+});

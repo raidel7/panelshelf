@@ -215,3 +215,17 @@ test("redaction keeps the shape of the line", () => {
   // Ordinary text is left alone, or the log stops being readable.
   assert.equal(redact("Scan finished: 12 comics"), "Scan finished: 12 comics");
 });
+
+test("the bundle says how the cover cache is bounded and how far behind it got", async (t) => {
+  // "The shelf is slow" and "the disk filled up" are the two reports this
+  // milestone exists to answer, and neither is answerable without the ceiling
+  // and the queue depth that was actually in force.
+  const { library: created } = await library(t);
+  const bundle = await bundleFor(created);
+  const { cache, queue } = bundle.storage.coverCache;
+
+  assert.equal(typeof cache.budgetBytes, "number");
+  assert.equal(typeof cache.evicted, "number");
+  assert.equal(typeof queue.concurrency, "number");
+  assert.equal(typeof queue.peakQueued, "number");
+});

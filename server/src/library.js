@@ -39,6 +39,7 @@ const {
   imageSize
 } = require("./thumbnail");
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
+const { WorkQueue } = require("./work-queue");
 const { DeviceTokenStore } = require("./device-tokens");
 const { LibraryChangeLog } = require("./library-changes");
 const { CustomArtworkStore } = require("./custom-artwork");
@@ -461,7 +462,16 @@ class ComicLibrary {
     // What is cached in `covers/`, and what each entry was built from. Also
     // carries the comics whose cover cannot be shrunk, so a repeat request —
     // or a restart — does not decode one again only to give up.
-    this.coverCache = new CoverCacheStore(dataDirectory);
+    this.coverCache = new CoverCacheStore(dataDirectory, {
+      budgetBytes: options.coverCacheBudgetBytes
+    });
+    // Everything that has to open an archive to produce a cover goes through
+    // here. A shelf of sixty uncached cards is sixty of those at once
+    // otherwise, each holding a full-size page in memory, and the warm-up job
+    // walking the library would be a sixty-first.
+    this.coverQueue = new WorkQueue({
+      concurrency: Number(process.env.PANELSHELF_COVER_CONCURRENCY) || undefined
+    });
     this.deviceTokens = new DeviceTokenStore(dataDirectory);
     this.changes = new LibraryChangeLog(dataDirectory);
     this.artwork = new CustomArtworkStore(dataDirectory);
@@ -1660,6 +1670,32 @@ class ComicLibrary {
     // a share unmounted — emptied the shelf visually even though every cover
     // was sitting on the NAS's own disk. Nothing below needs the archive until
     // there is genuinely no cached copy to serve.
+    //
+    // These lookups stay off the queue for the same reason. A cached cover is
+    // one file read; making it wait behind two archive decodes would put the
+    // queue squarely on the path it exists to keep clear.
+    if (options.thumbnail) {
+      const cached = await this.cachedThumbnail(comic);
+      if (cached) return cached;
+    } else {
+      const cached = await this.cachedCover(comic);
+      if (cached) return cached;
+    }
+
+    // Past here an archive is opened, the decoder runs, or both. The key
+    // coalesces callers wanting the same thing: a shelf drawing the same card
+    // twice, or a warm-up meeting a reader on the same comic, decodes once.
+    return this.coverQueue.run(
+      `cover:${comic.id}:${options.thumbnail ? "thumbnail" : "full"}`,
+      () => this.generateCover(comic, options)
+    );
+  }
+
+  async generateCover(comic, options) {
+    // Checked again now the queue has let this through, because the work it
+    // waited behind may have produced exactly what it needs. A cover and its
+    // thumbnail are separate queue entries, so this is not always a repeat of
+    // the caller's own check — and on a miss it is a map lookup, not a read.
     if (options.thumbnail) {
       const cached = await this.cachedThumbnail(comic);
       if (cached) return cached;
@@ -1693,10 +1729,17 @@ class ComicLibrary {
       const extension = path.extname(pages[0].name).toLowerCase() || ".jpg";
       const file = `${comic.id}${extension}`;
       const cachePath = path.join(this.coverDirectory, file);
-      const page = await this.page(id, 0);
-      await fsp.writeFile(cachePath, page.buffer, { mode: 0o600 });
+      const page = await this.page(comic.id, 0);
+      // Written to one side and renamed into place, which is what the thumbnail
+      // path already did and this one did not. A reader arriving while the
+      // bytes were still going down got a truncated JPEG — rarer here than for
+      // thumbnails only because the queue now coalesces the common case, and
+      // still possible between a full-size request and a thumbnail one.
+      const pending = `${cachePath}.${process.pid}.tmp`;
+      await fsp.writeFile(pending, page.buffer, { mode: 0o600 });
       const now = new Date();
-      await fsp.utimes(cachePath, now, now);
+      await fsp.utimes(pending, now, now);
+      await fsp.rename(pending, cachePath);
       const size = imageSize(page.buffer);
       await this.recordCoverCache(comic, {
         cover: {
@@ -1787,7 +1830,11 @@ class ComicLibrary {
   }
 
   coverCacheStatus() {
-    return { cache: this.coverCache.stats(), warmup: this.coverWarmup.state() };
+    return {
+      cache: this.coverCache.stats(),
+      warmup: this.coverWarmup.state(),
+      queue: this.coverQueue.state()
+    };
   }
 
   startCoverWarmup() {
@@ -1806,6 +1853,19 @@ class ComicLibrary {
     if (!key) return;
     const existing = this.coverCache.get(comic.id, key) || {};
     await this.coverCache.record(comic.id, key, { ...existing, ...patch });
+    await this.enforceCoverCacheBudget();
+  }
+
+  // The ceiling, applied where the cache grows rather than on a timer, so it
+  // cannot be exceeded for long by anything. `evict` returns nothing at all
+  // until the budget is genuinely passed, which makes the ordinary path one
+  // comparison.
+  async enforceCoverCacheBudget() {
+    const files = await this.coverCache.evict();
+    for (const file of files) {
+      await fsp.rm(path.join(this.coverDirectory, file), { force: true });
+    }
+    return files.length;
   }
 
   // The cached cover keeps the extension of the page it was taken from, which
