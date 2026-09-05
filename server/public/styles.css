@@ -3698,14 +3698,40 @@ h2 {
   max-width: 50%;
 }
 
+/* Sits above the page-turn zones (z-index 2) on purpose. The cancel button has
+   to be reachable, not merely visible: the zones are fixed strips down both
+   edges of the stage and would otherwise swallow a tap meant for it. */
 .reader-loading {
   position: absolute;
   z-index: 3;
   top: 50%;
   left: 50%;
+  display: flex;
+  max-width: min(360px, 78vw);
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
   color: #aaa5b3;
   font-size: 12px;
+  text-align: center;
   transform: translate(-50%, -50%);
+}
+
+.reader-loading p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* Only appears once waiting has stopped looking normal, which is why it can
+   afford to be the brightest thing on a black screen. */
+.reader-loading-cancel {
+  color: #ece9f2;
+  border: 1px solid rgba(255, 255, 255, .24);
+  background: rgba(255, 255, 255, .1);
+}
+
+.reader-loading-cancel:hover {
+  background: rgba(255, 255, 255, .17);
 }
 
 .page-zone {

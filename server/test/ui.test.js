@@ -1429,3 +1429,196 @@ test("the cover cache tells the owner what its ceiling is", async () => {
   assert.match(application, /cache\.evicted/);
   assert.match(application, /rebuilt when asked for/);
 });
+
+// --- Never a one-way door --------------------------------------------------
+//
+// A server that has gone quiet used to leave the reader on "Loading page…" with
+// nothing to act on: `fetch` has no timeout, and neither does an <img>. These
+// pull the relevant helpers out of the browser file and run them, because the
+// file has no module system and a regular expression over the source proves
+// only that the words are there.
+
+function browserFunctions(source, names) {
+  const context = vm.createContext({
+    AbortController,
+    DOMException,
+    TypeError,
+    setTimeout,
+    clearTimeout,
+    console
+  });
+  for (const name of names) {
+    const start = ["\nfunction ", "\nasync function "]
+      .map((keyword) => source.indexOf(`${keyword}${name}(`))
+      .find((index) => index !== -1);
+    assert.notEqual(start, undefined, `${name} is declared at the top level`);
+    // Top-level declarations in this file close on a brace in column one.
+    const end = source.indexOf("\n}\n", start);
+    assert.notEqual(end, -1, `${name} has an end`);
+    vm.runInContext(source.slice(start, end + 3), context);
+  }
+  return context;
+}
+
+async function readerHelpers() {
+  const source = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+  return browserFunctions(source, ["abortableSignal", "describeRequestFailure"]);
+}
+
+test("a request that is never answered is given up on rather than left pending", async () => {
+  // The worst case is not an unreachable host — that fails on its own
+  // eventually. It is a server that accepts the connection and then never
+  // replies, which is what a NAS wedged on a disconnected drive looks like.
+  const { abortableSignal } = await readerHelpers();
+  const { signal, done } = abortableSignal(null, 20);
+
+  assert.equal(signal.aborted, false);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(signal.aborted, true, "the backstop tripped");
+  assert.equal(signal.reason.name, "TimeoutError");
+  done();
+});
+
+test("cancelling reaches the request in flight", async () => {
+  const { abortableSignal } = await readerHelpers();
+  const caller = new AbortController();
+  const { signal, done } = abortableSignal(caller.signal, 60_000);
+
+  caller.abort(new DOMException("Cancelled", "AbortError"));
+
+  assert.equal(signal.aborted, true);
+  assert.equal(signal.reason.name, "AbortError");
+  done();
+});
+
+test("a caller who has already given up is not made to wait", async () => {
+  const { abortableSignal } = await readerHelpers();
+  const caller = new AbortController();
+  caller.abort(new DOMException("Cancelled", "AbortError"));
+
+  const { signal, done } = abortableSignal(caller.signal, 60_000);
+  assert.equal(signal.aborted, true, "aborted before the request was ever made");
+  done();
+});
+
+test("the backstop is cleared when a request answers normally", async () => {
+  // Otherwise every request leaves a timer holding the page for its full
+  // duration, and a shelf is a few hundred requests.
+  const { abortableSignal } = await readerHelpers();
+  const { signal, done } = abortableSignal(null, 30);
+  done();
+
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assert.equal(signal.aborted, false, "a finished request is not aborted after the fact");
+});
+
+test("a failure says which failure it was, in words worth reading", async () => {
+  // `fetch` rejects with a bare "Failed to fetch" for everything from a
+  // sleeping NAS to dropped Wi-Fi, which is true and useless.
+  const { describeRequestFailure } = await readerHelpers();
+
+  const timedOut = describeRequestFailure(new DOMException("Timed out", "TimeoutError"));
+  assert.match(timedOut, /asleep|not answering/i);
+
+  const unreachable = describeRequestFailure(new TypeError("Failed to fetch"));
+  assert.match(unreachable, /could not be reached/i);
+  assert.doesNotMatch(unreachable, /Failed to fetch/, "not the browser's words");
+
+  assert.equal(
+    describeRequestFailure(new DOMException("Cancelled", "AbortError")),
+    "Cancelled."
+  );
+
+  // A real server error still speaks for itself.
+  assert.equal(
+    describeRequestFailure(new Error("This comic is not in the library.")),
+    "This comic is not in the library."
+  );
+});
+
+test("the reader offers a way out of loading, and closing stops the work", async () => {
+  const [application, document, styles] = await Promise.all([
+    fsp.readFile(path.join(publicDirectory, "app.js"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "index.html"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "styles.css"), "utf8")
+  ]);
+
+  assert.match(document, /id="readerLoadingCancel"/);
+  assert.match(document, /id="readerLoadingMessage"/);
+  // Backing out must abandon the request, or a failure from the comic just
+  // closed arrives on top of the next one opened.
+  assert.match(application, /addEventListener\("close", \(\) => \{[\s\S]*?abortReaderLoading\(\)/);
+  // An <img> that hangs fires neither load nor error.
+  assert.match(application, /watchdog = setTimeout/);
+  assert.match(application, /image\.removeAttribute\("src"\)/);
+  // The page-turn zones are fixed strips down both edges at z-index 2; the
+  // cancel button has to be reachable, not merely visible.
+  assert.match(styles, /\.reader-loading \{[^}]*z-index: 3/);
+});
+
+test("every element the application reaches for exists in the page", async () => {
+  // A mistyped id is `null` at runtime and nothing here would otherwise notice:
+  // the file parses, the tests pass, and the button does nothing.
+  const [application, document] = await Promise.all([
+    fsp.readFile(path.join(publicDirectory, "app.js"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "index.html"), "utf8")
+  ]);
+
+  const present = new Set([...document.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+  const wanted = new Set(
+    [...application.matchAll(/document\.querySelector\("#([^"]+)"\)/g)].map((m) => m[1])
+  );
+
+  assert.ok(wanted.size > 200, `only found ${wanted.size} handles; the pattern has drifted`);
+  assert.deepEqual([...wanted].filter((id) => !present.has(id)), []);
+});
+
+test("a server that accepts and never answers does not hold the reader open", async (t) => {
+  // The bug, reproduced against a real socket. This is not an unreachable host
+  // — the connection succeeds — so nothing below `api` will ever give up on it.
+  const net = require("node:net");
+  const held = [];
+  const server = net.createServer((socket) => held.push(socket));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    for (const socket of held) socket.destroy();
+    server.close();
+  });
+
+  const source = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+  const context = browserFunctions(source, [
+    "abortableSignal",
+    "describeRequestFailure",
+    "readerHeaders",
+    "api"
+  ]);
+  context.fetch = fetch;
+  context.state = { readerProfile: null };
+
+  const started = Date.now();
+  const port = server.address().port;
+  await assert.rejects(
+    () =>
+      context.api(`http://127.0.0.1:${port}/api/comics/x/pages`, { timeoutMs: 250 }),
+    (error) => {
+      assert.match(error.message, /asleep|not answering/i, "and says why");
+      assert.equal(error.unreachable, true);
+      return true;
+    }
+  );
+  assert.ok(Date.now() - started < 3000, "gave up promptly rather than hanging");
+});
+
+test("the page watchdog runs only on pages actually being fetched", async () => {
+  // Continuous scroll builds an <img> for every page in the comic and marks all
+  // but the first two lazy. A clock started on those would report every page
+  // nobody scrolled to as a failure, forty-five seconds into a normal read.
+  const application = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+  const start = application.indexOf("function readerImage(");
+  const body = application.slice(start, application.indexOf("\n}\n", start));
+
+  assert.match(body, /if \(loading === "eager"\) \{\s*\n\s*watchdog = setTimeout/);
+  // An error still reaches a lazy page, because that event fires whenever the
+  // browser does get round to loading it.
+  assert.match(body, /addEventListener\(\s*"error",\s*\(\) => failed\(/);
+});

@@ -1405,7 +1405,12 @@
         <div id="readerStage" class="reader-stage">
           <button id="previousPage" class="page-zone previous" type="button" aria-label="Previous page"></button>
           <div id="readerPages" class="reader-pages"></div>
-          <div id="readerLoading" class="reader-loading">Loading page…</div>
+          <div id="readerLoading" class="reader-loading">
+            <p id="readerLoadingMessage">Loading page…</p>
+            <button id="readerLoadingCancel" class="button reader-loading-cancel" type="button" hidden>
+              Cancel and go back
+            </button>
+          </div>
           <button id="nextPage" class="page-zone next" type="button" aria-label="Next page"></button>
           <div id="readerEnd" class="reader-end" hidden>
             <p class="eyebrow">Finished</p>

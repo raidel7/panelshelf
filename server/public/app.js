@@ -127,7 +127,11 @@ const state = {
     fit: readLocalJson(READER_STORAGE_KEY, {}).fit || "width",
     mode: readLocalJson(READER_STORAGE_KEY, {}).mode || "single",
     orderId: null,
-    renderToken: 0
+    renderToken: 0,
+    // The open in flight, so Back — or the cancel button — stops it rather
+    // than leaving a request running against a server that is not answering.
+    abort: null,
+    slowTimer: null
   }
 };
 
@@ -441,6 +445,8 @@ const elements = {
   confirmComicPickerButton: document.querySelector("#confirmComicPickerButton"),
   readerDialog: document.querySelector("#readerDialog"),
   readerClose: document.querySelector("#readerClose"),
+  readerLoadingMessage: document.querySelector("#readerLoadingMessage"),
+  readerLoadingCancel: document.querySelector("#readerLoadingCancel"),
   readerTitle: document.querySelector("#readerTitle"),
   readerCounter: document.querySelector("#readerCounter"),
   readerOrder: document.querySelector("#readerOrder"),
@@ -494,18 +500,71 @@ const ROLE_LABELS = {
   unranked: "Unranked"
 };
 
+// How long a JSON request may take before the browser gives up on it.
+//
+// Deliberately generous, because the machine at the other end is a NAS. Drives
+// that have spun down take real seconds to come back, and the first request
+// after an idle evening legitimately waits on that. This is not a performance
+// budget — it is the line past which the server is not slow, it is gone.
+const REQUEST_TIMEOUT_MS = 45_000;
+
+// `fetch` has no timeout of its own. A server that accepts the connection and
+// then never answers — a NAS wedged on a disconnected USB disk, a proxy holding
+// the socket open — leaves the promise pending for as long as the tab lives.
+// That is the shape of every hang this guards against; an unreachable host is
+// the easy case, because the connection at least fails on its own eventually.
+function abortableSignal(callerSignal, timeoutMs) {
+  const controller = new AbortController();
+  const timer =
+    timeoutMs > 0
+      ? setTimeout(() => controller.abort(new DOMException("Timed out", "TimeoutError")), timeoutMs)
+      : null;
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort(callerSignal.reason);
+    else callerSignal.addEventListener("abort", () => controller.abort(callerSignal.reason), { once: true });
+  }
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
+}
+
+// What to tell somebody whose server has gone. `fetch` rejects with a bare
+// "Failed to fetch" for everything from a sleeping NAS to a dropped Wi-Fi
+// connection, which is true and useless.
+function describeRequestFailure(error) {
+  if (error.name === "TimeoutError") {
+    return "PanelShelf is not answering. The server may be asleep, or off the network.";
+  }
+  if (error.name === "AbortError") return "Cancelled.";
+  if (error instanceof TypeError) {
+    return "PanelShelf could not be reached. Check that the server is running.";
+  }
+  return error.message;
+}
+
 async function api(url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      // Only the JSON routes need it: covers and pages are loaded with
-      // `image.src`, which carries no headers of its own, and neither of those
-      // is per-reader anyway.
-      ...readerHeaders(),
-      ...(options.headers || {})
-    }
-  });
+  const { timeoutMs = REQUEST_TIMEOUT_MS, signal: callerSignal, ...rest } = options;
+  const { signal, done } = abortableSignal(callerSignal, timeoutMs);
+  let response;
+  try {
+    response = await fetch(url, {
+      ...rest,
+      signal,
+      headers: {
+        ...(rest.body ? { "Content-Type": "application/json" } : {}),
+        // Only the JSON routes need it: covers and pages are loaded with
+        // `image.src`, which carries no headers of its own, and neither of
+        // those is per-reader anyway.
+        ...readerHeaders(),
+        ...(rest.headers || {})
+      }
+    });
+  } catch (error) {
+    const failure = new Error(describeRequestFailure(error));
+    failure.name = error.name;
+    failure.unreachable = error.name === "TimeoutError" || error instanceof TypeError;
+    throw failure;
+  } finally {
+    done();
+  }
   const contentType = response.headers.get("content-type") || "";
   const result = contentType.includes("application/json")
     ? await response.json()
@@ -6320,25 +6379,49 @@ function nextComicInReaderOrder(direction = 1) {
 
 function readerImage(pageIndex, loading = "eager") {
   const image = document.createElement("img");
-  image.src = `/api/comics/${state.reader.comic.id}/pages/${pageIndex}`;
   image.alt = `${state.reader.comic.title}, page ${pageIndex + 1}`;
   image.loading = loading;
   image.dataset.pageIndex = String(pageIndex);
+
+  // A page that hangs fires neither `load` nor `error`. `api` has a backstop
+  // for the JSON routes but an image is loaded by the browser, not by us, and
+  // it will sit there for as long as the tab lives. Without this the reader
+  // stays on "Loading page…" over a black screen with nothing to act on, which
+  // is the whole complaint.
+  let watchdog = null;
+  const failed = (message) => {
+    clearTimeout(watchdog);
+    endReaderLoading();
+    showToast(`Page ${pageIndex + 1}: ${message}`, {
+      label: "Try again",
+      handler: () => renderReader()
+    });
+  };
+  // Only on the pages the browser is fetching now. A lazy image further down a
+  // continuous scroll is not loading and may never be — starting a clock on it
+  // would report every page nobody scrolled to as a failure.
+  if (loading === "eager") {
+    watchdog = setTimeout(() => {
+      // Dropping the source is what actually abandons the request.
+      image.removeAttribute("src");
+      failed("PanelShelf stopped answering while this page was loading.");
+    }, REQUEST_TIMEOUT_MS);
+  }
+
   image.addEventListener(
     "load",
     () => {
-      elements.readerLoading.hidden = true;
+      clearTimeout(watchdog);
+      endReaderLoading();
     },
     { once: true }
   );
   image.addEventListener(
     "error",
-    () => {
-      elements.readerLoading.hidden = true;
-      showToast(`Page ${pageIndex + 1} could not be opened.`);
-    },
+    () => failed("could not be opened."),
     { once: true }
   );
+  image.src = `/api/comics/${state.reader.comic.id}/pages/${pageIndex}`;
   return image;
 }
 
@@ -6408,7 +6491,7 @@ function renderReaderEnd(options = {}) {
   }
   if (!options.inline) {
     elements.readerPages.replaceChildren();
-    elements.readerLoading.hidden = true;
+    endReaderLoading();
   }
 }
 
@@ -6428,7 +6511,7 @@ function renderPagedReader() {
   elements.readerPages.replaceChildren(...images);
   elements.readerEnd.hidden = true;
   elements.readerEnd.classList.remove("inline-end");
-  elements.readerLoading.hidden = false;
+  beginReaderLoading();
   elements.readerStage.scrollTo({ top: 0, left: 0 });
   updateReaderCounter(indices[0], indices.at(-1));
   updateReaderZones();
@@ -6455,7 +6538,7 @@ function renderContinuousReader() {
   );
   elements.readerPages.className = "reader-pages continuous";
   elements.readerPages.replaceChildren(...images);
-  elements.readerLoading.hidden = false;
+  beginReaderLoading();
   updateReaderZones();
   updateReaderCounter(state.reader.index);
   renderReaderEnd({ inline: true, complete: false });
@@ -6472,7 +6555,7 @@ function renderContinuousReader() {
 
 function renderReader() {
   if (!state.reader.comic || state.reader.pages.length === 0) {
-    elements.readerLoading.hidden = true;
+    endReaderLoading();
     showToast("No readable image pages were found.");
     return;
   }
@@ -6481,18 +6564,74 @@ function renderReader() {
   else renderPagedReader();
 }
 
+// How long the reader waits before admitting that something may be wrong.
+//
+// Short enough that nobody sits in front of a black screen wondering whether
+// they tapped it, long enough that a server answering normally never flashes
+// this on the way past.
+const READER_SLOW_MS = 2500;
+
+// Nothing about a comic opening should ever be a one-way door. The Back button
+// in the toolbar is a chevron in the corner of a black screen on a phone, which
+// is not an obvious exit when the thing you are looking at says it is loading
+// and nothing else. This says what is happening and puts the way out in the
+// middle of the screen next to it.
+function beginReaderLoading(onCancel) {
+  endReaderLoading();
+  elements.readerLoading.hidden = false;
+  elements.readerLoadingMessage.textContent = "Loading page…";
+  elements.readerLoadingCancel.hidden = true;
+  // Turning a page can hang exactly the way opening a comic can, so the
+  // default is the one that is always right: put the reader down and go back
+  // to the shelf.
+  beginReaderLoading.cancel = onCancel || (() => elements.readerDialog.close());
+  state.reader.slowTimer = setTimeout(() => {
+    elements.readerLoadingMessage.textContent =
+      "Still waiting for PanelShelf. A drive that has spun down takes a moment; " +
+      "a server that has gone will not answer at all.";
+    elements.readerLoadingCancel.hidden = false;
+  }, READER_SLOW_MS);
+}
+
+function endReaderLoading() {
+  clearTimeout(state.reader.slowTimer);
+  state.reader.slowTimer = null;
+  beginReaderLoading.cancel = null;
+  elements.readerLoading.hidden = true;
+  elements.readerLoadingCancel.hidden = true;
+}
+
+// Stops whatever the reader has in flight. Called by the cancel button and by
+// closing the dialog, so backing out actually abandons the request rather than
+// leaving it running against a server that is not going to answer.
+function abortReaderLoading() {
+  if (state.reader.abort) {
+    state.reader.abort.abort(new DOMException("Cancelled", "AbortError"));
+    state.reader.abort = null;
+  }
+  endReaderLoading();
+}
+
 async function openReader(comic, requestedOrderId = null, startIndex = null) {
   const token = ++state.reader.renderToken;
+  const controller = new AbortController();
+  state.reader.abort = controller;
   try {
     if (elements.orderDetailDialog.open) elements.orderDetailDialog.close();
     if (elements.ordersDialog.open) elements.ordersDialog.close();
-    elements.readerLoading.hidden = false;
     elements.readerPages.replaceChildren();
     elements.readerEnd.hidden = true;
     if (!elements.readerDialog.open) elements.readerDialog.showModal();
+    // After the dialog is showing, so the cancel button is on screen with it.
+    beginReaderLoading(() => {
+      controller.abort(new DOMException("Cancelled", "AbortError"));
+      elements.readerDialog.close();
+    });
 
     const order = readerOrderFor(comic, requestedOrderId);
-    const result = await api(`/api/comics/${comic.id}/pages`);
+    const result = await api(`/api/comics/${comic.id}/pages`, {
+      signal: controller.signal
+    });
     if (token !== state.reader.renderToken) return;
     state.reader.comic = result.comic;
     state.reader.pages = result.pages;
@@ -6513,10 +6652,16 @@ async function openReader(comic, requestedOrderId = null, startIndex = null) {
     }`;
     renderReader();
   } catch (error) {
+    endReaderLoading();
     if (token === state.reader.renderToken && elements.readerDialog.open) {
       elements.readerDialog.close();
     }
-    showToast(error.message);
+    // Cancelling is not a failure and needs no announcement: the reader closing
+    // is the answer. Everything else has to say what went wrong, because a
+    // shelf that simply refuses to open a comic is the worst of both.
+    if (error.name !== "AbortError") showToast(error.message);
+  } finally {
+    if (state.reader.abort === controller) state.reader.abort = null;
   }
 }
 
@@ -7247,8 +7392,16 @@ elements.toastAction.addEventListener("click", () => {
   if (action) action();
 });
 elements.readerClose.addEventListener("click", () => elements.readerDialog.close());
+elements.readerLoadingCancel.addEventListener("click", () => {
+  if (beginReaderLoading.cancel) beginReaderLoading.cancel();
+  else elements.readerDialog.close();
+});
 elements.readerDialog.addEventListener("close", () => {
   state.reader.renderToken += 1;
+  // Backing out has to abandon the request too. Leaving it in flight against a
+  // server that is not answering means the reader can be reopened onto a
+  // comic, and then have the previous one's failure arrive on top of it.
+  abortReaderLoading();
   updateVisibleComicStatuses();
   renderOrders();
 });

@@ -925,6 +925,15 @@ was making features exist. This is making them keep working.
   and a reader on the same shelf no longer open the same archive twice.
 - One-click sanitized diagnostics, delivered early as the support bundle in
   section 8. Log rotation, the other half of that line, is still to do.
+- **A reader that cannot be got stuck in.** Tapping a comic while the server was
+  unreachable opened the reader onto "Loading page…" and left it there: `fetch`
+  has no timeout of its own, and neither does an `<img>`. The worst case is not
+  an unreachable host — that fails eventually on its own — but a server that
+  accepts the connection and never answers, which is what a NAS wedged on a
+  disconnected drive looks like from outside. Every request now has a backstop,
+  the loading state says what is happening and offers a way out, and backing out
+  abandons the request instead of leaving it running. Product principle 6 with
+  the reader included: a failure nobody can act on is the one that matters.
 
 ### Still to do
 
