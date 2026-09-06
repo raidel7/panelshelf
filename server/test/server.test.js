@@ -21,20 +21,43 @@ async function freePort() {
   });
 }
 
-async function waitFor(url, predicate, timeout = 10_000) {
+// Polls until the condition holds. The budget is generous on purpose: every
+// one of these waits on a real server process doing real work, and on a busy
+// machine — several suites at once, or a laptop doing something else — a scan
+// that normally finishes in under a second can take twenty. A tight budget
+// buys nothing, because the wait ends the moment the condition holds, and
+// costs a test that fails for being unlucky rather than for being wrong.
+async function waitFor(url, predicate, timeout = 30_000) {
   const deadline = Date.now() + timeout;
   let lastError;
+  let lastBody;
+  let answered = false;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url);
       const body = await response.json();
+      answered = true;
+      lastBody = body;
       if (response.ok && predicate(body)) return body;
     } catch (error) {
       lastError = error;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw lastError || new Error(`Timed out waiting for ${url}`);
+  // Which of the two failures this was, because they have nothing to do with
+  // each other: a server that never came up is a different bug from one that
+  // came up and never reached the state being waited for.
+  if (!answered) {
+    throw new Error(
+      `Timed out after ${timeout} ms: ${url} never answered. Last error: ${
+        lastError ? lastError.message : "none"
+      }`
+    );
+  }
+  throw new Error(
+    `Timed out after ${timeout} ms: ${url} answered but never satisfied the condition. ` +
+      `Last body: ${JSON.stringify(lastBody).slice(0, 300)}`
+  );
 }
 
 /// Spawns a real server over a temporary data directory and tears it down with

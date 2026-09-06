@@ -562,6 +562,23 @@ test("stop() marks the advertisement inactive and stays idempotent", () => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Waits for something to become true rather than for a span of time to pass. A
+// 5 ms delay slips to tens of milliseconds on a machine running something else,
+// so "two announcements in forty milliseconds" is a claim about the machine;
+// "two announcements, eventually" is the claim these tests mean. Sleeping a
+// fixed span is still right where the assertion is that nothing happened —
+// waiting longer can only make that more convincing.
+async function until(predicate, timeout = 5_000) {
+  const deadline = Date.now() + timeout;
+  while (!predicate() && Date.now() < deadline) {
+    await sleep(5);
+  }
+  return predicate();
+}
+
+const untilSent = (socket, count, timeout = 5_000) =>
+  until(() => socket.sent.length >= count, timeout).then(() => socket.sent.length);
+
 // Tiny delays keep the suite fast. The seam exists only for that -- production
 // keeps the RFC-shaped burst and the 90-second refresh.
 const FAST = { announceDelaysMs: [0, 5], announceIntervalMs: 1_000_000 };
@@ -570,7 +587,7 @@ test("startAdvertisement announces unsolicited at startup", async () => {
   const { socket, handle } = advertise(FAST);
 
   assert.equal(socket.sent.length, 0, "nothing is sent synchronously");
-  await sleep(40);
+  await untilSent(socket, 2);
 
   assert.equal(socket.sent.length, 2, "RFC 6762 s8.3 wants at least two");
   for (const datagram of socket.sent) {
@@ -606,14 +623,17 @@ test("startAdvertisement keeps announcing on a timer", async () => {
     announceIntervalMs: 10
   });
 
-  await sleep(80);
-  const sentWhileRunning = socket.sent.length;
+  const sentWhileRunning = await untilSent(socket, 3);
 
   assert.ok(
     sentWhileRunning >= 3,
     `the timer keeps announcing, got ${sentWhileRunning}`
   );
-  assert.equal(handle.state().counters.announcements, sentWhileRunning);
+  // Both read with nothing awaited between them, so the timer cannot fire in
+  // the gap and make the counter disagree with the socket by one.
+  const counted = handle.state().counters.announcements;
+  const sent = socket.sent.length;
+  assert.equal(counted, sent);
   handle.stop();
 });
 
@@ -659,7 +679,7 @@ test("a failed announcement is recorded, not thrown", async () => {
   const { socket, handle } = advertise(FAST);
   socket.sendError = new Error("ENETUNREACH: network is unreachable");
 
-  await sleep(40);
+  await until(() => handle.state().counters.announcements >= 1);
 
   const state = handle.state();
   assert.ok(state.counters.announcements >= 1, "the attempt is still counted");
@@ -681,7 +701,7 @@ test("a socket that throws on send does not take the process down", async () => 
     ...FAST
   });
 
-  await sleep(40);
+  await until(() => handle.state().lastError.send);
 
   assert.match(handle.state().lastError.send, /NOT_RUNNING/);
   handle.stop(); // the goodbye throws too, and must stay contained
