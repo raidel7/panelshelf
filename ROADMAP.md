@@ -1064,11 +1064,12 @@ the index.
 
 The rest is hardware, and most of it is now done. The upgrade was made and
 survived with a checkpoint, the read path was profiled against a real library,
-and both a full scan and a quick one have run under this build — with what they
-cost, and the two things they disproved, recorded below. What is left is a
-restart, a downgrade, power loss, and the two parts of this section that only
-show themselves under sustained pressure: the cover cache reaching its ceiling
-and the log reaching its own.
+both a full scan and a quick one have run under this build, and the cover cache
+was driven into its ceiling and shed exactly what it was written to shed — with
+what they cost, and the two things they disproved, recorded below. What is left
+is a restart, a downgrade, power loss, uninstall, and the one part of this
+section that has still not shown itself under pressure: the log reaching its own
+ceiling.
 
 Everything in this section that can be built from a laptop is built.
 
@@ -1279,7 +1280,15 @@ uninstall.
 ### Scope
 
 - Validate DSM 7.2 and 7.3 install, upgrade, stop/start, reboot, and uninstall.
-- Validate x86-64 on the DS1825+ and representative Intel/AMD models.
+  **Partly done on DSM 7.2**: 0.5.1 installed over 0.5.0 on the DS1825+ and the
+  index migrated behind a checkpoint. The package has run since without a
+  restart, which is rather the point — a deliberate stop/start, a reboot, an
+  uninstall, and DSM 7.3 are all still untried.
+- Validate x86-64 on the DS1825+ and representative Intel/AMD models. **The
+  DS1825+ half is done**, in section 10: a full scan, a quick scan, the read
+  path under scan load, an unattended scheduled run, and the cover cache
+  reaching its ceiling were all measured on it. Other Intel and AMD models are
+  untried.
 - Build and physically test ARMv8 before advertising support for those models.
 - Keep ARMv7 experimental unless a maintainable runtime passes hardware tests.
 - Migration, backup/restore, rollback, and recovery testing.
