@@ -111,6 +111,27 @@ if (paired) {
     check("a compact record carries an id", typeof comic.id === "string");
     check("a compact record carries a title", typeof comic.title === "string");
   }
+  // The shape between the two: what a client that draws its own hierarchy
+  // needs, without the four metadata blocks the merged one was built from.
+  const shelf = await get("/api/comics?view=shelf&limit=1");
+  check("GET /api/comics?view=shelf answers 200", shelf.status === 200, `got ${shelf.status}`);
+  if (Array.isArray(shelf.body) && shelf.body.length > 0) {
+    const [comic] = shelf.body;
+    check("a shelf record carries the merged metadata", "metadata" in comic);
+    check("a shelf record carries its ordering", Array.isArray(comic.orderPath));
+    check(
+      "a shelf record leaves out the blocks the merge consumed",
+      !("sourceMetadata" in comic) && !("embeddedMetadata" in comic)
+    );
+  }
+  // A value the server does not know must not shorten anything.
+  const fumbled = await get("/api/comics?view=shelfish&limit=1");
+  check(
+    "an unknown view is served in full",
+    !Array.isArray(fumbled.body) ||
+      fumbled.body.length === 0 ||
+      "sourceMetadata" in fumbled.body[0]
+  );
 }
 
 console.log("\nIncremental changes");

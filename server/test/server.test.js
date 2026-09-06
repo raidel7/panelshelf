@@ -340,6 +340,47 @@ test("HTTP API configures, scans, lists, and opens a CBZ comic", async (t) => {
     assert.deepEqual(Object.keys(compact[0].publisher), ["name"]);
   }
 
+  // The shelf list is the browser's: the whole record minus the four blocks the
+  // merged one was built from. Asserted as a relationship against the full
+  // record rather than as a list of names, so a field added to a comic later is
+  // carried here without anyone remembering this test — while a field quietly
+  // dropped from the listing still fails it.
+  const dialogOnly = [
+    "embeddedMetadata",
+    "inferredMetadata",
+    "manualOverride",
+    "onlineMatch",
+    "sourceMetadata"
+  ];
+  response = await fetch(`${base}/api/comics?view=shelf`);
+  assert.equal(response.status, 200, logs);
+  const shelf = await response.json();
+  assert.equal(shelf.length, 1);
+  const fullRecord = await (
+    await fetch(`${base}/api/comics/${comics[0].id}`)
+  ).json();
+  for (const key of dialogOnly) {
+    assert.ok(key in fullRecord, `${key} should still be on the full record`);
+  }
+  assert.deepEqual(
+    Object.keys(shelf[0]).sort(),
+    Object.keys(fullRecord)
+      .filter((key) => !dialogOnly.includes(key))
+      .sort(),
+    logs
+  );
+  // The merged block survives, because it is the one a shelf draws.
+  assert.equal(shelf[0].metadata.year, 2026);
+  assert.equal(shelf[0].title, "Corrected Demo");
+  // And so do the two the compact list drops, because the browser builds its
+  // own chronology out of them and cannot use the compact list for that.
+  assert.ok(Array.isArray(shelf[0].hierarchy));
+  assert.ok(Array.isArray(shelf[0].orderPath));
+  // Provenance without the blocks it came from: which inputs exist, and which
+  // one supplied the year.
+  assert.ok(shelf[0].metadataSources.includes("manual"));
+  assert.equal(shelf[0].yearSource, "manual");
+
   // `q` still filters, and still filters on the full record's searchable text
   // rather than on the seven fields that survive the projection.
   response = await fetch(`${base}/api/comics?view=compact&q=Corrected`);

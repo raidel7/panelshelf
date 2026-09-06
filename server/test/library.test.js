@@ -358,6 +358,51 @@ test("embedded metadata and all four scan actions preserve unrelated sources", a
     "the compact record should be a small fraction of the full one"
   );
 
+  // The shelf projection, on the same comic. Asserted against the full record
+  // rather than as a list of names: what this has to guarantee is a
+  // relationship — everything except the four blocks the merged one was built
+  // from — and a hardcoded list would go stale the first time a comic grows a
+  // field, in the direction of silently dropping it.
+  const dialogOnly = [
+    "embeddedMetadata",
+    "inferredMetadata",
+    "manualOverride",
+    "onlineMatch",
+    "sourceMetadata"
+  ];
+  const shelf = library.shelfComic(embedded);
+  assert.deepEqual(
+    Object.keys(shelf).sort(),
+    Object.keys(full).filter((key) => !dialogOnly.includes(key)).sort()
+  );
+  // What the browser cannot get from the compact list, and the reason there is
+  // a third shape at all.
+  assert.deepEqual(shelf.metadata, full.metadata);
+  assert.deepEqual(shelf.hierarchy, full.hierarchy);
+  assert.deepEqual(shelf.orderPath, full.orderPath);
+
+  // `yearSource` names the input the year came from, which `metadataSources`
+  // cannot: it reports which blocks exist, and a ComicInfo.xml with no <Year>
+  // still puts "comicinfo" in it. This fixture's does have one.
+  assert.equal(shelf.yearSource, "comicinfo");
+  assert.ok(shelf.metadataSources.includes("comicinfo"));
+  const yearless = library
+    .listComics()
+    .find((comic) => comic.sourceId !== firstId);
+  assert.equal(library.shelfComic(yearless).yearSource, null);
+
+  // A manual year outranks the embedded one, in the record as in the merge.
+  await library.saveMetadataOverride(embedded.id, { year: 1989 });
+  const overridden = library.shelfComic(library.getComic(embedded.id));
+  assert.equal(overridden.yearSource, "manual");
+  assert.equal(overridden.metadata.year, 1989);
+  await library.saveMetadataOverride(embedded.id, {});
+  assert.equal(
+    library.shelfComic(library.getComic(embedded.id)).yearSource,
+    "comicinfo",
+    "clearing the override hands the year back to the ComicInfo"
+  );
+
   scan = await library.scan({ action: "quick" });
   assert.equal(scan.reusedFiles, 2);
   assert.equal(scan.openedArchives, 0);

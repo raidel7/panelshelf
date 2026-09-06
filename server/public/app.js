@@ -516,6 +516,15 @@ const ROLE_LABELS = {
 // budget — it is the line past which the server is not slow, it is gone.
 const REQUEST_TIMEOUT_MS = 45_000;
 
+// The shelf shape rather than the full record: the browser builds its own
+// hierarchy, so it cannot use the compact listing, but it draws one metadata
+// block and was being sent five. Across 100,000 comics that is 268 MB of
+// response reduced to 159 MB. What the four dropped blocks were read for here
+// — a badge, a menu label, the chronology's year caption — comes from
+// `metadataSources` and `yearSource` instead, and the metadata dialog fetches
+// the full record for the one comic it is about to show.
+const COMICS_LISTING = "/api/comics?view=shelf";
+
 // `fetch` has no timeout of its own. A server that accepts the connection and
 // then never answers — a NAS wedged on a disconnected USB disk, a proxy holding
 // the socket open — leaves the promise pending for as long as the tab lives.
@@ -837,7 +846,7 @@ function renderBulkMetadataState(job = state.bulkMetadata) {
 async function refreshComicsAfterBulk(job) {
   if (!job?.jobId || state.bulkMetadataRefreshJobId === job.jobId) return;
   state.bulkMetadataRefreshJobId = job.jobId;
-  setLibraryComics(await api("/api/comics"));
+  setLibraryComics(await api(COMICS_LISTING));
   renderContinueReading();
   renderComics();
   renderOrders();
@@ -1525,6 +1534,24 @@ function metadataPublisherLabel(comic) {
   );
 }
 
+// The shelf listing carries the merged metadata and nothing it was merged
+// from, so presence and provenance have to come from `metadataSources`. The
+// three local names are server-defined and closed, which makes anything else
+// in that list the id of the provider that confirmed a match — the whole of
+// what a badge ever wanted from `onlineMatch`.
+const LOCAL_METADATA_SOURCES = new Set(["filename", "comicinfo", "manual"]);
+
+function onlineProviderOf(comic) {
+  return (
+    comic?.metadataSources?.find((source) => !LOCAL_METADATA_SOURCES.has(source)) ||
+    null
+  );
+}
+
+function hasManualMetadata(comic) {
+  return Boolean(comic?.metadataSources?.includes("manual"));
+}
+
 function metadataProviderLabel(providerId) {
   return (
     metadataProvider(providerId)?.shortName ||
@@ -2051,15 +2078,25 @@ async function searchMetadata() {
   }
 }
 
-function openMetadataDialog(comic) {
+// The one place that needs every metadata block, for the one comic it is about
+// to show. Fetched rather than taken from the shelf listing, which carries the
+// merged block and nothing it was merged from — that trade is the whole reason
+// the listing is two fifths smaller, and this is the request it traded against.
+async function openMetadataDialog(comic) {
   if (!comic) return;
-  if (!comic.onlineMatch && !metadataProviderReady()) {
+  if (!onlineProviderOf(comic) && !metadataProviderReady()) {
     closeComicStatusMenu();
     showToast("Enable a metadata provider before searching online.");
     openMetadataSettings(comic);
     return;
   }
   closeComicStatusMenu();
+  try {
+    comic = await api(`/api/comics/${comic.id}`);
+  } catch (error) {
+    showToast(error.message || "Could not load this comic's metadata.");
+    return;
+  }
   state.metadata.comic = comic;
   state.metadata.candidate = null;
   state.metadata.results = [];
@@ -2755,8 +2792,16 @@ function metadataEditorValues(comic) {
   };
 }
 
-function openMetadataEditor(comic) {
+async function openMetadataEditor(comic) {
   closeComicStatusMenu();
+  // As above: the editor's baseline is built from the blocks the shelf listing
+  // leaves out, and it saves a payload built on top of the existing override.
+  try {
+    comic = await api(`/api/comics/${comic.id}`);
+  } catch (error) {
+    showToast(error.message || "Could not load this comic's metadata.");
+    return;
+  }
   const baseline = metadataEditorValues(comic);
   state.metadataEditor = { comic, baseline };
   elements.metadataEditorComicTitle.textContent = `Edit ${comic.title}`;
@@ -2789,8 +2834,11 @@ function renderComicCoverChoice(comic) {
 
 async function reloadEditedComic(comicId) {
   await refresh();
-  const updated = comicById(comicId);
-  if (!updated) return;
+  // `refresh` reloads the shelf listing, and taking the editor's comic from it
+  // would quietly drop the override that the next save builds its payload on
+  // top of — a second edit in the same session would erase the first.
+  if (!comicById(comicId)) return;
+  const updated = await api(`/api/comics/${comicId}`);
   state.metadataEditor = { ...state.metadataEditor, comic: updated };
   renderComicCoverChoice(updated);
 }
@@ -2937,11 +2985,11 @@ function comicStatusControl(comic, status) {
   editMetadataMark.textContent = "✎";
   const editMetadataCopy = document.createElement("span");
   const editMetadataName = document.createElement("strong");
-  editMetadataName.textContent = comic.manualOverride
+  editMetadataName.textContent = hasManualMetadata(comic)
     ? "Edit manual metadata"
     : "Edit metadata";
   const editMetadataDetail = document.createElement("small");
-  editMetadataDetail.textContent = comic.manualOverride
+  editMetadataDetail.textContent = hasManualMetadata(comic)
     ? "Manual edits currently override other sources"
     : "Correct title, series, credits, and details";
   editMetadataCopy.append(editMetadataName, editMetadataDetail);
@@ -2960,12 +3008,13 @@ function comicStatusControl(comic, status) {
   metadataMark.textContent = "M";
   const metadataCopy = document.createElement("span");
   const metadataName = document.createElement("strong");
-  metadataName.textContent = comic.onlineMatch
+  const menuProvider = onlineProviderOf(comic);
+  metadataName.textContent = menuProvider
     ? "Review online metadata"
     : "Find online metadata";
   const metadataDetail = document.createElement("small");
-  metadataDetail.textContent = comic.onlineMatch
-    ? `Matched to ${metadataProviderLabel(comic.onlineMatch.provider)}`
+  metadataDetail.textContent = menuProvider
+    ? `Matched to ${metadataProviderLabel(menuProvider)}`
     : "Search, compare, then confirm";
   metadataCopy.append(metadataName, metadataDetail);
   metadataItem.append(metadataMark, metadataCopy);
@@ -3041,21 +3090,22 @@ function comicCard(comic, options = {}) {
     button.append(metadataBadge);
   }
 
-  if (comic.onlineMatch) {
+  const cardProvider = onlineProviderOf(comic);
+  if (cardProvider) {
     const onlineBadge = document.createElement("span");
     onlineBadge.className = `online-metadata-badge${
       comic.metadataSources?.includes("comicinfo") ? " with-xml" : ""
     }`;
-    onlineBadge.textContent = metadataProviderLabel(comic.onlineMatch.provider)
+    onlineBadge.textContent = metadataProviderLabel(cardProvider)
       .slice(0, 2)
       .toLocaleUpperCase();
     onlineBadge.title = `Confirmed metadata match from ${
-      metadataProviderLabel(comic.onlineMatch.provider)
+      metadataProviderLabel(cardProvider)
     }`;
     button.append(onlineBadge);
   }
 
-  if (comic.manualOverride) {
+  if (hasManualMetadata(comic)) {
     const manualBadge = document.createElement("span");
     manualBadge.className = "manual-metadata-badge";
     manualBadge.textContent = "EDIT";
@@ -4506,12 +4556,18 @@ function chronologyYearSource(comics, years) {
   const matching = (comics || []).filter((comic) =>
     years.includes(comicPublicationYear(comic))
   );
+  // `yearSource` is the server's answer to the question this used to ask of
+  // four metadata blocks. It has to be the server's: a ComicInfo.xml without a
+  // `<Year>` still puts "comicinfo" in `metadataSources`, so presence alone
+  // cannot say which input the year actually came from.
   const sources = new Set();
   for (const comic of matching) {
-    if (comic.manualOverride?.metadata?.year) sources.add("manual edits");
-    else if (comic.embeddedMetadata?.year) sources.add("ComicInfo.xml");
-    else if (comic.onlineMatch?.record?.metadata?.year) sources.add("online metadata");
-    else if (comic.inferredMetadata?.year) sources.add("filename");
+    const source = comic.yearSource;
+    if (!source) continue;
+    if (source === "manual") sources.add("manual edits");
+    else if (source === "comicinfo") sources.add("ComicInfo.xml");
+    else if (source === "filename") sources.add("filename");
+    else sources.add("online metadata");
   }
   return sources.size === 1
     ? `Publication year from ${[...sources][0]}`
@@ -5708,7 +5764,7 @@ function openIssues() {
 async function refresh() {
   const [config, comics, scanState, orders, metadataSettings, bulkMetadata] = await Promise.all([
     api("/api/config"),
-    api("/api/comics"),
+    api(COMICS_LISTING),
     api("/api/scan"),
     api("/api/reading-orders"),
     api("/api/metadata/settings"),

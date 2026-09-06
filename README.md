@@ -503,6 +503,7 @@ does not impersonate another server's API — see the non-goals in `ROADMAP.md`.
 | GET | `/api/comics` | Every comic in full, newest merged metadata included |
 | GET | `/api/comics?q=…` | The same records, filtered by a free-text search |
 | GET | `/api/comics?view=compact` | The same comics, reduced to what a browsing list draws |
+| GET | `/api/comics?view=shelf` | The same comics without the metadata blocks only a dialog reads |
 | GET | `/api/comics/:comicId` | One comic in full, without opening its archive |
 | GET | `/api/comics/:comicId/pages` | The comic in full plus its page list; opens the archive |
 | GET | `/api/comics/:comicId/cover` | The comic's first page, full size |
@@ -581,8 +582,41 @@ detail screen, and `publisher` keeps only its `name`.
 
 `q` still filters, and it filters against the full record — the file path,
 summary, creators, genres and characters a compact response does not carry.
-Only the exact value `compact` opts in; `?view=full` and any other value return
-the full records, so an existing client cannot be shortened by accident.
+
+### `?view=shelf`
+
+Compact is not usable by a client that draws its own hierarchy — the web
+viewer builds the chronology in the browser, out of `hierarchy` and
+`orderPath`, and compact carries neither. Until this shape existed, that client
+had one option: the full record, five metadata blocks per comic, to draw one.
+
+A comic carries the merged metadata the interface renders, and the four inputs
+it was merged from. Against a library where two thirds of the archives carry a
+`ComicInfo.xml`, `embeddedMetadata` and `sourceMetadata` are 19.3% of the
+listing each, and `metadata` is a third near-identical copy of the same block:
+
+| | 5,000 | 25,000 |
+| --- | --- | --- |
+| `?view=full` | 13.4 MB | 67.0 MB |
+| `?view=shelf` | 8.0 MB | 39.8 MB |
+| `?view=compact` | 0.8 MB | 4.2 MB |
+
+**What shelf omits:** `embeddedMetadata`, `inferredMetadata`, `sourceMetadata`,
+`onlineMatch`, and `manualOverride` — the four inputs and the match record.
+Everything else the full record carries is here, `metadata` included. Fetch
+`GET /api/comics/:comicId` for the rest, which is one request for the one comic
+a metadata dialog is about to show.
+
+Two fields make that trade survivable. `metadataSources` lists which inputs a
+comic has — `filename`, `comicinfo`, the id of whichever provider confirmed a
+match, and `manual` — which is what a badge needs from `onlineMatch` and
+`manualOverride`. `yearSource` names the single input the effective publication
+year came from, which `metadataSources` cannot: a `ComicInfo.xml` with no
+`<Year>` still puts `comicinfo` in that list.
+
+Only the exact values `compact` and `shelf` opt in. `?view=full` and any other
+value, including a misspelling, return the full records, so an existing client
+cannot be shortened by accident.
 
 ### Checking a server against this document
 
@@ -592,9 +626,9 @@ npm run conformance -- http://your-nas:8251
 
 Checks a running server against the contract described here: what health
 reports, that `/api/v1` and `/api/…` agree and an unknown version does not
-answer, the shape of the compact listing, the resync rules for
-`/api/changes`, and that a foreign origin, a forged host and a non-JSON body
-are all refused.
+answer, the shapes of the compact and shelf listings and that an unknown `view`
+shortens nothing, the resync rules for `/api/changes`, and that a foreign
+origin, a forged host and a non-JSON body are all refused.
 
 Read-only by default, because it is meant to be pointed at a real NAS. Add
 `--write` to also check the progress contract — it stores one record and puts

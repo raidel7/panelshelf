@@ -1015,67 +1015,89 @@ was making features exist. This is making them keep working.
   abandons the request instead of leaving it running. Product principle 6 with
   the reader included: a failure nobody can act on is the one that matters.
 
+- **The listing the browser actually downloads**, which was the larger half of
+  what the profile found. A comic carries five metadata blocks — the merged one
+  the interface draws, and the four inputs it was merged from — and the web
+  viewer was being sent all five, because it builds its own chronology and so
+  cannot use the compact list, which drops `hierarchy` and `orderPath` along
+  with everything else. `?view=shelf` is the full record without those four
+  inputs: **268.0 MB to 159.4 MB at 100,000 comics**, 67.0 to 39.8 at 25,000.
+  `embeddedMetadata` and `sourceMetadata` are 19.3% of a listing each, and
+  `metadata` is a third near-identical copy of the same block — three copies of
+  one answer, on a wire, to draw a grid of covers. The four are read by the
+  metadata dialog, which is one comic at a time and already had a route of its
+  own to fetch them from; it now uses it. What they were read for on the list
+  path survives as two small fields: `metadataSources` already named which
+  inputs a comic has, which is what the badges wanted, and `yearSource` names
+  the one that supplied the year, which `metadataSources` cannot — a
+  ComicInfo.xml with no `<Year>` still puts `comicinfo` in it. The default
+  listing is unchanged, so the iPad app is untouched and can adopt the shape
+  when its own repository is next open.
 - **Large-library profiling**, and the quadratic it found. `npm run profile
   <count>` builds a synthetic library shaped like a real one and measures the
-  scan, the index, a restart, and both listing shapes. Numbers below.
+  scan, the index, a restart, and the three listing shapes. Numbers below.
+  The corpus now carries a ComicInfo.xml in two thirds of its archives, which
+  it did not when the first numbers were taken — that omission is what made
+  the metadata blocks look cheap, and every figure below moved when it was
+  fixed.
 
 ### Still to do
 
-Everything else in Scope, and two things the profile found that are only half
-answered.
+The scan's gigabyte, and then hardware.
 
-The first is what the browser holds. The listing is 113 MB at 100,000 comics
-because every record carries five metadata blocks — the merged one the interface
-reads, and the four inputs it was merged from. Only the merged one is drawn in a
-list; the others are there for the metadata dialog, which has a per-comic route
-of its own to fetch them from. Moving them off the listing is the fix, and it is
-not a change to make without being able to run the interface: the shelf reads
-those blocks in a handful of places, and losing one silently costs a badge or a
-sort order rather than raising anything. `sourceMetadata` is not read by any
-client in this repository and is still sent, but it is documented API surface,
-so the iPad app has to be checked before it goes.
-
-The second is the scan's gigabyte. What remains after the write fix is mostly
-the records themselves — a rebuild holds the previous index and the new one at
+A tagged corpus costs 1,262 MB at the scan's peak, against 1,036 MB for the
+untagged one the first profile used. What remains after the write fix is mostly
+the records themselves: a rebuild holds the previous index and the new one at
 the same time, by design, because that is what lets a comic that moved keep its
-identity.
+identity. The fix is to stop holding both, which means either a rebuild that
+gives up move detection or an index that can be read a record at a time — and
+both are large enough, and speculative enough on a machine nobody has measured,
+that doing them before there is a NAS to measure on is guesswork.
 
-What is left needs hardware. Large-library profiling on a NAS, and the upgrade,
-downgrade, restart and power-loss testing, are the whole of it — and the
-checkpoint work above is most of what those tests exist to exercise, so it is
-the obvious thing to try first when there is a NAS to try it on.
+What is left besides needs hardware. Large-library profiling on a NAS, and the
+upgrade, downgrade, restart and power-loss testing, are the whole of it — and
+the checkpoint work above is most of what those tests exist to exercise, so it
+is the obvious thing to try first when there is a NAS to try it on.
 
 Everything in this section that can be built from a laptop is built.
 
 ### What a large library actually costs
 
 Measured on a laptop, so these find algorithmic cliffs rather than NAS seconds.
-The corpus is synthetic and carries almost no metadata; a real library's records
-are roughly two and a half times larger, so scale the sizes accordingly.
+Two thirds of the archives carry a ComicInfo.xml, which is roughly what a tagged
+library looks like.
 
 | | 5,000 | 25,000 | 100,000 |
 | --- | --- | --- | --- |
-| Scan | 1.6 s | 7.4 s | 31.8 s |
-| Scan rate | 3,197/s | 3,363/s | 3,143/s |
-| `library.json` | 6.3 MB | 31.6 MB | 126.7 MB |
-| Restart | 0.06 s | 0.25 s | 1.15 s |
-| Compact listing | 0.8 MB | 3.9 MB | 15.7 MB |
-| Full listing | 5.6 MB | 28.3 MB | 113.3 MB |
-| Peak resident set, scan | 186 MB | 689 MB | 1,036 MB |
+| Scan | 2.1 s | 12.6 s | 57.4 s |
+| Scan rate | 2,363/s | 1,989/s | 1,743/s |
+| `library.json` | 9.0 MB | 45.0 MB | 180.1 MB |
+| Restart | 0.07 s | 0.31 s | 1.43 s |
+| Compact listing | 0.8 MB | 4.2 MB | 16.9 MB |
+| Shelf listing | 8.0 MB | 39.8 MB | 159.4 MB |
+| Full listing | 13.4 MB | 67.0 MB | 268.0 MB |
+| Peak resident set, scan | 233 MB | 720 MB | 1,262 MB |
 
-The scan rate is flat across a twentyfold range, which is the thing worth
-knowing: nothing in the ordinary path is quadratic. A restart of the largest
-library takes about a second.
+Nothing in the ordinary path is quadratic, which is the thing worth knowing. The
+scan rate is not quite flat, though — it falls about a quarter across a
+twentyfold range, where the untagged corpus held 3,200/s throughout. That is
+worth watching rather than acting on: the work per comic is genuinely higher now
+that every archive is opened and its ComicInfo parsed, and a decline that mild
+over 20× is not a cliff. A restart of the largest library takes under a second
+and a half.
 
-The index and the scan's peak memory are what they are after the two fixes
-below; before them they were 183.6 MB and 1,664 MB. A gigabyte at 100,000
-comics is still more than the smallest ARM models have, and the full listing is
-still 113 MB on the wire — the server no longer holds three copies of it to
-send one, but the browser that asked still receives all of it.
+Every figure here is larger than the first profile's, and the reason is the
+corpus rather than the code: it had no ComicInfo.xml at all, so it understated
+every metadata block and overstated the structural fields. The index went from
+126.7 MB to 180.1 MB on the same 100,000 comics, and the full listing from
+113.3 MB to 268.0 MB. Nothing regressed; the earlier numbers were measuring a
+library nobody has.
 
-None of this has been reproduced on hardware, and the corpus carries almost no
-metadata: it understates every metadata block and overstates the structural
-fields, so a real library's records are larger and differently shaped.
+A gigabyte and a quarter at 100,000 comics is more than the smallest ARM models
+have. The listing is the part that got better — the browser now asks for 159.4
+MB where it asked for 268.0, and a client that draws no hierarchy can have 16.9.
+
+None of this has been reproduced on hardware.
 
 ### Release gates
 
@@ -1096,6 +1118,9 @@ fields, so a real library's records are larger and differently shaped.
   library, on every surface that lists it, and keeps its shelf while it is away.
 - A file that will not open is still reported as unreadable on the next scan,
   and stops being reported the moment it opens.
+- A client that draws its own hierarchy can ask for a listing without the
+  metadata blocks it does not draw, and a client that asks for nothing in
+  particular is still served the whole record.
 
 ## 11. 0.9 — Synology marketplace candidate
 

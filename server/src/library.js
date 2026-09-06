@@ -986,6 +986,36 @@ class ComicLibrary {
     };
   }
 
+  // Everything a shelf draws, without the metadata a dialog reads.
+  //
+  // A comic carries five metadata blocks: the merged one the interface renders,
+  // and the four inputs it was merged from. Measured against a library where
+  // two thirds of the archives carry a ComicInfo.xml — which is what a tagged
+  // library looks like, and what the profile corpus did not have until now —
+  // `embeddedMetadata` and `sourceMetadata` are 19.3% of the listing each, and
+  // `metadata` is a third near-identical copy of the same block. Three copies
+  // of one answer, on a wire, to draw a grid of covers.
+  //
+  // So the four inputs go and the merged one stays. Nothing else is dropped:
+  // the browser builds the chronology from this listing and needs `hierarchy`,
+  // `orderPath` and the display fields, which is exactly what `compactComic`
+  // does not carry and why it could not be used here. What the inputs were
+  // wanted for on this path was presence and provenance, and both survive:
+  // `metadataSources` names the inputs, and `yearSource` names the one that
+  // supplied the year. Anything more is one comic at a time, from
+  // `GET /api/comics/:id`, which is what the metadata dialog opens onto.
+  shelfComic(comic) {
+    const {
+      embeddedMetadata,
+      inferredMetadata,
+      sourceMetadata,
+      onlineMatch,
+      manualOverride,
+      ...shelf
+    } = this.publicComic(comic);
+    return shelf;
+  }
+
   publicComic(comic) {
     const hierarchy = Array.isArray(comic.hierarchy) ? comic.hierarchy : [];
     const source =
@@ -1004,6 +1034,16 @@ class ComicLibrary {
       sourceMetadata,
       manualOverride?.metadata
     );
+    // Same precedence the merge above applies, reported rather than re-derived.
+    const yearSource = manualOverride?.metadata?.year
+      ? "manual"
+      : comic.metadata?.year
+        ? "comicinfo"
+        : onlineMetadata?.year
+          ? onlineMatch?.provider || "online"
+          : inferredMetadata?.year
+            ? "filename"
+            : null;
     const title =
       (typeof effectiveMetadata?.title === "string" &&
         effectiveMetadata.title.trim()) ||
@@ -1047,6 +1087,12 @@ class ComicLibrary {
         ...(onlineMatch ? [onlineMatch.provider] : []),
         ...(manualOverride ? ["manual"] : [])
       ],
+      // Which input supplied the publication year, as opposed to which inputs
+      // exist — `metadataSources` cannot answer this, because a ComicInfo.xml
+      // with no `<Year>` still puts "comicinfo" in that list. The chronology
+      // captions a shelf with where its years came from, and that is the only
+      // thing it needed all four metadata blocks for.
+      yearSource,
       hierarchy,
       // So the browser asks for a chosen cover only where there is one, rather
       // than taking a 404 on every card it draws.

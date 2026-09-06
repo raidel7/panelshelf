@@ -13,7 +13,11 @@
 //
 // The corpus is synthetic but shaped like a real library: publishers, series,
 // issues, and a share of loose files, because a flat directory of 25,000 comics
-// exercises nothing the scanner actually struggles with.
+// exercises nothing the scanner actually struggles with. Two thirds of the
+// archives carry a ComicInfo.xml, which is roughly what a tagged library looks
+// like and which the corpus did not have until the listing weight was measured
+// — without it every metadata block reads as almost free, and those blocks are
+// most of what a listing weighs.
 
 import fsp from "node:fs/promises";
 import os from "node:os";
@@ -81,6 +85,37 @@ function zipBuffer(files) {
   return Buffer.concat([...local, centralBuffer, end]);
 }
 
+// Shaped like one a tagging tool writes: a summary, a full credit list, and the
+// character and location tags that make a real metadata block the size it is.
+function comicInfo(series, number, volume, publisher) {
+  return `<?xml version="1.0"?>
+<ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Title>The Man Who Fell to Earth, Part ${(number % 4) + 1}</Title>
+  <Series>${series}</Series>
+  <Number>${number}</Number>
+  <Volume>${volume}</Volume>
+  <Summary>A long-running arc reaches its turn, and the city pays for it.
+    Collected from the original single issues, with the letters pages
+    restored.</Summary>
+  <Year>${1985 + (number % 35)}</Year>
+  <Month>${(number % 12) + 1}</Month>
+  <Writer>Alan Grant, John Wagner</Writer>
+  <Penciller>Norm Breyfogle</Penciller>
+  <Inker>Steve Mitchell</Inker>
+  <Colorist>Adrienne Roy</Colorist>
+  <Letterer>Todd Klein</Letterer>
+  <CoverArtist>Brian Bolland</CoverArtist>
+  <Editor>Denny O'Neil</Editor>
+  <Publisher>${publisher}</Publisher>
+  <Genre>Superhero, Crime</Genre>
+  <LanguageISO>en</LanguageISO>
+  <PageCount>2</PageCount>
+  <Characters>Batman, Commissioner Gordon, Robin, Alfred Pennyworth</Characters>
+  <Teams>Gotham City Police Department</Teams>
+  <Locations>Gotham City, Wayne Manor, Arkham Asylum</Locations>
+</ComicInfo>`;
+}
+
 const PUBLISHERS = ["DC Comics", "Vertigo", "Wildstorm", "Milestone", "Black Label"];
 const SERIES = [
   "Detective Comics", "Action Comics", "The Sandman", "Swamp Thing",
@@ -101,10 +136,10 @@ function seconds(ms) {
 }
 
 async function build(root) {
-  const archive = zipBuffer([
+  const pages = [
     { name: "001.png", data: PIXEL },
     { name: "002.png", data: PIXEL }
-  ]);
+  ];
   const started = performance.now();
   let made = 0;
   // Batched, because 100,000 outstanding writes is its own memory problem and
@@ -120,12 +155,24 @@ async function build(root) {
       index % 12 === 0
         ? path.join(root, publisher)
         : path.join(root, publisher, `${series} v${String(volume).padStart(2, "0")}`);
-    const name = `${series} ${String((index % 400) + 1).padStart(3, "0")}.cbz`;
-    queue.push({ directory, file: path.join(directory, `${index}-${name}`) });
+    const number = (index % 400) + 1;
+    const name = `${series} ${String(number).padStart(3, "0")}.cbz`;
+    const archive = zipBuffer(
+      index % 3 === 0
+        ? pages
+        : [
+            ...pages,
+            {
+              name: "ComicInfo.xml",
+              data: Buffer.from(comicInfo(series, number, volume, publisher), "utf8")
+            }
+          ]
+    );
+    queue.push({ directory, file: path.join(directory, `${index}-${name}`), archive });
     if (queue.length === 500 || index === count - 1) {
       const directories = [...new Set(queue.map((item) => item.directory))];
       await Promise.all(directories.map((dir) => fsp.mkdir(dir, { recursive: true })));
-      await Promise.all(queue.map((item) => fsp.writeFile(item.file, archive)));
+      await Promise.all(queue.map((item) => fsp.writeFile(item.file, item.archive)));
       made += queue.length;
       queue.length = 0;
       // Only to a terminal: this is a carriage-return progress line and it is
@@ -182,10 +229,13 @@ async function main() {
   report("heap held after scan", mb(process.memoryUsage().heapUsed - baseline.heapUsed));
   report("peak resident set", mb(peakRss));
 
-  // The two shapes the shelf can ask for. The compact one exists because the
-  // full one was 71 MB; this is the check that it still is what it claims.
+  // The three shapes the shelf can ask for. Compact exists because the full one
+  // was 71 MB; shelf exists because the browser cannot use compact — it builds
+  // its own hierarchy — and was being sent five metadata blocks to draw one.
+  // This is the check that each is still what it claims.
   for (const [label, build] of [
     ["full listing", () => library.listComics().map((comic) => library.publicComic(comic))],
+    ["shelf listing", () => library.listComics().map((comic) => library.shelfComic(comic))],
     ["compact listing", () => library.listComics().map((comic) => library.compactComic(comic))]
   ]) {
     const started = performance.now();

@@ -1097,14 +1097,24 @@ async function startServer() {
       }
 
       if (request.method === "GET" && pathname === "/api/comics") {
-        // `?view=compact` trades every metadata block, ordering path and
-        // hierarchy for the seven fields a browsing list draws. The default
-        // stays the full record: the web viewer and OPDS read it, and a client
-        // that does not ask for compact must not be handed a shorter comic.
-        const compact = requestUrl.searchParams.get("view") === "compact";
-        const project = compact
-          ? (comic) => library.compactComic(comic)
-          : (comic) => library.publicComic(comic);
+        // Three shapes, and the default is still the largest one.
+        //
+        // `compact` trades every metadata block, ordering path and hierarchy
+        // for the seven fields a browsing list draws. `shelf` sits between: the
+        // whole record minus the four metadata inputs the merged block was
+        // built from, for a client that draws its own hierarchy — the browser
+        // does — and would otherwise receive three near-identical copies of one
+        // metadata block per comic.
+        //
+        // Anything else, including `full` and a fumbled value, is the full
+        // record. A client that does not ask to be shortened must not be.
+        const view = requestUrl.searchParams.get("view");
+        const project =
+          view === "compact"
+            ? (comic) => library.compactComic(comic)
+            : view === "shelf"
+              ? (comic) => library.shelfComic(comic)
+              : (comic) => library.publicComic(comic);
         // `sort=added` and `limit` exist for the app's Home screen, which wants
         // a dozen comics rather than a library. Both are ignored when absent or
         // unusable: a client that fumbles a parameter should get the whole

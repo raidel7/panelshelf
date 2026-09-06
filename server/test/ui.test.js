@@ -1674,3 +1674,103 @@ test("the schedule panel writes back on any change, without a save button", asyn
   assert.match(application, /control\.addEventListener\("change", saveScanSchedule\)/);
   assert.match(application, /loadScanSchedule\(\);/);
 });
+
+test("the shelf listing is drawn without the metadata blocks it no longer carries", async () => {
+  const [application, library] = await Promise.all([
+    fsp.readFile(path.join(publicDirectory, "app.js"), "utf8"),
+    fsp.readFile(path.resolve(__dirname, "../src/library.js"), "utf8")
+  ]);
+
+  // Brace-matched rather than line-sliced, because what this test is about is
+  // what a particular function contains.
+  const functionBody = (name) => {
+    const start = application.search(
+      new RegExp(`^(?:async )?function ${name}\\(`, "m")
+    );
+    assert.notEqual(start, -1, `${name} should exist`);
+    // Past the parameter list before looking for the body, because a default
+    // value is a brace: `comicCard(comic, options = {})` closes on its own
+    // signature, and the empty body that comes back satisfies every assertion
+    // below without reading a line of the function. This test passed that way
+    // once.
+    let index = application.indexOf("(", start);
+    for (let parens = 0; index < application.length; index += 1) {
+      if (application[index] === "(") parens += 1;
+      else if (application[index] === ")" && (parens -= 1) === 0) break;
+    }
+    let depth = 0;
+    let opened = false;
+    for (; index < application.length; index += 1) {
+      if (application[index] === "{") {
+        depth += 1;
+        opened = true;
+      } else if (application[index] === "}") {
+        depth -= 1;
+        if (opened && depth === 0) {
+          const body = application.slice(start, index + 1);
+          // The guard for the failure above, in the general case.
+          assert.ok(body.length > 200, `${name} extracted as ${body.length} characters`);
+          return body;
+        }
+      }
+    }
+    return assert.fail(`${name} does not close`);
+  };
+
+  assert.match(application, /const COMICS_LISTING = "\/api\/comics\?view=shelf"/);
+  assert.doesNotMatch(
+    application,
+    /api\("\/api\/comics"\)/,
+    "nothing should still ask for the full listing"
+  );
+
+  // The three functions that run once per comic. A field read here is a field
+  // that has to be on every record in the response, which is the whole cost
+  // the shelf shape exists to avoid — so this is the invariant, not a style
+  // preference. Losing one of these reads is silent: a missing badge or a
+  // vaguer caption, never an error.
+  const dialogOnly = [
+    "embeddedMetadata",
+    "inferredMetadata",
+    "sourceMetadata",
+    "onlineMatch",
+    "manualOverride"
+  ];
+  for (const name of ["comicCard", "comicStatusControl", "chronologyYearSource"]) {
+    const body = functionBody(name);
+    for (const field of dialogOnly) {
+      assert.doesNotMatch(
+        body.replace(/^\s*\/\/.*$/gm, ""),
+        new RegExp(`\\.${field}\\b`),
+        `${name} draws one card per comic and must not read ${field}`
+      );
+    }
+  }
+
+  // The dialogs that do need them fetch the one comic they are about to show.
+  for (const name of ["openMetadataDialog", "openMetadataEditor", "reloadEditedComic"]) {
+    assert.match(
+      functionBody(name),
+      /await api\(`\/api\/comics\/\$\{[^}]+\}`\)/,
+      `${name} should load the full record for its comic`
+    );
+  }
+
+  // The badge reads a provider id out of `metadataSources` by elimination, so
+  // the names it eliminates have to be the ones the server puts there. A fifth
+  // local source name added on one side and not the other would be drawn as a
+  // provider — a badge reading "MA" over a manual edit, and nothing to catch it.
+  const serverSources = [
+    ...library
+      .slice(library.indexOf("metadataSources: ["), library.indexOf("metadataSources: [") + 400)
+      .matchAll(/\["([a-z]+)"\]/g)
+  ].map((match) => match[1]);
+  assert.deepEqual(serverSources.sort(), ["comicinfo", "filename", "manual"]);
+  const clientSources = [
+    ...application
+      .slice(application.indexOf("const LOCAL_METADATA_SOURCES"))
+      .slice(0, 200)
+      .matchAll(/"([a-z]+)"/g)
+  ].map((match) => match[1]);
+  assert.deepEqual(clientSources.sort(), serverSources.sort());
+});
