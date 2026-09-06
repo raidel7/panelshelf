@@ -13,15 +13,29 @@
 // the server is holding. A dashboard that costs a filesystem walk is a
 // dashboard nobody can leave open.
 
-// Below this a source is worth pointing at. A healthy internal volume manages
-// thousands of files a second and a NAS with spinning disks still manages
-// hundreds; single digits mean a drive waking up, a network share, or a mount
-// that is about to fail. Deliberately far below anything a working setup does,
-// because the cost of crying wolf here is that the whole panel gets ignored.
-const SLOW_FILES_PER_SECOND = 20;
+// What counts as slow depends entirely on what the scan was doing, and one
+// threshold for both was wrong in both directions.
+//
+// Measured on a DS1825+ over a USB disk, 24,839 comics: a full scan, which
+// opens every archive, ran at 9.1 files a second. A quick scan, which opens
+// none, ran at 2,679. The single 20-a-second threshold this started with would
+// have called that healthy full scan slow every time it ran, and would have
+// needed a quick scan to degrade 134-fold before saying anything at all.
+//
+// So: a floor for each, each far enough below its measured rate that reaching
+// it means something is actually wrong. Crying wolf costs the whole panel its
+// credibility, and a threshold nothing can trip costs it its purpose.
+const SLOW_FULL_FILES_PER_SECOND = 2;
+const SLOW_QUICK_FILES_PER_SECOND = 200;
 // Under this a rate is noise — one archive that happened to be huge, or a
 // source with four comics in it.
 const SLOW_MINIMUM_FILES = 50;
+
+// A scan that opened archives had to pay for every one of them. Anything else
+// only walked the tree.
+function slowFloor(action) {
+  return action === "full" ? SLOW_FULL_FILES_PER_SECOND : SLOW_QUICK_FILES_PER_SECOND;
+}
 
 // The worst thing true of a source, because that is what a summary should say.
 //
@@ -114,7 +128,7 @@ function sourceHealth({ sources, comics, scanState }) {
     const slow =
       filesPerSecond !== null &&
       lastScan.files >= SLOW_MINIMUM_FILES &&
-      filesPerSecond < SLOW_FILES_PER_SECOND;
+      filesPerSecond < slowFloor(state.action);
 
     const status = verdict({
       available: source.available !== false,
@@ -190,4 +204,9 @@ function sourceHealth({ sources, comics, scanState }) {
   };
 }
 
-module.exports = { sourceHealth, SLOW_FILES_PER_SECOND, SLOW_MINIMUM_FILES };
+module.exports = {
+  sourceHealth,
+  SLOW_FULL_FILES_PER_SECOND,
+  SLOW_QUICK_FILES_PER_SECOND,
+  SLOW_MINIMUM_FILES
+};

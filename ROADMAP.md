@@ -1043,21 +1043,28 @@ was making features exist. This is making them keep working.
 
 The scan's gigabyte, and then hardware.
 
-A tagged corpus costs 1,262 MB at the scan's peak, against 1,036 MB for the
-untagged one the first profile used. What remains after the write fix is mostly
-the records themselves: a rebuild holds the previous index and the new one at
-the same time, by design, because that is what lets a comic that moved keep its
-identity. The fix is to stop holding both, which means either a rebuild that
-gives up move detection or an index that can be read a record at a time. Both
-are large, and the NAS has not yet run a scan under this build, so what the peak
-actually is on the machine that has to survive it is still unmeasured. Measuring
-it is now a scan away rather than a purchase away, and comes first.
+A tagged corpus costs 1,262 MB at the scan's peak on a laptop, against 1,036 MB
+for the untagged one the first profile used. A rebuild holds the previous index
+and the new one at the same time, by design, because that is what lets a comic
+that moved keep its identity, and unpicking that means either giving up move
+detection or reading the index a record at a time.
 
-The rest is hardware, and some of it is now done. The upgrade has been made and
-survived, and the read path has been profiled against a real library; both are
-below. What has not been tried is a scan under this build, a restart, a
-downgrade, and power loss — and a scan is the first of those, because almost
-everything else in this section only runs while one is going.
+Hardware has now had its say and it argues for doing neither yet. A real scan of
+24,839 comics peaked at 339 MB, less than half what the laptop projected at that
+size, on a machine with 8 GB. The projection that matters is still the one at
+100,000 comics on a 2 GB ARM model, and it is still a projection — but it is now
+a projection anchored to a measurement that came in low, and rewriting the
+rebuild on the strength of it would be optimising against a number that has
+never been observed. The thing to do is measure a bigger library, not rebuild
+the index.
+
+The rest is hardware, and most of it is now done. The upgrade was made and
+survived with a checkpoint, the read path was profiled against a real library,
+and both a full scan and a quick one have run under this build — with what they
+cost, and the two things they disproved, recorded below. What is left is a
+restart, a downgrade, power loss, and the parts of this section that only show
+themselves under sustained pressure: the cover cache reaching its ceiling, the
+log reaching its own, and a scheduled scan firing while nobody is watching.
 
 Everything in this section that can be built from a laptop is built.
 
@@ -1131,19 +1138,60 @@ thirds of its archives a ComicInfo.xml; the real library has one in 30% of them,
 so the metadata figures above are an overstatement rather than the
 understatement they were before. And it is on an SSD.
 
-That last one is the finding that matters. The library's last scan — under 1038,
-before the rebuild fix — read 24,839 files in 45 minutes. **9.2 files a second,
-against 1,989 on the laptop.** The laptop was never going to find that, and it
-is why every figure in the table above says what it was measured on. The number
-is not comparable to current code, since it predates the change that took a
-rebuild of 4,000 files from 33.79 s to 1.02 s, and a USB disk is the slowest
-thing a source can be. What it establishes is the order of magnitude: scanning
-this library is measured in tens of minutes, not tens of seconds, and any
-release gate about scan behaviour needs to be read with that in mind.
+That last one is the finding that matters, and it survived being measured.
 
-Still not reproduced on hardware: any scan under 1043, the scan's peak memory,
-the cover cache ceiling, log rotation, the generation queue under a cold shelf,
-a scheduled scan firing, power loss, downgrade, and uninstall.
+### What a scan costs on the machine that has to do it
+
+A full scan under 1043: **24,839 files in 45.7 minutes, 9.1 a second.** The same
+library under 1038 in August managed 9.2. The rebuild fix bought nothing here,
+and that is not a disappointment — it removed a quadratic that only appears in
+libraries carrying many byte-identical archives, and this one does not carry
+them. What is left is the floor: opening 24,839 archives on a USB disk, which
+the laptop models at 1,989 a second and hardware does at nine.
+
+A quick scan of the same library: **9.3 seconds, 2,679 files a second**, no
+archive opened, and all 28 unreadable files re-reported from their own records
+rather than from the scan that found them. That is the durable-verdict fix
+working on hardware, and it is the difference the whole incremental path exists
+to make — 45 minutes against nine seconds.
+
+| | Laptop, synthetic | This NAS, real |
+| --- | --- | --- |
+| Full scan | 1,989/s | 9.1/s |
+| Quick scan | — | 2,679/s |
+| Peak resident set | 720 MB | 339 MB |
+| Reads during a scan | — | 0.24–0.7 s, worst 7.9 s |
+
+Peak memory is the surprise, and it is a good one. The laptop projected 720 MB
+at this size; hardware used 339, climbing steadily from 217 and never spiking.
+This NAS has 8 GB and eight cores, so the gigabyte-and-a-quarter the laptop
+projects at 100,000 comics is comfortable here. That figure was always a worry
+about the small ARM models rather than about this machine, and it still is.
+
+Reading stayed possible throughout, which is the release gate. The compact
+listing answered in a quarter to seven tenths of a second for most of the scan,
+with two excursions to 6.8 and 7.9 seconds. Degraded, never unresponsive, and
+worth watching rather than fixing: both spikes came while the disk was busiest.
+
+Two hypotheses died here, which is the point of running it.
+
+Half the library is CBR — 12,191 against 12,648 CBZ — and the profile corpus is
+entirely CBZ, so the RAR path had never been profiled at all. Cold cover
+generation over fifteen of each says the format does not matter: 0.476 s for a
+CBZ, 0.472 s for a CBR. The cost is the disk and the JPEG, not the container.
+The corpus gap is real for coverage and irrelevant for speed.
+
+And the source health panel's slow threshold was wrong in both directions. It
+was 20 files a second for every scan, reasoned from "a NAS with spinning disks
+still manages hundreds". A healthy full scan does nine, so the panel would have
+called this library slow every time it finished reading itself; a quick scan
+does 2,679, so it would have had to degrade 134-fold before the panel said
+anything. There are now two floors, 2 and 200, each set well under its measured
+rate.
+
+Still not reproduced on hardware: the cover cache ceiling under real pressure,
+log rotation, the generation queue against a cold shelf, a scheduled scan
+firing, power loss, downgrade, and uninstall.
 
 ### Release gates
 

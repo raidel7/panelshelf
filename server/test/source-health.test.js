@@ -27,7 +27,7 @@ function report(overrides = {}) {
   return sourceHealth({
     sources: overrides.sources || [SOURCE],
     comics: overrides.comics || [],
-    scanState: overrides.scanState || { errors: [], warnings: [], sources: [SCANNED] }
+    scanState: overrides.scanState || { action: "quick", errors: [], warnings: [], sources: [SCANNED] }
   });
 }
 
@@ -111,8 +111,11 @@ test("an issue belongs to the source it happened in, not to whoever matches the 
 });
 
 test("a source read at walking pace is worth pointing at", () => {
+  // 400 files in a minute is under the quick-scan floor by two orders of
+  // magnitude; a quick scan does not open anything and has no excuse.
   const health = report({
     scanState: {
+      action: "quick",
       errors: [],
       warnings: [],
       sources: [{ id: "src_a", files: 400, durationMs: 60_000, startedAt: "x", finishedAt: "y" }]
@@ -125,11 +128,56 @@ test("a source read at walking pace is worth pointing at", () => {
   assert.match(source.detail, /slow enough to be worth a look/);
 });
 
+test("a full scan is not called slow for going at the speed a full scan goes", () => {
+  // The measurement this threshold was rewritten around. A DS1825+ over USB
+  // reads 24,839 archives at 9.1 a second, and the panel used to call that
+  // healthy library slow every time it finished scanning itself.
+  const health = report({
+    scanState: {
+      action: "full",
+      errors: [],
+      warnings: [],
+      sources: [
+        { id: "src_a", files: 24_839, durationMs: 2_737_406, startedAt: "x", finishedAt: "y" }
+      ]
+    }
+  });
+
+  assert.equal(health.sources[0].status, "ok");
+  assert.equal(health.sources[0].lastScan.filesPerSecond, 9);
+  assert.equal(health.summary.slow, 0);
+});
+
+test("a full scan that has genuinely stalled still says so", () => {
+  // One file a second is not a disk being thorough, it is a disk in trouble.
+  const health = report({
+    scanState: {
+      action: "full",
+      errors: [],
+      warnings: [],
+      sources: [{ id: "src_a", files: 600, durationMs: 600_000, startedAt: "x", finishedAt: "y" }]
+    }
+  });
+
+  assert.equal(health.sources[0].status, "slow");
+});
+
+test("the same rate is fine for a full scan and alarming for a quick one", () => {
+  const scan = { id: "src_a", files: 5_000, durationMs: 100_000, startedAt: "x", finishedAt: "y" };
+
+  const full = report({ scanState: { action: "full", errors: [], warnings: [], sources: [scan] } });
+  const quick = report({ scanState: { action: "quick", errors: [], warnings: [], sources: [scan] } });
+
+  assert.equal(full.sources[0].status, "ok", "50 a second is respectable when every archive is opened");
+  assert.equal(quick.sources[0].status, "slow", "and dismal when none of them is");
+});
+
 test("a handful of files read slowly is not evidence of anything", () => {
   // One enormous archive, or a source with four comics in it. Crying wolf here
   // costs the whole panel its credibility.
   const health = report({
     scanState: {
+      action: "quick",
       errors: [],
       warnings: [],
       sources: [{ id: "src_a", files: 3, durationMs: 60_000, startedAt: "x", finishedAt: "y" }]
@@ -143,6 +191,7 @@ test("a handful of files read slowly is not evidence of anything", () => {
 test("a fast source reports its rate without complaining about it", () => {
   const health = report({
     scanState: {
+      action: "quick",
       errors: [],
       warnings: [],
       sources: [{ id: "src_a", files: 9000, durationMs: 3000, startedAt: "x", finishedAt: "y" }]
