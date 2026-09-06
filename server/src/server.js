@@ -618,6 +618,23 @@ async function startServer() {
         return sendJson(response, 200, await library.sourceHealth());
       }
 
+      if (request.method === "GET" && pathname === "/api/sources/issues") {
+        // Both bounds are optional and both are ignored when unusable, for the
+        // reason `limit` is ignored on the listing: a client that fumbles a
+        // parameter should get the defaults, never an empty answer. The counts
+        // in `summary` are exact whatever these are set to.
+        const limit = Number.parseInt(requestUrl.searchParams.get("limit"), 10);
+        const maxFolders = Number.parseInt(requestUrl.searchParams.get("folders"), 10);
+        return sendJson(
+          response,
+          200,
+          library.scanIssues({
+            ...(Number.isFinite(limit) && limit >= 0 ? { limit } : {}),
+            ...(Number.isFinite(maxFolders) && maxFolders >= 0 ? { maxFolders } : {})
+          })
+        );
+      }
+
       if (request.method === "GET" && pathname === "/api/support-bundle") {
         const bundle = await createSupportBundle({
           library,

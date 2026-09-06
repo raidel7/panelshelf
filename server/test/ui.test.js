@@ -1835,3 +1835,53 @@ test("the schedule says whose clock it is set on", async () => {
   assert.equal(clockDrift("03:00", "not a date"), "");
   assert.equal(clockDrift("nonsense", atServerOffset(0, "03:00")), "");
 });
+
+test("a folder of broken files says what kind of problem it is", async () => {
+  const [application, styles] = await Promise.all([
+    fsp.readFile(path.join(publicDirectory, "app.js"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "styles.css"), "utf8")
+  ]);
+
+  const extract = (name) => {
+    const start = application.search(new RegExp(`^function ${name}\\(`, "m"));
+    assert.notEqual(start, -1, `${name} should exist`);
+    let index = application.indexOf("{", start);
+    for (let depth = 0; index < application.length; index += 1) {
+      if (application[index] === "{") depth += 1;
+      else if (application[index] === "}" && (depth -= 1) === 0) {
+        return application.slice(start, index + 1);
+      }
+    }
+    throw new Error(`${name} is not brace-balanced`);
+  };
+
+  const context = { result: null };
+  vm.createContext(context);
+  new vm.Script(`${extract("folderVerdict")}\nresult = folderVerdict;`).runInContext(context);
+  const folderVerdict = context.result;
+
+  // The whole point of grouping: these three are different problems and the
+  // sentence has to distinguish them.
+  assert.match(
+    folderVerdict({ files: 12, comics: 12, wholeFolder: true }),
+    /Every comic here failed to open/,
+    "a ruined download"
+  );
+  assert.match(
+    folderVerdict({ files: 3, comics: 40, wholeFolder: false }),
+    /3 of the 40 comics in this folder/,
+    "some bad files among good ones"
+  );
+  assert.equal(
+    folderVerdict({ files: 1, comics: 40, wholeFolder: false }),
+    "",
+    "one bad file needs no explaining; the row already says it"
+  );
+  // A single file that happens to be the only comic in its folder is still one
+  // bad file, not a ruined download.
+  assert.equal(folderVerdict({ files: 1, comics: 1, wholeFolder: true }), "");
+
+  // The badge that separates the two at a glance has to be styled apart.
+  assert.match(styles, /\.issue-folder-count\.whole \{/);
+  assert.match(styles, /\.issue-file-list \{/);
+});

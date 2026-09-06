@@ -5751,60 +5751,170 @@ async function copyAccountName() {
   }
 }
 
-function openIssues() {
-  const count = state.scanIssues.length;
-  if (count === 0) {
+// A warning list long enough to scroll past is a list nobody reads to the end
+// of, and the structure preview already settled on this number for the same
+// reason.
+const MAX_WARNING_ROWS = 30;
+
+// One row, unchanged from the flat list this grew out of: used for the scan
+// errors that never became a comic, and for metadata warnings.
+function issueRow(issue, { warning = false } = {}) {
+  const row = document.createElement("article");
+  row.className = `issue-row${warning ? " warning" : ""}`;
+  const icon = document.createElement("span");
+  icon.className = "issue-icon";
+  icon.textContent = warning ? "i" : "!";
+  icon.setAttribute("aria-hidden", "true");
+  const copy = document.createElement("div");
+  copy.className = "issue-copy";
+  const where = document.createElement("code");
+  where.textContent = issue.path || "Unknown path";
+  const message = document.createElement("p");
+  message.textContent = issue.message || "The item could not be scanned.";
+  copy.append(where, message);
+  if (isPermissionIssue(issue)) {
+    const actions = document.createElement("div");
+    actions.className = "issue-actions";
+    const fix = document.createElement("button");
+    fix.type = "button";
+    fix.className = "button issue-fix-button";
+    fix.textContent = "Fix access";
+    fix.addEventListener("click", () => openPermissionHelp(issue));
+    actions.append(fix);
+    copy.append(actions);
+  }
+  row.append(icon, copy);
+  return row;
+}
+
+// What a whole ruined folder means, said once rather than left to be inferred
+// from a run of identical messages.
+function folderVerdict(folder) {
+  if (folder.wholeFolder && folder.files > 1) {
+    return "Every comic here failed to open, which usually means the download rather than the files.";
+  }
+  if (folder.files > 1) {
+    return `${folder.files} of the ${folder.comics} comics in this folder will not open.`;
+  }
+  return "";
+}
+
+function issueFolder(folder, { open }) {
+  const group = document.createElement("details");
+  group.className = "issue-folder";
+  group.open = open;
+
+  const summary = document.createElement("summary");
+  const heading = document.createElement("div");
+  heading.className = "issue-folder-heading";
+  const name = document.createElement("strong");
+  // A broken file sitting at the source root has no folder name to show, and
+  // the source is the honest answer rather than an empty heading.
+  name.textContent = folder.folder || folder.sourceName || "The source folder";
+  const count = document.createElement("span");
+  count.className = `issue-folder-count${folder.wholeFolder ? " whole" : ""}`;
+  count.textContent = folder.wholeFolder
+    ? `all ${folder.files}`
+    : `${folder.files} of ${folder.comics}`;
+  heading.append(name, count);
+  const where = document.createElement("code");
+  where.textContent = folder.path;
+  summary.append(heading, where);
+  group.append(summary);
+
+  const verdict = folderVerdict(folder);
+  if (verdict) {
+    const line = document.createElement("p");
+    line.className = "issue-folder-verdict";
+    line.textContent = verdict;
+    group.append(line);
+  }
+
+  const files = document.createElement("ul");
+  files.className = "issue-file-list";
+  for (const item of folder.items) {
+    const entry = document.createElement("li");
+    const fileName = document.createElement("code");
+    fileName.textContent = item.name;
+    const message = document.createElement("span");
+    message.textContent = item.message;
+    entry.append(fileName, message);
+    files.append(entry);
+  }
+  group.append(files);
+
+  if (folder.truncated) {
+    const note = document.createElement("p");
+    note.className = "issue-folder-verdict";
+    note.textContent = `${folder.files - folder.items.length} more in this folder are not listed.`;
+    group.append(note);
+  }
+  return group;
+}
+
+async function openIssues() {
+  if (state.scanIssues.length === 0) {
     showToast("The latest scan has no reported issues.");
     return;
   }
-  const warningCount = state.scanIssues.filter(
-    (issue) => issue.severity === "warning"
-  ).length;
-  const errorCount = count - warningCount;
+
+  elements.issuesSummary.textContent = "Reading the library…";
+  elements.issueList.replaceChildren();
+  elements.issuesDialog.showModal();
+
+  // Grouped by the server, from the records rather than from the last scan's
+  // report: a quick scan does not reopen an archive it has already seen, so the
+  // records are what still know a file is broken.
+  let grouped;
+  try {
+    grouped = await api("/api/sources/issues");
+  } catch (error) {
+    elements.issuesSummary.textContent = error.message;
+    return;
+  }
+
+  const warnings = (state.scanState.warnings || []).slice();
+  const { files, folders } = grouped.summary;
   elements.issuesSummary.textContent = [
-    errorCount
-      ? `${errorCount} ${errorCount === 1 ? "error" : "errors"}`
+    files
+      ? `${files} ${files === 1 ? "file" : "files"} in ${folders} ${
+          folders === 1 ? "folder" : "folders"
+        } will not open`
       : "",
-    warningCount
-      ? `${warningCount} ${warningCount === 1 ? "warning" : "warnings"}`
+    grouped.summary.unindexed
+      ? `${grouped.summary.unindexed} could not be indexed at all`
+      : "",
+    warnings.length
+      ? `${warnings.length} ${warnings.length === 1 ? "file has" : "files have"} metadata worth reviewing`
       : ""
   ]
     .filter(Boolean)
-    .join(" and ")
-    .concat(" reported during the latest scan.");
-  elements.issueList.replaceChildren(
-    ...state.scanIssues.map((issue) => {
-      const row = document.createElement("article");
-      row.className = `issue-row${
-        issue.severity === "warning" ? " warning" : ""
-      }`;
-      const icon = document.createElement("span");
-      icon.className = "issue-icon";
-      icon.textContent = issue.severity === "warning" ? "i" : "!";
-      icon.setAttribute("aria-hidden", "true");
-      const copy = document.createElement("div");
-      copy.className = "issue-copy";
-      const path = document.createElement("code");
-      path.textContent = issue.path || "Unknown path";
-      const message = document.createElement("p");
-      message.textContent = issue.message || "The item could not be scanned.";
-      copy.append(path, message);
-      if (isPermissionIssue(issue)) {
-        const actions = document.createElement("div");
-        actions.className = "issue-actions";
-        const fix = document.createElement("button");
-        fix.type = "button";
-        fix.className = "button issue-fix-button";
-        fix.textContent = "Fix access";
-        fix.addEventListener("click", () => openPermissionHelp(issue));
-        actions.append(fix);
-        copy.append(actions);
-      }
-      row.append(icon, copy);
-      return row;
-    })
-  );
-  elements.issuesDialog.showModal();
+    .join(", ")
+    .concat(".");
+
+  const content = [];
+  // Largest cluster first, and opened: on a library whose damage is one bad
+  // download, the first group is the entire answer.
+  grouped.folders.forEach((folder, index) => {
+    content.push(issueFolder(folder, { open: index === 0 }));
+  });
+  for (const issue of grouped.unindexed) content.push(issueRow(issue));
+  for (const warning of warnings.slice(0, MAX_WARNING_ROWS)) {
+    content.push(issueRow(warning, { warning: true }));
+  }
+  if (warnings.length > MAX_WARNING_ROWS) {
+    const note = document.createElement("p");
+    note.className = "issue-folder-verdict";
+    note.textContent = `${warnings.length - MAX_WARNING_ROWS} more warnings are not shown.`;
+    content.push(note);
+  }
+  if (grouped.summary.foldersTruncated) {
+    const note = document.createElement("p");
+    note.className = "issue-folder-verdict";
+    note.textContent = `${grouped.summary.folders - grouped.folders.length} more folders are not listed. The largest are shown first.`;
+    content.push(note);
+  }
+  elements.issueList.replaceChildren(...content);
 }
 
 async function refresh() {

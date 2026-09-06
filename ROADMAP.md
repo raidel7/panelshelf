@@ -974,6 +974,18 @@ was making features exist. This is making them keep working.
   here walks the disk. Scan issues are attributed to the source being walked
   when they happen rather than matched by path afterwards, because one source
   configured inside another makes a prefix match pick the wrong one.
+- **The issue list groups by folder, because that is the diagnosis.** The panel
+  above says a source is damaged and how many files are involved; the list
+  behind it named them, one row each, in walk order. On the developer's library
+  that is 28 rows that all look alike — and twelve of them were consecutive
+  issues in a single Superman folder, which is one bad download rather than
+  twelve bad files. `GET /api/sources/issues` groups by the folder a file sits
+  in, largest group first, and reports `files` against `comics` so a ruined
+  volume reads differently from a volume with a bad file in it. Counts are
+  exact and lists are bounded, the same contract the listing's `limit` has: a
+  library with four thousand broken files still says four thousand. Errors that
+  never became a comic have no record to group by and are listed on their own
+  rather than dropped.
 - **A file that will not open stays reported.** Found while testing the panel
   above: a broken archive was reported once and then disappeared from the issue
   list on the very next quick scan, because a quick scan does not reopen an
@@ -1064,12 +1076,12 @@ the index.
 
 The rest is hardware, and most of it is now done. The upgrade was made and
 survived with a checkpoint, the read path was profiled against a real library,
-both a full scan and a quick one have run under this build, and the cover cache
-was driven into its ceiling and shed exactly what it was written to shed — with
-what they cost, and the two things they disproved, recorded below. What is left
-is a restart, a downgrade, power loss, uninstall, and the one part of this
-section that has still not shown itself under pressure: the log reaching its own
-ceiling.
+both a full scan and a quick one have run under this build, the cover cache was
+driven into its ceiling and shed exactly what it was written to shed, and the
+package has now been stopped and started on the machine — with what they cost,
+and the two things they disproved, recorded below. What is left is a downgrade,
+power loss, uninstall, and the one part of this section that has still not shown
+itself under pressure: the log reaching its own ceiling.
 
 Everything in this section that can be built from a laptop is built.
 
@@ -1252,6 +1264,27 @@ unexercised on hardware; it has unit tests and no field evidence.
 Still not reproduced on hardware: log rotation, power loss, downgrade, and
 uninstall.
 
+### What a restart actually keeps
+
+Unplanned, and worth more for being unplanned. On 2026-09-06 the package was
+stopped and started twice in sixteen seconds while the library was being read
+from a laptop. The log records exactly what it should: `SIGTERM`, a clean start,
+and discovery rebinding on the second attempt as cleanly as on the first —
+`bound` and `membership` both true, the port free by the time it was asked for
+again.
+
+What came back matters more than that it came back. The shelf was intact at
+24,839 comics, the last scan's cost was still on the record, and all 28
+unreadable files were still attributed to their source and still counted by
+code — 15 damaged archives and 13 read errors, the same numbers as before the
+stop. That is the design decision in `source-health.js` being tested rather than
+asserted: the verdict lives on the comic's own record, not in the scan report
+that every scan empties, so a restart does not quietly turn a damaged source
+into a healthy one.
+
+Two things still untried on this axis: a reboot, which also exercises DSM
+starting the package rather than an operator doing it, and an uninstall.
+
 ### Release gates
 
 - The cover cache does not exceed its configured ceiling, and a cover it gives
@@ -1326,11 +1359,13 @@ uninstall.
 
 ### Release gates
 
-- No package process runs as root. **Met, and checkable**: `conf/privilege`
-  declares `run-as: package`, the SPK validator refuses to build a package that
-  does not, and the support bundle reports the uid the server is actually
-  running as so the claim can be tested against an install rather than against
-  this repository.
+- No package process runs as root. **Met, checkable, and now checked**:
+  `conf/privilege` declares `run-as: package`, the SPK validator refuses to
+  build a package that does not, and the support bundle reports the uid the
+  server is actually running as. Asked of the DS1825+ on 2026-09-06, the running
+  install answered uid 146526, group 146526, user `PanelShelf`, `root: false` —
+  so this gate is now met by an installation rather than by a file in this
+  repository saying it should be.
 - Fresh-install and upgrade tests pass from the previous public beta.
 - No unresolved critical or high-severity production dependency vulnerability.
   **Met as of 0.5.1**: one production dependency, `node-unrar-js` 2.0.2, and

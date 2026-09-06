@@ -2324,6 +2324,72 @@ test("a source that goes away is reported as disconnected, not as empty", async 
   assert.equal(bundle.sourceHealth.summary.disconnected, 1);
 });
 
+test("broken files are grouped by the folder they cluster in", async (t) => {
+  // A real library made the case for this: 28 unreadable files, of which 12
+  // were consecutive issues in one folder. Flat, that is 28 rows that all look
+  // alike; grouped, it is one ruined download and a handful of separate bad
+  // files, which are different problems with different fixes.
+  const { base, directory } = await startServer(t);
+  const source = path.join(directory, "Comics");
+  const ruined = path.join(source, "Superman", "Volume 2");
+  const mostly = path.join(source, "Batman");
+  await fsp.mkdir(ruined, { recursive: true });
+  await fsp.mkdir(mostly, { recursive: true });
+
+  const good = zipBuffer([{ name: "p.png", data: ONE_PIXEL_PNG }]);
+  const rubbish = Buffer.from("not an archive at all");
+  for (const issue of ["077", "078", "079"]) {
+    await fsp.writeFile(path.join(ruined, `Superman V2 #${issue}.cbz`), rubbish);
+  }
+  await fsp.writeFile(path.join(mostly, "Batman 001.cbz"), good);
+  await fsp.writeFile(path.join(mostly, "Batman 002.cbz"), good);
+  await fsp.writeFile(path.join(mostly, "Batman 003.cbz"), rubbish);
+
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [source] })
+  });
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/scan`, (body) => body.running === false && body.finishedAt);
+
+  const issues = await (await fetch(`${base}/api/sources/issues`)).json();
+  assert.equal(issues.summary.files, 4, JSON.stringify(issues.summary));
+  assert.equal(issues.summary.folders, 2);
+
+  const [worst, other] = issues.folders;
+  assert.equal(worst.folder, "Superman/Volume 2", "the cluster leads");
+  assert.equal(worst.files, 3);
+  assert.equal(worst.comics, 3);
+  assert.equal(worst.wholeFolder, true, "every comic in it is broken");
+  assert.equal(worst.path, ruined, "the absolute path, because that is where you go");
+  assert.deepEqual(
+    worst.items.map((item) => item.name),
+    ["Superman V2 #077.cbz", "Superman V2 #078.cbz", "Superman V2 #079.cbz"],
+    "in named order, so a consecutive run reads as one"
+  );
+
+  assert.equal(other.folder, "Batman");
+  assert.equal(other.files, 1);
+  assert.equal(other.comics, 3);
+  assert.equal(other.wholeFolder, false, "one bad file is not a ruined folder");
+
+  // Bounded lists, exact counts — the same contract as the listing's `limit`.
+  const capped = await (await fetch(`${base}/api/sources/issues?limit=2`)).json();
+  assert.equal(capped.summary.files, 4, "still says how many there are");
+  assert.equal(capped.summary.truncated, true);
+  assert.equal(
+    capped.folders.reduce((total, folder) => total + folder.items.length, 0),
+    2,
+    "and sends only what was asked for"
+  );
+
+  // A fumbled parameter gets the defaults rather than an empty answer.
+  const fumbled = await (await fetch(`${base}/api/sources/issues?limit=nonsense`)).json();
+  assert.equal(fumbled.summary.files, 4);
+  assert.equal(fumbled.summary.truncated, false);
+});
+
 test("a scan schedule is set, kept, and refused when it is nonsense", async (t) => {
   const { base, state } = await startServer(t);
 

@@ -14,9 +14,15 @@ rm -f "${ARCHIVE}" "${ARCHIVE}.sha256"
   zip -qr "${ARCHIVE}" \
     LICENSE \
     README.md \
+    CODE_OF_CONDUCT.md \
+    CONTRIBUTING.md \
+    PRIVACY.md \
     RELEASE_NOTES.md \
     ROADMAP.md \
+    SECURITY.md \
+    SUPPORTED_MODELS.md \
     THIRD_PARTY_NOTICES.md \
+    docs \
     package.json \
     scripts \
     server/package.json \

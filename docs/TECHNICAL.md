@@ -984,11 +984,18 @@ it:
 
 | Status | Means |
 |---|---|
-| `ok` | Readable, and nothing in it failed to open |
-| `slow` | The last scan read it at under 20 files a second |
+| `ok` | Readable, scanned, and nothing in it failed to open |
+| `unscanned` | Nothing has looked at it yet, so there is no verdict to give |
+| `slow` | The last scan read it far below the rate that kind of scan manages |
 | `damaged` | Readable, but some files in it will not open |
 | `unreadable` | The folder is there and PanelShelf cannot read it |
 | `disconnected` | The folder is not mounted, or no longer exists |
+
+What counts as slow depends on what the scan was doing, because the two are not
+comparable: measured on a DS1825+ over USB across 24,839 comics, a full scan
+that opens every archive managed 9.1 files a second and a quick scan that opens
+none managed 2,679. The floors are 2 a second for a full scan and 200 for
+anything else, and neither applies under 50 files, where a rate is noise.
 
 Alongside: `comics` it holds, `unreachable` (its comics that cannot be opened
 right now because the source is away), `unreadableFiles` (files that will not
@@ -1005,6 +1012,38 @@ A quick scan does not reopen an archive it has already seen, so the verdict is
 kept on the comic's own record rather than in the scan report, which every scan
 empties and rewrites. `unreadableFiles` is counted from those records and
 survives a restart.
+
+### Which files, and where they cluster
+
+`GET /api/sources/issues`, and the **View issues** dialog.
+
+Source health says a source is damaged and how many files are involved. This
+says which ones — grouped by the folder they sit in, largest group first,
+because that grouping is the whole diagnosis. Twelve broken files scattered
+across twelve folders is twelve bad files; twelve consecutive issues in one
+folder is one bad download. A flat list renders those two identically.
+
+Each folder reports `files` (how many will not open), `comics` (how many it
+holds in total), and `wholeFolder` — the difference between a volume to fetch
+again and a file to replace. `items` names the files in numeric order, so a
+consecutive run reads as one thing.
+
+| Parameter | Default | Means |
+|---|---|---|
+| `limit` | 500 | How many files to name in total |
+| `folders` | 100 | How many folders to describe |
+
+**Counts are always exact; only the lists are bounded.** A library with four
+thousand broken files still reports four thousand, sets `truncated`, and names
+as many as it was asked for. Both parameters are ignored when absent or
+unusable, so a fumbled one gets the defaults rather than an empty answer.
+
+Errors from the last scan that never became a comic — a folder that would not
+open, a file that failed before it could be indexed — have no record to group
+by and are listed separately under `unindexed`.
+
+Like source health, this is counted from the comic records rather than from the
+scan report, so it survives a restart and a quick scan that reopened nothing.
 
 ## Support bundle
 

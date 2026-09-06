@@ -1454,6 +1454,98 @@ h2 {
   background: rgba(242, 199, 110, .16);
 }
 
+/* A folder of broken files, which is the unit the issue list is read in: one
+   ruined download rather than twelve unrelated failures. */
+.issue-folder {
+  padding: 14px;
+  border: 1px solid rgba(242, 199, 110, .24);
+  border-radius: 12px;
+  background: rgba(242, 199, 110, .06);
+}
+
+.issue-folder > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.issue-folder > summary::-webkit-details-marker {
+  display: none;
+}
+
+.issue-folder-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.issue-folder-heading strong {
+  overflow-wrap: anywhere;
+  color: #f7ecff;
+  font-size: 13px;
+}
+
+.issue-folder-count {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  color: #f7dda3;
+  background: rgba(242, 199, 110, .14);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* A folder where nothing opens is a different problem from a folder with a bad
+   file in it, so it does not get to look the same. */
+.issue-folder-count.whole {
+  color: #171108;
+  background: var(--warning);
+}
+
+.issue-folder > summary code {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.issue-folder-verdict {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.issue-file-list {
+  display: grid;
+  margin: 10px 0 0;
+  padding: 0;
+  gap: 6px;
+  list-style: none;
+}
+
+.issue-file-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.issue-file-list code {
+  overflow-wrap: anywhere;
+  color: #f2e9f8;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.issue-file-list span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .permission-intro {
   margin-bottom: 18px;
   color: var(--muted);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Checks a running PanelShelf server against the contract in README.md.
+// Checks a running PanelShelf server against the contract in docs/TECHNICAL.md.
 //
 // Read-only unless --write is passed: this is meant to be pointed at a real NAS
 // with a real library, and a suite that quietly rewrites someone's reading

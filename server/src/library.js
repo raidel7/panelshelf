@@ -41,6 +41,7 @@ const {
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const { WorkQueue } = require("./work-queue");
 const { sourceHealth } = require("./source-health");
+const { scanIssues } = require("./scan-issues");
 const { ScanSchedule } = require("./schedule");
 const {
   INDEX_SCHEMA_VERSION,
@@ -2129,6 +2130,11 @@ class ComicLibrary {
   async sourceHealth() {
     const { sources } = await this.getConfig();
     return sourceHealth({ sources, comics: this.comics, scanState: this.scanState });
+  }
+
+  // Health says a source is damaged. This says which files, and where they sit.
+  scanIssues(options = {}) {
+    return scanIssues({ comics: this.comics, scanState: this.scanState, ...options });
   }
 
   coverCacheStatus() {
