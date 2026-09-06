@@ -17,6 +17,7 @@ const {
 } = require("./forwarded");
 const { AttemptLimiter, clientKey } = require("./rate-limit");
 const { createSupportBundle } = require("./support-bundle");
+const { LogRotator, defaultLogPath } = require("./log-rotation");
 const { DEFAULT_READER_ID } = require("./reader-profiles");
 const { jsonError } = require("./util");
 
@@ -32,6 +33,7 @@ const HOST = process.env.PANELSHELF_HOST || "0.0.0.0";
 const PORT = Number(process.env.PANELSHELF_PORT || 8251);
 const DATA_DIRECTORY =
   process.env.PANELSHELF_DATA || path.resolve(process.cwd(), "data");
+const LOG_PATH = defaultLogPath(DATA_DIRECTORY);
 const PUBLIC_DIRECTORY = path.resolve(__dirname, "..", "public");
 const MAX_JSON_BODY = 256 * 1024;
 const MAX_BACKUP_BODY = 20 * 1024 * 1024;
@@ -602,7 +604,9 @@ async function startServer() {
         const bundle = await createSupportBundle({
           library,
           version: VERSION,
-          apiVersion: API_VERSION
+          apiVersion: API_VERSION,
+          logPath: LOG_PATH,
+          logRotation: logRotator.state()
         });
         // Offered as a file rather than a page. Whoever asked for this is
         // about to attach it to something, and a browser that renders it
@@ -1402,9 +1406,17 @@ async function startServer() {
     }
   });
 
+  const logRotator = new LogRotator(LOG_PATH);
+
   server.requestTimeout = 120_000;
   server.headersTimeout = 30_000;
-  server.listen(PORT, HOST, () => {
+  server.listen(PORT, HOST, async () => {
+    // Before this run says anything. The run that filled the log is usually the
+    // run that just ended, and rotating after the first line would put the one
+    // thing anybody looks for — the version that just started — into the file
+    // that was set aside rather than the one they are tailing.
+    await logRotator.rotate();
+    logRotator.start();
     console.log(
       JSON.stringify({
         time: new Date().toISOString(),
@@ -1440,6 +1452,7 @@ async function startServer() {
   });
 
   const shutdown = (signal) => {
+    logRotator.stop();
     console.log(JSON.stringify({ time: new Date().toISOString(), signal }));
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();

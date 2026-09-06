@@ -293,7 +293,12 @@ async function createSupportBundle(options = {}) {
       coverCache: library.coverCacheStatus()
     },
 
-    log: await logTail(logPath)
+    log: {
+      ...(await logTail(logPath)),
+      // What keeps this file from filling the volume, and whether it has had
+      // to. A tail that starts mid-sentence is explained by a rotation.
+      rotation: options.logRotation || null
+    }
   };
 }
 

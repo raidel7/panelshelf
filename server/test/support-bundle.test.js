@@ -229,3 +229,24 @@ test("the bundle says how the cover cache is bounded and how far behind it got",
   assert.equal(typeof queue.concurrency, "number");
   assert.equal(typeof queue.peakQueued, "number");
 });
+
+test("the bundle says what bounds the log it is carrying", async (t) => {
+  // A tail that begins mid-sentence is explained by a rotation, and there is no
+  // way to tell from the tail itself.
+  const { library: created } = await library(t);
+  const bundle = await bundleFor(created, {
+    logRotation: { path: "/var/x.log", maxBytes: 8388608, rotations: 3, lastRotatedAt: "2026-09-05T00:00:00.000Z" }
+  });
+
+  assert.equal(bundle.log.rotation.rotations, 3);
+  assert.equal(bundle.log.rotation.maxBytes, 8388608);
+  // And it is still the log section it always was.
+  assert.equal(typeof bundle.log.path, "string");
+});
+
+test("a bundle from a server with no rotation configured still reports the log", async (t) => {
+  const { library: created } = await library(t);
+  const bundle = await bundleFor(created);
+  assert.equal(bundle.log.rotation, null);
+  assert.equal(typeof bundle.log.present, "boolean");
+});

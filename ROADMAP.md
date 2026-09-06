@@ -923,8 +923,17 @@ was making features exist. This is making them keep working.
   view. Generation runs through a queue (`PANELSHELF_COVER_CONCURRENCY`, 2 by
   default) that also answers duplicate requests with one decode, so a warm-up
   and a reader on the same shelf no longer open the same archive twice.
-- One-click sanitized diagnostics, delivered early as the support bundle in
-  section 8. Log rotation, the other half of that line, is still to do.
+- **Log rotation and one-click sanitized diagnostics**, the whole line. The
+  bundle arrived early, in section 8. The log now has a ceiling
+  (`PANELSHELF_LOG_MAX_MB`, 8 by default): past it the file is copied to
+  `panelshelf.log.1` and emptied in place, so the pair can never occupy more
+  than twice the cap. Emptied rather than renamed, because the package starts
+  the server as `node server.js >> panelshelf.log 2>&1` — the shell owns the
+  descriptor, and that is worth keeping, since it is what puts a crash and a V8
+  fatal error in the same file as the ordinary lines. A rename would leave the
+  shell writing to the renamed file and the live log empty for good. The
+  design depends on that redirect staying append-only, which fails silently, so
+  a test reads the start script and asserts it.
 - **Two ceilings on what the index costs to write.** The whole document was
   built as one string and copied into a buffer to be written: at 100,000 comics
   that is 180 MB of string and 180 MB of buffer alive at once, on top of the
@@ -985,8 +994,10 @@ the records themselves — a rebuild holds the previous index and the new one at
 the same time, by design, because that is what lets a comic that moved keep its
 identity.
 
-The next piece worth taking is a ceiling on the log, which is small,
-self-contained, and the only unbounded file left on the disk.
+Of what is left, the source health dashboard is the piece with the clearest
+shape: a disconnected source already keeps its shelf, and the release gate below
+asks for it to be reported as disconnected everywhere rather than as an empty
+library, which is not true on every surface today.
 
 ### What a large library actually costs
 
@@ -1026,7 +1037,8 @@ fields, so a real library's records are larger and differently shaped.
   allows, however many cards a shelf draws at once.
 - A scan of 25,000 comics completes without the server becoming unresponsive to
   reading requests.
-- The log cannot grow without bound.
+- The log cannot grow without bound, and rotating it does not cost the lines a
+  crash was about to write.
 - An index migration that fails leaves the previous index intact and readable.
 - A disconnected source is reported as disconnected rather than as an empty
   library, on every surface that lists it.

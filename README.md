@@ -779,6 +779,7 @@ nobody asked to store.
 |---|---|---|
 | `PANELSHELF_COVER_CACHE_MB` | `4096` | Ceiling on `covers/`. `0` removes it |
 | `PANELSHELF_COVER_CONCURRENCY` | `2` | How many covers may be generated at once |
+| `PANELSHELF_LOG_MAX_MB` | `8` | Ceiling on the log. `0` removes it |
 
 When the ceiling is reached, full-size covers are given up before thumbnails,
 coldest first. That is deliberately not what a plain least-recently-used cache
@@ -1072,6 +1073,23 @@ attaching it to a public issue.
 Once [device pairing](#device-pairing) is on, this route needs a token like
 every other.
 
+### What keeps the log from filling the volume
+
+The log is capped. Past `PANELSHELF_LOG_MAX_MB` (8 by default, `0` to remove
+the cap) it is copied to `panelshelf.log.1` and emptied, so the most the pair
+can ever occupy is twice that. Checked when the server starts — the run that
+filled the log is usually the run that just ended — and once a minute after.
+
+It is emptied in place rather than renamed, and that is not an accident. The
+package starts the server as `node server.js >> panelshelf.log 2>&1`, so the
+shell owns the file and the server only ever writes to its own stdout. That is
+worth keeping: a crash, a V8 fatal error and an ordinary log line all land in
+the same file. Renaming would leave the shell writing to the renamed one, and
+the live log would stay empty for good.
+
+The bundle reports the cap and how often it has been reached, under
+`log.rotation`, so a tail that begins mid-sentence has an explanation.
+
 ## Scan actions
 
 The main button performs a **Quick scan**. Its adjacent menu provides:
@@ -1199,7 +1217,8 @@ ARMv7 models in particular may have kernel/runtime constraints.
 
 - Application: `/var/packages/PanelShelf/target`
 - Configuration and index: `/var/packages/PanelShelf/var`
-- Log: `/var/packages/PanelShelf/var/panelshelf.log`
+- Log: `/var/packages/PanelShelf/var/panelshelf.log` (and `.log.1`, the
+  previous one)
 - Optional settings: `/var/packages/PanelShelf/var/panelshelf.env`
 - Port: `8251/tcp`
 
