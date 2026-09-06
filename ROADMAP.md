@@ -1205,9 +1205,47 @@ asked for — `nextRunAt` is the instant the NAS's clock reaches the time typed
 in, which is enough to work out the gap — and says nothing at all when the two
 clocks agree, which is the usual case.
 
-Still not reproduced on hardware: the cover cache ceiling under real pressure,
-log rotation, the generation queue against a cold shelf, power loss, downgrade,
-and uninstall.
+### The cover cache reaching its ceiling
+
+Warmed from cold against the real library, and it is the test that changed what
+the ceiling means. A cover costs about 0.89 MB and its thumbnail about 44 KB,
+so this library wants roughly 22 GB of full covers and 1.1 GB of thumbnails.
+The budget is 4 GB. That is not a safety margin with room to spare, it is the
+operating condition: 4 GB holds every thumbnail this library will ever need,
+plus full covers for about 14% of it.
+
+Which is exactly the case the eviction order was written for, and it did what it
+says. The cache climbed to 4,076 MB against its 4,096 MB budget without ever
+crossing it, and then, in the minute it reached the ceiling:
+
+| | Before | After |
+| --- | --- | --- |
+| Thumbnails | 4,594 | 4,717 |
+| Full covers | 4,603 | 4,049 |
+| Bytes | 4,076 MB | 3,810 MB |
+| Evicted | 0 | 677 |
+
+Thumbnails kept being made while full covers were given up underneath them.
+The shelf stays drawn and a detail view pays for itself again — which is the
+trade the cache was built to make, now made under real pressure rather than
+under an 8 MB ceiling on a laptop.
+
+Two other things it showed. The warm-up runs strictly one comic at a time while
+the generation queue allows two, so it uses half the capacity it could and takes
+about 2.3 hours for a library this size at 2.24 comics a second. That reads like
+an accident and works like a decision: the spare slot is what kept the compact
+listing answering in 0.3 to 1.0 seconds through 35 minutes of continuous
+decoding. Doubling it would halve the wait and spend the headroom that made the
+shelf usable while it waited. Left alone deliberately, and now written down as a
+choice rather than a default.
+
+And the queue never went more than one deep — peak depth 1, nothing coalesced —
+because a serial producer cannot make it. The coalescing path that stops a
+warm-up and a reader decoding the same archive twice is therefore still
+unexercised on hardware; it has unit tests and no field evidence.
+
+Still not reproduced on hardware: log rotation, power loss, downgrade, and
+uninstall.
 
 ### Release gates
 

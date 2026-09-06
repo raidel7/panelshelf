@@ -417,6 +417,13 @@ class CoverWarmup {
     return this.runner || Promise.resolve();
   }
 
+  // One at a time, while the generation queue allows two, and that is the
+  // point rather than an oversight. Warming 24,839 covers on a DS1825+ took 35
+  // minutes to reach the cache's ceiling at 2.24 a second, and the compact
+  // listing answered in 0.3 to 1.0 seconds throughout — because the second slot
+  // stayed free for whoever was actually reading. Taking both would roughly
+  // halve a job nobody is waiting on by spending the headroom that keeps the
+  // shelf usable while it runs.
   async run(queue) {
     for (const comic of queue) {
       // Checked between comics rather than within one: a half-written cover is
