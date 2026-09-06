@@ -126,6 +126,12 @@ cp -a "${PROJECT_DIR}/synology/scripts/." "${OUTER_DIR}/scripts/"
 cp -a "${PROJECT_DIR}/synology/conf/." "${OUTER_DIR}/conf/"
 chmod 0755 "${OUTER_DIR}/scripts/"*
 
+# DSM shows this on the install screen and asks the operator to accept it. The
+# third-party licences already ship inside the payload, which is the right place
+# for attribution and the wrong place for terms: nobody reads a file they have
+# to install the package to find. This is the one somebody is agreeing to.
+cp "${PROJECT_DIR}/LICENSE" "${OUTER_DIR}/LICENSE"
+
 # GNU tar exits non-zero if a file changes while it is being read, which a live
 # data directory can do, and both flags exist to tolerate that. bsdtar — which
 # macOS ships — accepts neither and does not need them, so the build has to ask
@@ -143,6 +149,7 @@ tar ${TAR_TOLERANT_FLAGS} \
 SPK_NAME="PanelShelf-${ARCH}-${VERSION}.spk"
 tar -cf "${DIST_DIR}/${SPK_NAME}" -C "${OUTER_DIR}" \
   INFO \
+  LICENSE \
   PACKAGE_ICON.PNG \
   PACKAGE_ICON_256.PNG \
   package.tgz \

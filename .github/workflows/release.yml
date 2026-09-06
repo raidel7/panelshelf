@@ -11,6 +11,14 @@ on:
 
 permissions:
   contents: write
+  # Build provenance. DSM has no way for an owner to trust a third-party GPG
+  # key — "allow any publisher" is the only lever Package Center offers — so a
+  # Synology-style signature would prove nothing to the person installing this.
+  # An attestation does: it ties each SPK to this repository, this workflow and
+  # this commit, and `gh attestation verify` checks it against a transparency
+  # log rather than against our word.
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -53,6 +61,11 @@ jobs:
           done
           bash scripts/build-source.sh
           ls -la dist
+
+      - name: Attest the packages
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/*.spk'
 
       - name: Publish release
         env:

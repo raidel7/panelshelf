@@ -65,6 +65,30 @@ So ARMv7 is not merely untested, it is on a clock. Before that date it needs
 either a maintainable runtime or an honest retirement. It will not be quietly
 carried on an unsupported Node.
 
+## Trusting the download
+
+PanelShelf is distributed directly, from the releases page of this repository.
+It is not in Synology's marketplace, so Package Center will call it an unknown
+publisher and refuse it until **Package Center → Settings → Trust Level** is set
+to allow any publisher. That is the only lever DSM gives you; there is no way to
+tell it to trust a particular third party.
+
+Which means the package cannot prove anything to DSM, so it proves it to you
+instead:
+
+```sh
+# The checksum published beside it
+sha256sum -c PanelShelf-x86_64-0.5.1-1043.spk.sha256
+
+# Where it came from: this repository, this workflow, this commit
+gh attestation verify PanelShelf-x86_64-0.5.1-1043.spk --repo raidel7/panelshelf
+```
+
+The second one is the useful one. It checks a signed build provenance record in
+a public transparency log, so it says the file was built by this project's
+release workflow from a named commit — not merely that it matches a hash
+published on the same page as the download.
+
 ## If you run one of the untested ones
 
 That is genuinely useful, and the thing that turns a row of this table from

@@ -127,7 +127,11 @@ alongside the app.
   and none of them has been exercised.
 - The numbers behind the cover cache — 4 GB, two at a time, covers before
   thumbnails — are still reasoned rather than measured. Section 10.
-- No marketplace-ready support workflow.
+- The support workflow exists on paper and has never been used by anybody but
+  its author. Private reporting, a privacy policy, a supported-model matrix and
+  a support bundle are all written; what is missing is the gate that matters —
+  somebody who did not build this installing it, adding a source, and reading a
+  comic without being helped.
 
 ## Library organization model
 
@@ -616,7 +620,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 | 7 | 0.4.17 — Storylines and advanced library editing | **Done** — 0.4.17 | — |
 | 8 | 0.5 — Reader profiles and secure deployment | **Done** — 0.5.0, untested on hardware | — |
 | 10 | 0.7 — Reliability, performance, administration | **In progress** — all that is left needs a NAS | 3–5 weeks |
-| 11 | 0.9 — Synology marketplace candidate | Planned | 3–6 weeks plus review |
+| 11 | 0.9 — Distribution candidate | In progress — the writing is done, the hardware is not | 2–4 weeks |
 | 12 | 1.0 — Public release | Planned | After the gates above |
 
 ---
@@ -1270,7 +1274,7 @@ uninstall.
   metadata blocks it does not draw, and a client that asks for nothing in
   particular is still served the whole record.
 
-## 11. 0.9 — Synology marketplace candidate
+## 11. 0.9 — Distribution candidate
 
 ### Scope
 
@@ -1278,18 +1282,38 @@ uninstall.
 - Validate x86-64 on the DS1825+ and representative Intel/AMD models.
 - Build and physically test ARMv8 before advertising support for those models.
 - Keep ARMv7 experimental unless a maintainable runtime passes hardware tests.
-- Package signing, migration, backup/restore, rollback, and recovery testing.
-- Supported-model matrix, documentation, privacy policy, EULA, support contact,
-  and a security-reporting process. **Done except the EULA**: `SECURITY.md`
-  carries private reporting and a support expectation, `PRIVACY.md` states what
-  leaves the machine and when, and `SUPPORTED_MODELS.md` separates the
-  architectures that are built from the one that has been run — which also
-  corrected the README, where publishing an ARM package had been written up as
-  supporting ARM models.
-- Decide between the Synology marketplace, direct signed SPK distribution, or
-  both.
-- Finalize the server's license before public
-  distribution.
+- Migration, backup/restore, rollback, and recovery testing.
+- ~~Supported-model matrix, documentation, privacy policy, support contact, and
+  a security-reporting process.~~ **Done.** `SECURITY.md` carries private
+  reporting and a support expectation, `PRIVACY.md` states what leaves the
+  machine and when, and `SUPPORTED_MODELS.md` separates the architectures that
+  are built from the one that has been run — which also corrected the README,
+  where publishing an ARM package had been written up as supporting ARM models.
+- ~~Decide between the Synology marketplace, direct signed SPK distribution, or
+  both.~~ **Decided: direct, from this repository's releases.** The marketplace
+  stays possible and stops being a dependency. Approval is somebody else's
+  decision on somebody else's timetable, and 1.0 cannot be gated on it; the CI
+  already builds all three architectures with checksums on every tag; and the
+  repository is public and MIT, so a listing would add a gatekeeper without
+  adding a capability. If approval ever comes, the same SPK is what gets
+  submitted, so nothing here is wasted.
+- ~~Package signing.~~ **Replaced with something that works.** DSM offers no way
+  to trust a particular third-party publisher — "allow any publisher" is the
+  whole of the lever — so a Synology-style signature would prove nothing to the
+  person installing this. The release workflow now attests each SPK instead,
+  tying it to this repository, workflow and commit in a public transparency log,
+  which `gh attestation verify` checks. Documented in `SUPPORTED_MODELS.md`
+  beside the checksum.
+- ~~Finalize the server's license before public distribution.~~ **MIT, and it is
+  now shown at install.** The third-party licences already shipped inside the
+  payload, which is right for attribution and wrong for terms — nobody reads a
+  file they have to install the package to find. `LICENSE` is now in the SPK's
+  outer archive, where DSM shows it on the install screen, and the validator
+  fails the build if it goes missing or drifts from the repository's copy.
+- ~~EULA.~~ **Not writing one.** MIT is the licence and the terms. A separate
+  agreement would either restate MIT, which is noise, or contradict it, which is
+  worse. The thing an EULA is actually for — terms visible where somebody agrees
+  to them — is the install screen above.
 
 ### Release gates
 
@@ -1308,7 +1332,8 @@ uninstall.
 ## 12. 1.0 — Public release
 
 - Stable signed SPK distribution and a supported upgrade path.
-- Marketplace listing where practical, direct distribution as a fallback.
+- Direct distribution from the releases page, with attested builds.
+- A marketplace listing if it is ever worth the review, never as a dependency.
 - Public documentation, changelog, privacy policy, and security channel.
 - Tested backup, restore, recovery, and uninstall behaviour.
 - Published compatibility matrix and clear support boundaries.

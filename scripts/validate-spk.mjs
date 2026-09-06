@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const projectDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourcePrivilegePath = resolve(projectDir, "synology/conf/privilege");
+const sourceLicensePath = resolve(projectDir, "LICENSE");
 const sourceUiConfigPath = resolve(projectDir, "synology/ui/config");
 
 function fail(message) {
@@ -75,6 +76,20 @@ if (spkPath) {
     fail("built package does not contain conf/privilege.");
   }
 
+  // DSM shows this on the install screen and asks for agreement to it. Losing
+  // it would not break the package, which is exactly why it needs checking:
+  // the install would simply stop mentioning the licence and nothing would say
+  // so.
+  if (!archiveEntries.includes("LICENSE")) {
+    fail("built package does not contain LICENSE, so DSM will not show it at install.");
+  }
+  const packagedLicense = execFileSync("tar", ["-xOf", spkPath, "LICENSE"], {
+    encoding: "utf8",
+  });
+  if (packagedLicense !== readFileSync(sourceLicensePath, "utf8")) {
+    fail("packaged LICENSE does not match the repository's.");
+  }
+
   const packagedPrivilege = execFileSync(
     "tar",
     ["-xOf", spkPath, "conf/privilege"],
@@ -103,5 +118,5 @@ if (spkPath) {
 }
 
 console.log(
-  "SPK validation passed: restricted privileges and DSM Open shortcut are correct.",
+  "SPK validation passed: restricted privileges, DSM Open shortcut, and the\n  licence DSM shows at install are all correct.",
 );
