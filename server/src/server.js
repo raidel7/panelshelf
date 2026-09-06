@@ -600,6 +600,14 @@ async function startServer() {
         });
       }
 
+      if (request.method === "GET" && pathname === "/api/migrations") {
+        return sendJson(response, 200, await library.migrationStatus());
+      }
+
+      if (request.method === "GET" && pathname === "/api/migrations") {
+        return sendJson(response, 200, await library.migrationStatus());
+      }
+
       if (request.method === "GET" && pathname === "/api/sources/health") {
         return sendJson(response, 200, await library.sourceHealth());
       }
@@ -1466,6 +1474,20 @@ async function startServer() {
 }
 
 startServer().catch((error) => {
+  // A refusal to start has a reason worth reading on its own. A stack trace
+  // above it buries the one line that says what to do, and DSM shows the tail
+  // of this file when a package will not start.
+  if (error.code === "INDEX_FROM_FUTURE") {
+    console.error(
+      JSON.stringify({
+        time: new Date().toISOString(),
+        message: "PanelShelf did not start",
+        code: error.code,
+        reason: error.message
+      })
+    );
+    process.exit(1);
+  }
   console.error(error.stack || error);
   process.exit(1);
 });

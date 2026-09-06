@@ -41,6 +41,13 @@ const {
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const { WorkQueue } = require("./work-queue");
 const { sourceHealth } = require("./source-health");
+const {
+  INDEX_SCHEMA_VERSION,
+  CheckpointStore,
+  FutureIndexError,
+  indexVersion,
+  migrateIndex
+} = require("./migrations");
 const { DeviceTokenStore } = require("./device-tokens");
 const { LibraryChangeLog } = require("./library-changes");
 const { CustomArtworkStore } = require("./custom-artwork");
@@ -162,7 +169,10 @@ async function atomicWriteIndex(filePath, { scannedAt, comics }) {
       if (pending.length >= BLOCK) await flush();
     };
 
-    await push(`{\n"scannedAt": ${JSON.stringify(scannedAt ?? null)},\n"comics": [\n`);
+    await push(
+      `{\n"schemaVersion": ${INDEX_SCHEMA_VERSION},\n` +
+        `"scannedAt": ${JSON.stringify(scannedAt ?? null)},\n"comics": [\n`
+    );
     for (let index = 0; index < comics.length; index += 1) {
       await push(index === 0 ? JSON.stringify(comics[index]) : `,\n${JSON.stringify(comics[index])}`);
     }
@@ -524,6 +534,7 @@ class ComicLibrary {
     // here. A shelf of sixty uncached cards is sixty of those at once
     // otherwise, each holding a full-size page in memory, and the warm-up job
     // walking the library would be a sixty-first.
+    this.checkpoints = new CheckpointStore(dataDirectory);
     this.coverQueue = new WorkQueue({
       concurrency: Number(process.env.PANELSHELF_COVER_CONCURRENCY) || undefined
     });
@@ -568,11 +579,57 @@ class ComicLibrary {
     await this.artwork.initialize();
     const storedConfig = await readJson(this.configPath, defaultConfig());
     const migratedConfig = migrateConfig(storedConfig);
+    // A library that does not exist yet is born at the current version: there
+    // is nothing older to carry forward, and treating an absent file as an old
+    // one made every fresh install checkpoint an empty directory on first run.
+    const storedIndex = await readJson(this.indexPath, {
+      schemaVersion: INDEX_SCHEMA_VERSION,
+      comics: []
+    });
+
+    // An index from a build newer than this one is the case worth refusing.
+    // Reading it and writing it back would quietly drop whatever that build
+    // added — a downgrade that looks like it worked and loses something a scan
+    // cannot rebuild. Refusing is loud, and DSM shows a package that would not
+    // start along with the reason.
+    const foundVersion = indexVersion(storedIndex);
+    if (foundVersion > INDEX_SCHEMA_VERSION) {
+      throw new FutureIndexError(foundVersion, INDEX_SCHEMA_VERSION, this.indexPath);
+    }
+    const migratedIndex = migrateIndex(storedIndex);
+
+    // Both migrations are read first and written after, so one checkpoint
+    // covers both rather than the second one capturing a directory the first
+    // has already changed.
+    this.migration = null;
+    if (migratedConfig.migrated || migratedIndex.migrated) {
+      const reason = migratedIndex.migrated
+        ? `index-v${migratedIndex.from}-to-v${migratedIndex.to}`
+        : "config";
+      const checkpoint = await this.checkpoints.create(reason);
+      await this.checkpoints.prune();
+      this.migration = {
+        at: checkpoint.createdAt,
+        config: migratedConfig.migrated,
+        index: migratedIndex.migrated
+          ? { from: migratedIndex.from, to: migratedIndex.to }
+          : null,
+        checkpoint: { id: checkpoint.id, path: checkpoint.path, files: checkpoint.files }
+      };
+      console.log(
+        JSON.stringify({
+          time: checkpoint.createdAt,
+          message: "Migrating stored data",
+          ...this.migration
+        })
+      );
+    }
+
     this.config = migratedConfig.config;
     if (migratedConfig.migrated) {
       await atomicWriteJson(this.configPath, this.config);
     }
-    const saved = await readJson(this.indexPath, { comics: [] });
+    const saved = migratedIndex.data;
     const savedComics = Array.isArray(saved.comics) ? saved.comics : [];
     // An index written before removed sources were pruned still carries their
     // comics, so upgrading is enough to be rid of them — the user does not have
@@ -582,7 +639,8 @@ class ComicLibrary {
     const retainedComics = savedComics.filter((comic) =>
       comicIsConfigured(comic, this.config.sources)
     );
-    const droppedOrphans = retainedComics.length !== savedComics.length;
+    const droppedOrphans =
+      retainedComics.length !== savedComics.length || migratedIndex.migrated;
     const beforePrune = this.comics;
     this.setComics(retainedComics);
     await this.changes.record(beforePrune, this.comics);
@@ -1969,6 +2027,17 @@ class ComicLibrary {
   // the full list, then adopt the sequence reported alongside.
   libraryChangesSince(cursor) {
     return this.changes.since(cursor);
+  }
+
+  // What was migrated on the way up, and where the copy of what was there
+  // before it was put. Null when nothing needed migrating, which is every
+  // start but the first after an upgrade.
+  async migrationStatus() {
+    return {
+      indexVersion: INDEX_SCHEMA_VERSION,
+      lastMigration: this.migration,
+      checkpoints: await this.checkpoints.list()
+    };
   }
 
   // Whether each source is well, gathered from what the server already knows.

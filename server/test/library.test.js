@@ -12,6 +12,7 @@ const {
   recentlyAdded
 } = require("../src/library");
 const { DEFAULT_READER_ID: READER } = require("../src/reader-profiles");
+const { INDEX_SCHEMA_VERSION } = require("../src/migrations");
 const { ONE_PIXEL_PNG, zipBuffer } = require("./helpers");
 
 test("filename metadata infers a parenthetical publication year", () => {
@@ -1668,4 +1669,114 @@ test("a broken archive keeps its verdict across a restart", async (t) => {
 
   const health = await reopened.sourceHealth();
   assert.equal(health.sources[0].unreadableFiles, 1, "and the panel still says so");
+});
+
+// --- Migrations and their checkpoints ---------------------------------------
+
+async function libraryWithIndex(t, indexContents) {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-upgrade-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "Comics");
+  await fsp.mkdir(source, { recursive: true });
+  await fsp.writeFile(path.join(source, "One.cbz"), zipBuffer([{ name: "p.png", data: ONE_PIXEL_PNG }]));
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const dataDirectory = path.join(directory, "data");
+  const built = new ComicLibrary(dataDirectory);
+  await built.initialize();
+  await built.saveConfig([source]);
+  await built.scan();
+  await built.saveProgress(READER, built.listComics()[0].id, { pageIndex: 7 });
+
+  if (indexContents) {
+    const current = JSON.parse(await fsp.readFile(path.join(dataDirectory, "library.json"), "utf8"));
+    await fsp.writeFile(
+      path.join(dataDirectory, "library.json"),
+      JSON.stringify(indexContents(current))
+    );
+  }
+  return { dataDirectory, source };
+}
+
+test("an upgrade copies what it is about to change before changing it", async (t) => {
+  // The index has been reshaped twice already and both times the upgrade was a
+  // one-way door. The index itself is rebuildable by a scan; the files sitting
+  // beside it are not.
+  const { dataDirectory } = await libraryWithIndex(t, (current) => {
+    const { schemaVersion, ...withoutVersion } = current;
+    return withoutVersion;
+  });
+
+  const upgraded = new ComicLibrary(dataDirectory);
+  await upgraded.initialize();
+
+  const status = await upgraded.migrationStatus();
+  assert.ok(status.lastMigration, "it noticed");
+  assert.deepEqual(status.lastMigration.index, { from: 1, to: INDEX_SCHEMA_VERSION });
+  assert.equal(status.checkpoints.length, 1);
+
+  const checkpoint = status.checkpoints[0];
+  assert.ok(checkpoint.files.includes("progress.json"), checkpoint.files.join(", "));
+  const kept = JSON.parse(
+    await fsp.readFile(path.join(checkpoint.path, "progress.json"), "utf8")
+  );
+  assert.equal(
+    kept.readers[READER][upgraded.listComics()[0].id].pageIndex,
+    7,
+    "as it was"
+  );
+
+  // And the migration actually happened rather than merely being announced.
+  const written = JSON.parse(
+    await fsp.readFile(path.join(dataDirectory, "library.json"), "utf8")
+  );
+  assert.equal(written.schemaVersion, INDEX_SCHEMA_VERSION);
+  assert.equal(written.comics.length, 1, "with the library intact");
+  assert.equal(upgraded.getProgress(READER, upgraded.listComics()[0].id).pageIndex, 7);
+});
+
+test("a start with nothing to migrate leaves no checkpoint behind", async (t) => {
+  // Otherwise every restart makes a copy of the whole durable state.
+  const { dataDirectory } = await libraryWithIndex(t, null);
+
+  const reopened = new ComicLibrary(dataDirectory);
+  await reopened.initialize();
+
+  const status = await reopened.migrationStatus();
+  assert.equal(status.lastMigration, null);
+  assert.deepEqual(status.checkpoints, []);
+});
+
+test("an index from a newer build is refused rather than quietly rewritten", async (t) => {
+  // A downgrade that looks like it worked and loses what the newer version
+  // added is the one outcome worth refusing outright. Starting empty would look
+  // like the library vanished; rewriting is the data loss itself.
+  const { dataDirectory } = await libraryWithIndex(t, (current) => ({
+    ...current,
+    schemaVersion: INDEX_SCHEMA_VERSION + 5
+  }));
+
+  const older = new ComicLibrary(dataDirectory);
+  await assert.rejects(
+    () => older.initialize(),
+    (error) => {
+      assert.equal(error.code, "INDEX_FROM_FUTURE");
+      assert.match(error.message, /newer version/i);
+      assert.match(error.message, /library\.json/, "and says which file");
+      return true;
+    }
+  );
+
+  // Refused means untouched.
+  const after = JSON.parse(
+    await fsp.readFile(path.join(dataDirectory, "library.json"), "utf8")
+  );
+  assert.equal(after.schemaVersion, INDEX_SCHEMA_VERSION + 5, "still theirs");
+  assert.equal(after.comics.length, 1);
 });

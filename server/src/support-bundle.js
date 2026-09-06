@@ -290,6 +290,11 @@ async function createSupportBundle(options = {}) {
 
     sourceHealth: await library.sourceHealth(),
 
+    // What this install has been through. An upgrade that went wrong is the
+    // first thing to rule out, and the checkpoint is where what came before it
+    // was put.
+    migrations: await library.migrationStatus(),
+
     storage: {
       files,
       coverCache: library.coverCacheStatus()

@@ -1050,6 +1050,35 @@ sensitive. Choose **Restore backup** to validate and preview counts before
 replacing current settings. Unavailable USB sources remain configured, and a
 quick scan begins after restoration.
 
+## Upgrades and checkpoints
+
+`GET /api/migrations`.
+
+`library.json` carries a `schemaVersion`. Before any migration writes anything,
+the files a scan cannot rebuild are copied to
+`checkpoints/<when>-<why>/` — config, index, reading positions, skipped
+branches, reader profiles, reading orders, manual metadata, chosen artwork,
+online matches, paired devices and the change log. Covers are deliberately not
+copied: they are the largest thing in the directory and the cheapest to make
+again.
+
+The last three checkpoints are kept. Both migrations that can run at startup —
+the config's and the index's — are read before either is written, so one
+checkpoint covers both rather than the second capturing a directory the first
+has already changed. A start with nothing to migrate leaves no checkpoint,
+which is every start but the first after an upgrade.
+
+**An index from a newer build stops the server**, rather than being read and
+rewritten at the older shape. That would be a downgrade that appears to work
+and quietly drops whatever the newer version added. The log says so in one line
+naming the file and both versions, DSM shows the package failed to start, and
+the index is left exactly as it was. Reinstall the newer package, or move
+`library.json` aside to start fresh and rescan.
+
+Nothing here restores automatically. A checkpoint is a copy of what was there,
+put somewhere findable and reported — undoing a migration by itself would mean
+knowing what the migration meant.
+
 ## Source health
 
 `GET /api/sources/health`, and **Library settings → Source health**.

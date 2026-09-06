@@ -934,6 +934,17 @@ was making features exist. This is making them keep working.
   shell writing to the renamed file and the live log empty for good. The
   design depends on that redirect staying append-only, which fails silently, so
   a test reads the start script and asserts it.
+- **Index migrations with rollback checkpoints.** `library.json` now carries a
+  `schemaVersion`, and before any migration writes, everything a scan cannot
+  rebuild is copied to `checkpoints/<when>-<why>/` — the index has been
+  reshaped twice already and both times the upgrade was a one-way door. Both
+  startup migrations are read before either is written, so one checkpoint covers
+  both. An index from a newer build stops the server instead of being rewritten
+  at the older shape, because a downgrade that appears to work and silently
+  drops what the newer version added is the worst of the available outcomes.
+  Nothing restores automatically: a checkpoint is a copy of what was there, kept
+  where somebody can find it, not a machine for undoing a migration whose
+  meaning it does not know.
 - **A source health dashboard**, `GET /api/sources/health` and a panel in
   Library settings. Each source reports the worst thing true of it —
   `disconnected`, `unreadable`, `damaged`, `slow`, `ok` — with what it holds,
@@ -1010,11 +1021,11 @@ the records themselves — a rebuild holds the previous index and the new one at
 the same time, by design, because that is what lets a comic that moved keep its
 identity.
 
-Of what is left, index migrations with rollback checkpoints is the piece that
-matters most and has had no work: the index format has changed twice already and
-both times a failed upgrade would have left nothing to go back to. Scheduled
-scanning and the dependency review are both small. Large-library profiling on
-hardware, and the upgrade and power-loss testing, need a NAS.
+Of what is left, scheduled scanning and the dependency review are both small and
+can be done from here. Large-library profiling on hardware, and the upgrade,
+downgrade and power-loss testing, need a NAS — and the checkpoint work above is
+most of what those tests exist to exercise, so it is the obvious thing to try
+first when there is one.
 
 ### What a large library actually costs
 
@@ -1056,7 +1067,9 @@ fields, so a real library's records are larger and differently shaped.
   reading requests.
 - The log cannot grow without bound, and rotating it does not cost the lines a
   crash was about to write.
-- An index migration that fails leaves the previous index intact and readable.
+- An index migration that fails leaves the previous index intact and readable,
+  and a copy of everything a scan cannot rebuild sits beside it.
+- An index written by a newer build is never rewritten by an older one.
 - A disconnected source is reported as disconnected rather than as an empty
   library, on every surface that lists it, and keeps its shelf while it is away.
 - A file that will not open is still reported as unreadable on the next scan,
