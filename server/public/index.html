@@ -399,6 +399,37 @@
               </button>
             </div>
           </section>
+          <section class="scan-schedule-callout">
+            <div>
+              <span class="result-label">Unattended</span>
+              <strong>Scheduled scan</strong>
+              <p id="scanScheduleSummary">
+                A scan works the disk for minutes. Running it at an hour nobody
+                is reading is the point of setting one.
+              </p>
+              <div class="scan-schedule-controls">
+                <label class="scan-schedule-toggle">
+                  <input id="scanScheduleEnabled" type="checkbox" />
+                  <span>Scan on a schedule</span>
+                </label>
+                <label>
+                  <span class="sr-only">Time of day</span>
+                  <input id="scanScheduleTime" type="time" value="03:00" />
+                </label>
+                <label>
+                  <span class="sr-only">Scan action</span>
+                  <select id="scanScheduleAction">
+                    <option value="quick">Quick scan</option>
+                    <option value="full">Full rebuild</option>
+                  </select>
+                </label>
+                <label class="scan-schedule-toggle">
+                  <input id="scanScheduleWarmCovers" type="checkbox" />
+                  <span>Cache covers afterwards</span>
+                </label>
+              </div>
+            </div>
+          </section>
           <section class="source-health-callout">
             <div>
               <span class="result-label">Sources</span>

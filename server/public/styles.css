@@ -3701,6 +3701,26 @@ h2 {
 /* Sits above the page-turn zones (z-index 2) on purpose. The cancel button has
    to be reachable, not merely visible: the zones are fixed strips down both
    edges of the stage and would otherwise swallow a tap meant for it. */
+.scan-schedule-controls {
+  display: flex;
+  margin-top: 12px;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.scan-schedule-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.scan-schedule-controls input[type="time"],
+.scan-schedule-controls select {
+  min-height: 36px;
+}
+
 /* One row per source, worst news first in the eye: the badge is the only
    coloured thing in the panel, so a disconnected drive is findable without
    reading anything. */

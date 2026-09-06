@@ -199,6 +199,11 @@ const elements = {
   addPathButton: document.querySelector("#addPathButton"),
   exportBackupButton: document.querySelector("#exportBackupButton"),
   supportBundleButton: document.querySelector("#supportBundleButton"),
+  scanScheduleSummary: document.querySelector("#scanScheduleSummary"),
+  scanScheduleEnabled: document.querySelector("#scanScheduleEnabled"),
+  scanScheduleTime: document.querySelector("#scanScheduleTime"),
+  scanScheduleAction: document.querySelector("#scanScheduleAction"),
+  scanScheduleWarmCovers: document.querySelector("#scanScheduleWarmCovers"),
   sourceHealthSummary: document.querySelector("#sourceHealthSummary"),
   sourceHealthList: document.querySelector("#sourceHealthList"),
   refreshSourceHealthButton: document.querySelector("#refreshSourceHealthButton"),
@@ -1183,6 +1188,63 @@ const SOURCE_HEALTH_LABELS = {
   disconnected: { label: "Disconnected", tone: "bad" },
   unreadable: { label: "No permission", tone: "bad" }
 };
+
+function renderScanSchedule(schedule) {
+  elements.scanScheduleEnabled.checked = schedule.enabled === true;
+  elements.scanScheduleTime.value = schedule.time || "03:00";
+  elements.scanScheduleAction.value = schedule.action || "quick";
+  elements.scanScheduleWarmCovers.checked = schedule.warmCovers === true;
+
+  if (!schedule.enabled) {
+    elements.scanScheduleSummary.textContent =
+      "A scan works the disk for minutes. Running it at an hour nobody is reading is the point of setting one.";
+    return;
+  }
+
+  const when = schedule.nextRunAt
+    ? new Date(schedule.nextRunAt).toLocaleString(undefined, {
+        weekday: "short",
+        hour: "numeric",
+        minute: "2-digit"
+      })
+    : "—";
+  // What it did last is the part worth stating: a job nobody watched has no
+  // other account of itself.
+  const last = schedule.lastResult
+    ? schedule.lastResult.ok
+      ? ` Last run found ${schedule.lastResult.foundComics} comics${
+          schedule.lastResult.errors ? ` and ${schedule.lastResult.errors} problems` : ""
+        }.`
+      : ` Last run failed: ${schedule.lastResult.error}`
+    : "";
+  elements.scanScheduleSummary.textContent = `Next scan ${when}.${last}`;
+}
+
+async function saveScanSchedule() {
+  try {
+    renderScanSchedule(
+      await api("/api/schedule", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: elements.scanScheduleEnabled.checked,
+          time: elements.scanScheduleTime.value || "03:00",
+          action: elements.scanScheduleAction.value,
+          warmCovers: elements.scanScheduleWarmCovers.checked
+        })
+      })
+    );
+  } catch (error) {
+    elements.scanScheduleSummary.textContent = error.message;
+  }
+}
+
+async function loadScanSchedule() {
+  try {
+    renderScanSchedule(await api("/api/schedule"));
+  } catch (error) {
+    elements.scanScheduleSummary.textContent = error.message;
+  }
+}
 
 function renderSourceHealth(health) {
   const sources = health?.sources || [];
@@ -5793,6 +5855,7 @@ function openSettings() {
     // Same reason. A drive that fell out is the first thing worth knowing on
     // opening this panel, and it is the reason most people open it.
     refreshSourceHealth();
+    loadScanSchedule();
   });
 }
 
@@ -7478,6 +7541,14 @@ elements.toastAction.addEventListener("click", () => {
 });
 elements.readerClose.addEventListener("click", () => elements.readerDialog.close());
 elements.refreshSourceHealthButton.addEventListener("click", refreshSourceHealth);
+for (const control of [
+  elements.scanScheduleEnabled,
+  elements.scanScheduleTime,
+  elements.scanScheduleAction,
+  elements.scanScheduleWarmCovers
+]) {
+  control.addEventListener("change", saveScanSchedule);
+}
 elements.readerLoadingCancel.addEventListener("click", () => {
   if (beginReaderLoading.cancel) beginReaderLoading.cancel();
   else elements.readerDialog.close();

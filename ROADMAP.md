@@ -617,7 +617,7 @@ are deliberate — those milestones belong to the iPad client and moved with it.
 | 6 | 0.4.16 — Sync API hardening | **Done** — 0.4.16 | — |
 | 7 | 0.4.17 — Storylines and advanced library editing | **Done** — 0.4.17 | — |
 | 8 | 0.5 — Reader profiles and secure deployment | **Done** — 0.5.0, untested on hardware | — |
-| 10 | 0.7 — Reliability, performance, administration | **In progress** | 3–5 weeks |
+| 10 | 0.7 — Reliability, performance, administration | **In progress** — all that is left needs a NAS | 3–5 weeks |
 | 11 | 0.9 — Synology marketplace candidate | Planned | 3–6 weeks plus review |
 | 12 | 1.0 — Public release | Planned | After the gates above |
 
@@ -934,6 +934,25 @@ was making features exist. This is making them keep working.
   shell writing to the renamed file and the live log empty for good. The
   design depends on that redirect staying append-only, which fails silently, so
   a test reads the start script and asserts it.
+- **Scheduled scanning and cache maintenance.** `GET`/`PUT /api/schedule` and a
+  panel in Library settings: a time of day, a scan action, and optionally
+  caching every cover once the scan has settled. A time rather than an interval,
+  because an interval lands in the middle of an evening eventually. Polled once
+  a minute rather than slept until, which is the only version that survives a
+  machine that hibernates or has its clock corrected — a missed hour is caught
+  up the same day and never across days. Metadata matching is offered and
+  defaults off, because it calls third-party providers and a timer that spends
+  somebody's rate limit overnight should be something they chose.
+- **Dependency and package vulnerability review.** One production dependency,
+  `node-unrar-js` 2.0.2, which is current; `npm audit --omit=dev` reports
+  nothing. The bundled Node runtime moves to 22.23.2. It stays on 22 for a
+  reason worth writing down: **Node 24 ships no `linux-armv7l` build**, so
+  moving to it would quietly leave the ARMv7 package without a runtime. 22 is
+  the last line carrying 32-bit ARM and is supported to April 2027, which is
+  also the date by which the ARMv7 package needs a decision rather than a
+  default. Also found: `server/package.json` is copied into the installed
+  package and had drifted three releases behind, so a test now asserts it
+  matches.
 - **Index migrations with rollback checkpoints.** `library.json` now carries a
   `schemaVersion`, and before any migration writes, everything a scan cannot
   rebuild is copied to `checkpoints/<when>-<why>/` — the index has been
@@ -1021,11 +1040,12 @@ the records themselves — a rebuild holds the previous index and the new one at
 the same time, by design, because that is what lets a comic that moved keep its
 identity.
 
-Of what is left, scheduled scanning and the dependency review are both small and
-can be done from here. Large-library profiling on hardware, and the upgrade,
-downgrade and power-loss testing, need a NAS — and the checkpoint work above is
-most of what those tests exist to exercise, so it is the obvious thing to try
-first when there is one.
+What is left needs hardware. Large-library profiling on a NAS, and the upgrade,
+downgrade, restart and power-loss testing, are the whole of it — and the
+checkpoint work above is most of what those tests exist to exercise, so it is
+the obvious thing to try first when there is a NAS to try it on.
+
+Everything in this section that can be built from a laptop is built.
 
 ### What a large library actually costs
 
@@ -1067,6 +1087,8 @@ fields, so a real library's records are larger and differently shaped.
   reading requests.
 - The log cannot grow without bound, and rotating it does not cost the lines a
   crash was about to write.
+- A scheduled scan runs once at its hour, catches up a missed hour the same day,
+  never runs twice in a day, and never runs while a scan started by hand is.
 - An index migration that fails leaves the previous index intact and readable,
   and a copy of everything a scan cannot rebuild sits beside it.
 - An index written by a newer build is never rewritten by an older one.

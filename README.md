@@ -1050,6 +1050,36 @@ sensitive. Choose **Restore backup** to validate and preview counts before
 replacing current settings. Unavailable USB sources remain configured, and a
 quick scan begins after restoration.
 
+## Scheduled scanning
+
+`GET /api/schedule`, `PUT /api/schedule`, and **Library settings → Scheduled
+scan**. Off until you turn it on.
+
+| Field | Means |
+|---|---|
+| `enabled` | Whether to run at all |
+| `time` | Local time of day, `HH:MM`. A single-digit hour is accepted and written back padded |
+| `action` | `quick` or `full` |
+| `warmCovers` | Cache every cover once the scan has settled what the library holds |
+| `matchMetadata` | Run a bulk metadata pass afterwards. Off by default |
+
+A time of day rather than an interval, because "every six hours" lands in the
+middle of an evening sooner or later and 03:00 never does. The clock is checked
+once a minute rather than slept until: a single long timer is wrong on a machine
+that hibernates, has its clock corrected, or is simply asleep at the appointed
+minute. A missed hour is caught up within the same day and never across days —
+a NAS asleep at three still scans when it wakes at seven, and one that was off
+for a week does not do seven scans on the way back.
+
+A scan somebody started by hand keeps the machine; the appointment is not moved
+for it, so the next check finds it still due. A run that fails is recorded and
+not retried until tomorrow, so a job that fails every night does not fail every
+minute of it. `lastResult` says what the last run did, which is the only account
+a job nobody watched can give.
+
+`matchMetadata` is off by default on purpose: it calls third-party providers,
+and starting that on a timer spends somebody's rate limit while they sleep.
+
 ## Upgrades and checkpoints
 
 `GET /api/migrations`.

@@ -1647,3 +1647,30 @@ test("source health is drawn from the server's verdict, not re-decided", async (
   assert.match(application, /refreshSourceHealth\(\);/);
   assert.match(styles, /\.source-health-row\.bad \.source-health-badge/);
 });
+
+test("the version the package ships matches the version it is", async () => {
+  // scripts/build-spk.sh copies server/package.json into the installed app, so
+  // this string is what anybody inspecting the package sees. It had drifted
+  // three releases behind before anyone looked.
+  const [root, server] = await Promise.all([
+    fsp.readFile(path.resolve(__dirname, "../../package.json"), "utf8"),
+    fsp.readFile(path.resolve(__dirname, "../package.json"), "utf8")
+  ]);
+
+  assert.equal(JSON.parse(server).version, JSON.parse(root).version);
+});
+
+test("the schedule panel writes back on any change, without a save button", async () => {
+  const [application, document] = await Promise.all([
+    fsp.readFile(path.join(publicDirectory, "app.js"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "index.html"), "utf8")
+  ]);
+
+  assert.match(document, /id="scanScheduleEnabled"/);
+  assert.match(document, /id="scanScheduleTime"[^>]*type="time"/);
+  assert.match(document, /value="full"/);
+  // Every control saves, so there is no state where the panel shows one thing
+  // and the server believes another.
+  assert.match(application, /control\.addEventListener\("change", saveScanSchedule\)/);
+  assert.match(application, /loadScanSchedule\(\);/);
+});

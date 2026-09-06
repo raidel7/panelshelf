@@ -9,7 +9,10 @@ OUTER_DIR="${STAGE_DIR}/outer"
 DIST_DIR="${PROJECT_DIR}/dist"
 VERSION="${PANELSHELF_VERSION:-0.5.0-1042}"
 ARCH="${PANELSHELF_ARCH:-x86_64}"
-NODE_PACKAGE_VERSION="${PANELSHELF_NODE_VERSION:-22.23.1}"
+# Node 22 rather than 24, and not by inertia: 24 ships no linux-armv7l build,
+# so moving to it would quietly leave the ARMv7 package without a runtime. 22 is
+# the last line that carries 32-bit ARM, and is supported to April 2027.
+NODE_PACKAGE_VERSION="${PANELSHELF_NODE_VERSION:-22.23.2}"
 NPM_CACHE_DIR="${PANELSHELF_NPM_CACHE:-/tmp/panelshelf-npm-cache}"
 
 case "${ARCH}" in

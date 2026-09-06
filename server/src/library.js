@@ -41,6 +41,7 @@ const {
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const { WorkQueue } = require("./work-queue");
 const { sourceHealth } = require("./source-health");
+const { ScanSchedule } = require("./schedule");
 const {
   INDEX_SCHEMA_VERSION,
   CheckpointStore,
@@ -535,6 +536,12 @@ class ComicLibrary {
     // otherwise, each holding a full-size page in memory, and the warm-up job
     // walking the library would be a sixty-first.
     this.checkpoints = new CheckpointStore(dataDirectory);
+    // What the schedule actually does when its hour comes round. Kept here
+    // rather than in the schedule so the schedule owns only the clock.
+    this.schedule = new ScanSchedule(dataDirectory, {
+      busy: () => this.scanState.running,
+      run: (plan) => this.runScheduledWork(plan)
+    });
     this.coverQueue = new WorkQueue({
       concurrency: Number(process.env.PANELSHELF_COVER_CONCURRENCY) || undefined
     });
@@ -574,6 +581,7 @@ class ComicLibrary {
     await this.progress.initialize();
     await this.skips.initialize();
     await this.coverCache.initialize();
+    await this.schedule.initialize();
     await this.deviceTokens.initialize();
     await this.changes.initialize();
     await this.artwork.initialize();
@@ -2027,6 +2035,35 @@ class ComicLibrary {
   // the full list, then adopt the sequence reported alongside.
   libraryChangesSince(cursor) {
     return this.changes.since(cursor);
+  }
+
+  // The overnight round: a scan, and then the tidying that only makes sense
+  // once the scan has settled what the library holds. Each step is reported
+  // rather than thrown away, because a job nobody watched is a job whose only
+  // account of itself is this.
+  async runScheduledWork(plan) {
+    const scan = await this.scan({ action: plan.action });
+    const done = {
+      action: plan.action,
+      foundComics: scan.foundComics,
+      errors: scan.errors.length,
+      warnings: scan.warnings.length
+    };
+
+    if (plan.warmCovers) {
+      this.coverWarmup.start();
+      await this.coverWarmup.settled();
+      const warmup = this.coverWarmup.state();
+      done.coversGenerated = warmup.generated;
+      done.coversFailed = warmup.failed;
+    }
+
+    if (plan.matchMetadata) {
+      await this.startBulkMetadata({});
+      done.metadataMatching = true;
+    }
+
+    return done;
   }
 
   // What was migrated on the way up, and where the copy of what was there

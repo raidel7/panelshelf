@@ -350,6 +350,7 @@ function sendError(response, error) {
     INVALID_CONFIG: 400,
     INVALID_PROFILE: 400,
     INVALID_SCAN_ACTION: 400,
+    INVALID_SCHEDULE: 400,
     INVALID_PATH: 400,
     NOT_A_DIRECTORY: 400,
     SOURCE_OVERLAP: 400,
@@ -600,8 +601,13 @@ async function startServer() {
         });
       }
 
-      if (request.method === "GET" && pathname === "/api/migrations") {
-        return sendJson(response, 200, await library.migrationStatus());
+      if (request.method === "GET" && pathname === "/api/schedule") {
+        return sendJson(response, 200, library.schedule.state());
+      }
+
+      if (request.method === "PUT" && pathname === "/api/schedule") {
+        const body = await readJsonBody(request);
+        return sendJson(response, 200, await library.schedule.set(body));
       }
 
       if (request.method === "GET" && pathname === "/api/migrations") {
@@ -1429,6 +1435,7 @@ async function startServer() {
     // that was set aside rather than the one they are tailing.
     await logRotator.rotate();
     logRotator.start();
+    library.schedule.start();
     console.log(
       JSON.stringify({
         time: new Date().toISOString(),
@@ -1465,6 +1472,7 @@ async function startServer() {
 
   const shutdown = (signal) => {
     logRotator.stop();
+    library.schedule.stop();
     console.log(JSON.stringify({ time: new Date().toISOString(), signal }));
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();

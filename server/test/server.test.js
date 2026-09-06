@@ -2259,3 +2259,34 @@ test("a source that goes away is reported as disconnected, not as empty", async 
   const bundle = await (await fetch(`${base}/api/support-bundle`)).json();
   assert.equal(bundle.sourceHealth.summary.disconnected, 1);
 });
+
+test("a scan schedule is set, kept, and refused when it is nonsense", async (t) => {
+  const { base, state } = await startServer(t);
+
+  const initial = await (await fetch(`${base}/api/schedule`)).json();
+  assert.equal(initial.enabled, false, "off until asked for");
+  assert.equal(initial.nextRunAt, null);
+
+  const saved = await (await fetch(`${base}/api/schedule`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled: true, time: "3:15", action: "full", warmCovers: true })
+  })).json();
+  assert.equal(saved.enabled, true, state.logs);
+  assert.equal(saved.time, "03:15", "written back padded");
+  assert.equal(saved.action, "full");
+  assert.ok(saved.nextRunAt, "and it says when");
+
+  const refused = await fetch(`${base}/api/schedule`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ time: "25:00" })
+  });
+  assert.equal(refused.status, 400);
+  assert.equal((await refused.json()).error.code, "INVALID_SCHEDULE");
+
+  // Refused means unchanged, not half-applied.
+  const after = await (await fetch(`${base}/api/schedule`)).json();
+  assert.equal(after.time, "03:15");
+  assert.equal(after.action, "full");
+});
