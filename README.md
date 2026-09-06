@@ -24,7 +24,10 @@ registered for it, and logs where DSM keeps logs.
   Synology — coverage across the ARM range is partial and the value line has
   largely gone without, which is why a whole third-party project exists just to
   sideload it. PanelShelf publishes `x86_64`, `armv8` and `armv7` packages, so a
-  small ARM box is as much a target as a DS1825+.
+  small ARM box is as much a target as a DS1825+ — though only x86-64 has been
+  run on real hardware so far, which
+  [SUPPORTED_MODELS.md](SUPPORTED_MODELS.md) states plainly rather than
+  rounding up.
 - **43 MB, one runtime dependency.** The package is a Node runtime, the server,
   and `node-unrar-js` for CBR. Nothing to pull, no image layers to
   garbage-collect, no registry to be reachable at install time.
@@ -226,6 +229,9 @@ comics.example.com {
 
 In every case the proxy is the thing that must ask who you are. PanelShelf will
 not do it for you.
+
+What PanelShelf sends anywhere, and when — the short answer is nothing unless
+you ask it to match metadata — is in [PRIVACY.md](PRIVACY.md).
 
 Found a vulnerability? Please report it privately rather than as an issue —
 see [SECURITY.md](SECURITY.md).

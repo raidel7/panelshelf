@@ -1280,7 +1280,12 @@ uninstall.
 - Keep ARMv7 experimental unless a maintainable runtime passes hardware tests.
 - Package signing, migration, backup/restore, rollback, and recovery testing.
 - Supported-model matrix, documentation, privacy policy, EULA, support contact,
-  and a security-reporting process.
+  and a security-reporting process. **Done except the EULA**: `SECURITY.md`
+  carries private reporting and a support expectation, `PRIVACY.md` states what
+  leaves the machine and when, and `SUPPORTED_MODELS.md` separates the
+  architectures that are built from the one that has been run — which also
+  corrected the README, where publishing an ARM package had been written up as
+  supporting ARM models.
 - Decide between the Synology marketplace, direct signed SPK distribution, or
   both.
 - Finalize the server's license before public
@@ -1288,9 +1293,15 @@ uninstall.
 
 ### Release gates
 
-- No package process runs as root.
+- No package process runs as root. **Met, and checkable**: `conf/privilege`
+  declares `run-as: package`, the SPK validator refuses to build a package that
+  does not, and the support bundle reports the uid the server is actually
+  running as so the claim can be tested against an install rather than against
+  this repository.
 - Fresh-install and upgrade tests pass from the previous public beta.
 - No unresolved critical or high-severity production dependency vulnerability.
+  **Met as of 0.5.1**: one production dependency, `node-unrar-js` 2.0.2, and
+  `npm audit` reports nothing.
 - A nontechnical tester can install PanelShelf, authorize a USB share, add a
   source, scan, resolve an issue, and begin reading without developer help.
 

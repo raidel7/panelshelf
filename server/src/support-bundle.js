@@ -207,6 +207,9 @@ async function createSupportBundle(options = {}) {
         "The full path of every source folder, and whether it is reachable",
         "Counts: comics, sources, reader profiles, saved reading positions",
         "The names and dates of paired devices",
+        // Listed because on a hand-run install this is the operator's own
+        // account name rather than the package's.
+        "The account the server is running as",
         "The last part of the server log"
       ],
       excluded: [
