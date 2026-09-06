@@ -1,10 +1,10 @@
 # PanelShelf Roadmap
 
-Updated: 2026-09-04
+Updated: 2026-09-05
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.5.0, build 1042 | Released. The developer's NAS runs 0.4.16. |
+| **Server and web** | 0.5.1, build 1043 | Released. The developer's NAS runs 0.4.16. |
 | **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
@@ -101,10 +101,11 @@ The current build provides:
 | 0.4.17 / 1040 | Storylines, chosen covers, order portability, duplicates, bulk editing |
 | 0.4.18 / 1041 | OPDS page streaming, so third-party readers page instead of downloading |
 | 0.5.0 / 1042 | Reader profiles, pairing-code limits, trusted proxies, support bundle, phone layout |
+| 0.5.1 / 1043 | A cover cache with a ceiling, a bounded log, source health, upgrade checkpoints, scheduled scans, and a lighter shelf listing |
 
-`main` is ahead of 0.5.0 by the cover cache ceiling and the cover generation
-queue, which are the first of section 10 and are unreleased. The 0.4.14 heading
-covers 1035 and 1036 as point fixes. The iPad client cannot pair yet — that is client work, and pairing
+1043 is most of section 10: everything in it that can be built without a NAS.
+What is left there needs hardware. The 0.4.14 heading covers 1035 and 1036 as
+point fixes. The iPad client cannot pair yet — that is client work, and pairing
 stays off until it can.
 
 ### Companion iPad app
@@ -127,8 +128,6 @@ alongside the app.
   everything since 0.4.16, have never run on a NAS. The numbers behind them —
   4 GB, two at a time, covers before thumbnails — are reasoned rather than
   measured. Section 10.
-- The web viewer still downloads the full library listing, because it needs
-  fields the compact record drops.
 - No marketplace-ready support workflow.
 
 ## Library organization model

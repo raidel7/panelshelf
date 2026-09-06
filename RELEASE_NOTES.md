@@ -1,3 +1,112 @@
+# PanelShelf 0.5.1-1043
+
+Most of section 10, which is the milestone about what the server does when
+nobody is watching it: a library four times bigger than the one it was written
+against, a disk that fills up, a scan at three in the morning. Everything in
+that section that can be built without a NAS is in this build.
+
+## Nothing derived grows without a bound
+
+- The cover cache has a byte budget — `PANELSHELF_COVER_CACHE_MB`, 4096 by
+  default, 0 to remove it — and gives up full covers before thumbnails, coldest
+  first. A thumbnail is fifteen times smaller and is wanted every time a card is
+  drawn; a full cover is one detail view. Anything dropped is rebuilt when it is
+  next asked for.
+- Cover generation runs through a queue, two at a time, and answers duplicate
+  requests with a single decode. A shelf of sixty uncached cards used to open
+  sixty archives at once, each holding a full-size page in memory.
+- The log is copied to `panelshelf.log.1` and emptied past
+  `PANELSHELF_LOG_MAX_MB` (8 by default, 0 to remove it), so the pair can never
+  occupy more than twice the cap.
+
+## An upgrade keeps a copy of what it is about to change
+
+- `library.json` carries a schema version, and before any migration writes, the
+  files nothing can rebuild — reading positions, skipped branches, reader
+  profiles, reading orders, manual metadata, chosen artwork, paired devices —
+  are copied to `checkpoints/<when>-<why>/`. The last three are kept. Covers are
+  not among them: the largest thing in the directory and the cheapest to make
+  again.
+- An index written by a newer build stops the server, with one readable line
+  naming the file and both versions. Reading it and writing it back at the older
+  shape is a downgrade that appears to work and quietly drops whatever that
+  version added.
+- Nothing restores automatically. A checkpoint is a copy of what was there, put
+  somewhere findable and reported through `/api/migrations` and the support
+  bundle.
+
+## One place to ask whether a source is well
+
+- `GET /api/sources/health`, and a panel in **Library settings**. Each source
+  reports the worst thing true of it — disconnected, unreadable, damaged, slow,
+  ok — with what it holds, what in it will not open, and what the last scan of
+  it cost. All four answers existed already and none of them lived anywhere.
+- Nothing in it walks the disk. It is counted from state the server already
+  holds, because a dashboard that costs a filesystem walk is one nobody can
+  leave open.
+- A broken archive used to be reported once and vanish from the issue list on
+  the next quick scan, because a quick scan does not reopen a file it has
+  already seen. The verdict now lives on the comic's own record: it survives a
+  restart, is re-reported until the file opens, and clears the moment it does.
+
+## A scan at an hour nobody is reading
+
+- A time of day rather than an interval, because "every six hours" lands in the
+  middle of an evening sooner or later and 03:00 never does. Off by default.
+- A missed hour is caught up within the same day and never across days. A NAS
+  asleep at three still scans when it wakes at seven; one that was off for a
+  week does not do seven scans on the way back.
+- Metadata matching is offered and defaults off. It calls third-party providers,
+  and a timer that spends somebody's rate limit while they sleep should be
+  something they chose rather than something they inherited.
+
+## Speed and memory
+
+- A rebuild no longer searches for moves that cannot have happened. A file that
+  already has a record is the same comic where it always was, so the search does
+  not belong on that path. A rebuild of 4,000 identical files went from 33.79 s
+  to 1.02 s.
+- The index is written in blocks rather than built as one string and copied into
+  a buffer. Peak resident set during a scan, 1,664 MB to 1,036 MB on the corpus
+  that measured it.
+- The library listing is projected and written a block at a time rather than
+  built, serialised and copied — three copies of one answer to serve one
+  request, while a scan may be running.
+- `?view=shelf` is the full record without the four metadata blocks the shelf
+  does not draw. At 100,000 comics the browser now receives 159.4 MB where it
+  received 268.0. The default listing is unchanged, so nothing that asks for
+  nothing in particular is affected.
+
+## A comic that will not open is not a place to be stuck
+
+- Tapping a comic while the server was unreachable opened the reader onto
+  "Loading page…" and left it there. Nothing had a timeout — `fetch` has none of
+  its own and neither does an `<img>` — and the worst case is not an unreachable
+  host but a server that accepts the connection and never answers, which is what
+  this server looks like when it is wedged on a sleeping USB disk.
+- Every JSON request has a 45 second backstop, generous on purpose: a drive that
+  has spun down takes real seconds to come back. After two and a half seconds
+  the loading state stops claiming to be loading and offers a labelled Cancel.
+
+## Housekeeping
+
+- One production dependency, `node-unrar-js` 2.0.2, current, and `npm audit`
+  reports nothing.
+- The bundled Node runtime moves to 22.23.2 and stays on the 22 line
+  deliberately: Node 24 ships no `linux-armv7l` build, so moving would quietly
+  leave the ARMv7 package without a runtime. 22 carries 32-bit ARM to April
+  2027.
+- `server/package.json` had drifted three releases behind the thing it
+  describes; a test now asserts it matches.
+
+## Still untested on hardware
+
+Everything since 0.4.16 has run on a laptop and nothing else. The large-library
+figures are laptop figures. A scan of 100,000 comics still peaks at 1,262 MB,
+which is more than the smallest ARM models have, and cutting it means either
+giving up move detection or reading the index a record at a time — both large,
+and guesswork until they can be measured on a NAS.
+
 # PanelShelf 0.5.0-1042
 
 Two people can share a library without sharing a shelf, and a server that is
