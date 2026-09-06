@@ -10,6 +10,11 @@ on:
 
 permissions:
   contents: write
+  # Build provenance, for the same reason the tagged release carries it: this
+  # is the build most people actually download, so it is the one that most
+  # needs to be checkable against something other than our word.
+  id-token: write
+  attestations: write
 
 concurrency:
   group: nightly
@@ -54,6 +59,11 @@ jobs:
           bash scripts/build-source.sh
           ls -la dist
 
+      - name: Attest the packages
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'dist/*.spk'
+
       - name: Publish rolling nightly release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,7 +72,10 @@ jobs:
           notes="Automated nightly build of \`${GITHUB_SHA:0:7}\` (version ${VERSION}).
 
           Unsigned packages — install in DSM via **Package Center → Manual Install**
-          and allow packages from any publisher."
+          and allow packages from any publisher.
+
+          Each SPK is attested to this repository, workflow and commit:
+          \`gh attestation verify <file>.spk --repo ${GITHUB_REPOSITORY}\`"
           # Replace the rolling release so stale assets never linger.
           #
           # The delete has to be seen to have landed before the create. Doing
