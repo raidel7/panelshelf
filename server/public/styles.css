@@ -3701,6 +3701,61 @@ h2 {
 /* Sits above the page-turn zones (z-index 2) on purpose. The cancel button has
    to be reachable, not merely visible: the zones are fixed strips down both
    edges of the stage and would otherwise swallow a tap meant for it. */
+/* One row per source, worst news first in the eye: the badge is the only
+   coloured thing in the panel, so a disconnected drive is findable without
+   reading anything. */
+.source-health-list {
+  display: flex;
+  margin: 12px 0 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.source-health-row {
+  display: grid;
+  align-items: start;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.source-health-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.source-health-badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.source-health-row.ok .source-health-badge {
+  color: #1c6b45;
+  background: rgba(45, 160, 105, .16);
+}
+
+.source-health-row.warn .source-health-badge {
+  color: #8a5a11;
+  background: rgba(214, 148, 34, .18);
+}
+
+.source-health-row.bad .source-health-badge {
+  color: #8f2233;
+  background: rgba(198, 58, 78, .16);
+}
+
+@media (prefers-color-scheme: dark) {
+  .source-health-row.ok .source-health-badge { color: #7fd6aa; }
+  .source-health-row.warn .source-health-badge { color: #f0c479; }
+  .source-health-row.bad .source-health-badge { color: #f3a1ae; }
+}
+
 .reader-loading {
   position: absolute;
   z-index: 3;

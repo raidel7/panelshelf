@@ -1050,13 +1050,46 @@ sensitive. Choose **Restore backup** to validate and preview counts before
 replacing current settings. Unavailable USB sources remain configured, and a
 quick scan begins after restoration.
 
+## Source health
+
+`GET /api/sources/health`, and **Library settings → Source health**.
+
+One answer to whether the library is well, gathered from what the server already
+knows — nothing here walks the disk beyond the folder check the config route
+already does. Each source reports a `status`, which is the worst thing true of
+it:
+
+| Status | Means |
+|---|---|
+| `ok` | Readable, and nothing in it failed to open |
+| `slow` | The last scan read it at under 20 files a second |
+| `damaged` | Readable, but some files in it will not open |
+| `unreadable` | The folder is there and PanelShelf cannot read it |
+| `disconnected` | The folder is not mounted, or no longer exists |
+
+Alongside: `comics` it holds, `unreachable` (its comics that cannot be opened
+right now because the source is away), `unreadableFiles` (files that will not
+open at all), `issues` counted by code, and `lastScan` with how long that source
+took and at what rate.
+
+**A disconnected source keeps its shelf on purpose**, so its comic count stays
+what it was. That is the difference between a drive to go and plug back in and a
+pile of files to go looking for, and it is why a source that has gone is never
+reported as an empty one.
+
+A file that will not open stays reported until it opens or leaves the library.
+A quick scan does not reopen an archive it has already seen, so the verdict is
+kept on the comic's own record rather than in the scan report, which every scan
+empties and rewrites. `unreadableFiles` is counted from those records and
+survives a restart.
+
 ## Support bundle
 
 **Library settings → Download support bundle**, or `GET /api/support-bundle`.
 One JSON file to attach to a bug report, holding the things a screenshot cannot
 carry: versions, how this server is configured, the arrangement of every source
 and whether it is reachable, counts of comics and reading positions, the names
-and dates of paired devices, and the last 256 KB of the log.
+and dates of paired devices, the health of every source, and the last 256 KB of the log.
 
 It does not contain a device token or the hash one is stored as, a metadata
 provider key — not even the four-character hint the settings page shows — any

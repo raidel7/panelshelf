@@ -1622,3 +1622,28 @@ test("the page watchdog runs only on pages actually being fetched", async () => 
   // browser does get round to loading it.
   assert.match(body, /addEventListener\(\s*"error",\s*\(\) => failed\(/);
 });
+
+test("source health is drawn from the server's verdict, not re-decided", async () => {
+  // The server says whether a source is disconnected, unreadable, damaged or
+  // slow. The browser's only job is choosing the words and the colour: two
+  // places deciding what "unwell" means is two places to disagree.
+  const [application, document, styles] = await Promise.all([
+    fsp.readFile(path.join(publicDirectory, "app.js"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "index.html"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "styles.css"), "utf8")
+  ]);
+
+  assert.match(document, /id="sourceHealthList"/);
+  assert.match(document, /id="sourceHealthSummary"/);
+  assert.match(application, /SOURCE_HEALTH_LABELS/);
+  for (const status of ["ok", "slow", "damaged", "disconnected", "unreadable"]) {
+    assert.match(
+      application,
+      new RegExp(`\\b${status}:\\s*\\{ label:`),
+      `${status} has words for it`
+    );
+  }
+  // The panel is opened because something looks wrong, so it loads with it.
+  assert.match(application, /refreshSourceHealth\(\);/);
+  assert.match(styles, /\.source-health-row\.bad \.source-health-badge/);
+});

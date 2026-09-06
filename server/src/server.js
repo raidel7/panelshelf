@@ -600,6 +600,10 @@ async function startServer() {
         });
       }
 
+      if (request.method === "GET" && pathname === "/api/sources/health") {
+        return sendJson(response, 200, await library.sourceHealth());
+      }
+
       if (request.method === "GET" && pathname === "/api/support-bundle") {
         const bundle = await createSupportBundle({
           library,

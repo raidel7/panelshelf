@@ -199,6 +199,9 @@ const elements = {
   addPathButton: document.querySelector("#addPathButton"),
   exportBackupButton: document.querySelector("#exportBackupButton"),
   supportBundleButton: document.querySelector("#supportBundleButton"),
+  sourceHealthSummary: document.querySelector("#sourceHealthSummary"),
+  sourceHealthList: document.querySelector("#sourceHealthList"),
+  refreshSourceHealthButton: document.querySelector("#refreshSourceHealthButton"),
   coverCacheSummary: document.querySelector("#coverCacheSummary"),
   openLibraryReviewButton: document.querySelector("#openLibraryReviewButton"),
   bulkBar: document.querySelector("#bulkBar"),
@@ -1168,6 +1171,85 @@ async function loadLibraryReview() {
       : "Nothing needs looking at. Copies of the same comic and close-call matches appear here.";
   } catch (error) {
     showToast(error.message);
+  }
+}
+
+// What a source's verdict is called, and how alarming it should look. The
+// server decides the verdict; this decides nothing except the words.
+const SOURCE_HEALTH_LABELS = {
+  ok: { label: "Ready", tone: "ok" },
+  slow: { label: "Slow", tone: "warn" },
+  damaged: { label: "Unreadable files", tone: "warn" },
+  disconnected: { label: "Disconnected", tone: "bad" },
+  unreadable: { label: "No permission", tone: "bad" }
+};
+
+function renderSourceHealth(health) {
+  const sources = health?.sources || [];
+  const summary = health?.summary || {};
+
+  if (sources.length === 0) {
+    elements.sourceHealthSummary.textContent =
+      "No source folders are configured yet.";
+    elements.sourceHealthList.replaceChildren();
+    return;
+  }
+
+  // Says the worst thing that is true, because that is the thing to act on. A
+  // disconnected source keeps its shelf on purpose, so the count of comics it
+  // is holding is stated next to it — that is the difference between a drive to
+  // go and plug back in and a pile of files to go looking for.
+  const trouble = [
+    summary.disconnected ? `${summary.disconnected} disconnected` : "",
+    summary.unreadable ? `${summary.unreadable} unreadable` : "",
+    summary.damaged ? `${summary.damaged} with unreadable files` : "",
+    summary.slow ? `${summary.slow} slow` : ""
+  ].filter(Boolean);
+  elements.sourceHealthSummary.textContent = trouble.length
+    ? `${trouble.join(", ")}. ${summary.unreachable} ${
+        summary.unreachable === 1 ? "comic is" : "comics are"
+      } on the shelf but cannot be opened until that is fixed.`
+    : `All ${sources.length} ${sources.length === 1 ? "source is" : "sources are"} readable.`;
+
+  elements.sourceHealthList.replaceChildren(
+    ...sources.map((source) => {
+      const item = document.createElement("li");
+      const known = SOURCE_HEALTH_LABELS[source.status] || SOURCE_HEALTH_LABELS.ok;
+      item.className = `source-health-row ${known.tone}`;
+
+      const badge = document.createElement("span");
+      badge.className = "source-health-badge";
+      badge.textContent = known.label;
+
+      const copy = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = source.name || source.path;
+      name.title = source.path;
+      const detail = document.createElement("small");
+      const scan = source.lastScan?.filesPerSecond
+        ? ` Last scan read ${source.lastScan.files} files at about ${source.lastScan.filesPerSecond} a second.`
+        : "";
+      const held =
+        source.unreachable > 0
+          ? ` ${source.unreachable} of its ${source.comics} ${
+              source.comics === 1 ? "comic" : "comics"
+            } cannot be opened.`
+          : ` ${source.comics} ${source.comics === 1 ? "comic" : "comics"}.`;
+      detail.textContent = `${source.detail}${held}${scan}`;
+      copy.append(name, detail);
+
+      item.append(badge, copy);
+      return item;
+    })
+  );
+}
+
+async function refreshSourceHealth() {
+  try {
+    renderSourceHealth(await api("/api/sources/health"));
+  } catch (error) {
+    elements.sourceHealthSummary.textContent = error.message;
+    elements.sourceHealthList.replaceChildren();
   }
 }
 
@@ -5708,6 +5790,9 @@ function openSettings() {
     // Fills the callout's counts, so what needs looking at is visible without
     // opening anything.
     loadLibraryReview();
+    // Same reason. A drive that fell out is the first thing worth knowing on
+    // opening this panel, and it is the reason most people open it.
+    refreshSourceHealth();
   });
 }
 
@@ -7392,6 +7477,7 @@ elements.toastAction.addEventListener("click", () => {
   if (action) action();
 });
 elements.readerClose.addEventListener("click", () => elements.readerDialog.close());
+elements.refreshSourceHealthButton.addEventListener("click", refreshSourceHealth);
 elements.readerLoadingCancel.addEventListener("click", () => {
   if (beginReaderLoading.cancel) beginReaderLoading.cancel();
   else elements.readerDialog.close();

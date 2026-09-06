@@ -934,6 +934,22 @@ was making features exist. This is making them keep working.
   shell writing to the renamed file and the live log empty for good. The
   design depends on that redirect staying append-only, which fails silently, so
   a test reads the start script and asserts it.
+- **A source health dashboard**, `GET /api/sources/health` and a panel in
+  Library settings. Each source reports the worst thing true of it —
+  `disconnected`, `unreadable`, `damaged`, `slow`, `ok` — with what it holds,
+  what in it will not open, and what the last scan of it cost. The four
+  dimensions the scope asked for, from state the server already has: nothing
+  here walks the disk. Scan issues are attributed to the source being walked
+  when they happen rather than matched by path afterwards, because one source
+  configured inside another makes a prefix match pick the wrong one.
+- **A file that will not open stays reported.** Found while testing the panel
+  above: a broken archive was reported once and then disappeared from the issue
+  list on the very next quick scan, because a quick scan does not reopen an
+  archive it has already seen. The file had not healed — nothing had looked at
+  it. It was still on the shelf with no pages, and Retry issues no longer
+  offered it. The verdict now lives on the comic's record, survives a restart,
+  is re-reported on every scan that does not reopen the file, and clears the
+  moment it opens.
 - **Two ceilings on what the index costs to write.** The whole document was
   built as one string and copied into a buffer to be written: at 100,000 comics
   that is 180 MB of string and 180 MB of buffer alive at once, on top of the
@@ -994,10 +1010,11 @@ the records themselves — a rebuild holds the previous index and the new one at
 the same time, by design, because that is what lets a comic that moved keep its
 identity.
 
-Of what is left, the source health dashboard is the piece with the clearest
-shape: a disconnected source already keeps its shelf, and the release gate below
-asks for it to be reported as disconnected everywhere rather than as an empty
-library, which is not true on every surface today.
+Of what is left, index migrations with rollback checkpoints is the piece that
+matters most and has had no work: the index format has changed twice already and
+both times a failed upgrade would have left nothing to go back to. Scheduled
+scanning and the dependency review are both small. Large-library profiling on
+hardware, and the upgrade and power-loss testing, need a NAS.
 
 ### What a large library actually costs
 
@@ -1041,7 +1058,9 @@ fields, so a real library's records are larger and differently shaped.
   crash was about to write.
 - An index migration that fails leaves the previous index intact and readable.
 - A disconnected source is reported as disconnected rather than as an empty
-  library, on every surface that lists it.
+  library, on every surface that lists it, and keeps its shelf while it is away.
+- A file that will not open is still reported as unreadable on the next scan,
+  and stops being reported the moment it opens.
 
 ## 11. 0.9 — Synology marketplace candidate
 

@@ -2205,3 +2205,57 @@ test("the library listing is streamed, and is still one well-formed array", asyn
   assert.equal(compact.length, listing.length);
   assert.equal("metadata" in compact[0], false, "compact is still compact");
 });
+
+test("a source that goes away is reported as disconnected, not as empty", async (t) => {
+  // Section 10's release gate, end to end. A source that went away keeps its
+  // shelf on purpose, and the difference between "disconnected" and "no comics
+  // here" is the difference between waiting for a drive to wake and going
+  // looking for files you think you have lost.
+  const { base, directory, state } = await startServer(t);
+  const kept = path.join(directory, "Kept");
+  const going = path.join(directory, "Going");
+  await fsp.mkdir(kept, { recursive: true });
+  await fsp.mkdir(going, { recursive: true });
+  await fsp.writeFile(path.join(kept, "Stays.cbz"), zipBuffer([{ name: "p.png", data: ONE_PIXEL_PNG }]));
+  await fsp.writeFile(path.join(going, "Leaves.cbz"), zipBuffer([{ name: "p.png", data: ONE_PIXEL_PNG }]));
+
+  await fetch(`${base}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ libraryPaths: [kept, going] })
+  });
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/comics`, (body) => body.length === 2);
+
+  const healthy = await (await fetch(`${base}/api/sources/health`)).json();
+  assert.equal(healthy.summary.healthy, 2, state.logs);
+  assert.equal(healthy.summary.disconnected, 0);
+  for (const source of healthy.sources) {
+    assert.equal(source.comics, 1);
+    assert.ok(source.lastScan, "each source reports what its own scan cost");
+    assert.equal(typeof source.lastScan.durationMs, "number");
+  }
+
+  // The drive falls out.
+  await fsp.rm(going, { recursive: true, force: true });
+  await fetch(`${base}/api/scan`, { method: "POST" });
+  await waitFor(`${base}/api/scan`, (body) => body.running === false && body.finishedAt);
+
+  const health = await (await fetch(`${base}/api/sources/health`)).json();
+  assert.equal(health.summary.disconnected, 1, JSON.stringify(health.summary));
+  assert.equal(health.summary.unreachable, 1);
+
+  const gone = health.sources.find((source) => source.path === going);
+  assert.equal(gone.status, "disconnected");
+  assert.equal(gone.comics, 1, "its shelf is kept, not emptied");
+  assert.equal(gone.unreachable, 1);
+  assert.match(gone.detail, /not mounted|no longer exists/i);
+
+  const stayed = health.sources.find((source) => source.path === kept);
+  assert.equal(stayed.status, "ok", "and the other source is not dragged down with it");
+  assert.equal(stayed.unreachable, 0);
+
+  // The same picture reaches a bug report without anybody having to ask.
+  const bundle = await (await fetch(`${base}/api/support-bundle`)).json();
+  assert.equal(bundle.sourceHealth.summary.disconnected, 1);
+});

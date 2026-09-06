@@ -288,6 +288,8 @@ async function createSupportBundle(options = {}) {
       }))
     },
 
+    sourceHealth: await library.sourceHealth(),
+
     storage: {
       files,
       coverCache: library.coverCacheStatus()

@@ -40,6 +40,7 @@ const {
 } = require("./thumbnail");
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const { WorkQueue } = require("./work-queue");
+const { sourceHealth } = require("./source-health");
 const { DeviceTokenStore } = require("./device-tokens");
 const { LibraryChangeLog } = require("./library-changes");
 const { CustomArtworkStore } = require("./custom-artwork");
@@ -109,7 +110,11 @@ function emptyScanState() {
     foundComics: 0,
     retainedComics: 0,
     errors: [],
-    warnings: []
+    warnings: [],
+    // What each source cost, which is the only way to answer "why is a scan
+    // suddenly slow" — a library spread over an internal volume and a sleeping
+    // USB disk has one number worth looking at and one that is noise.
+    sources: []
   };
 }
 
@@ -604,6 +609,9 @@ class ComicLibrary {
         : [],
       warnings: Array.isArray(normalizedScanState.warnings)
         ? normalizedScanState.warnings
+        : [],
+      sources: Array.isArray(normalizedScanState.sources)
+        ? normalizedScanState.sources
         : []
     };
     await this.bulkMetadata.initialize();
@@ -1327,20 +1335,12 @@ class ComicLibrary {
           ? [...retryPlans.values()].map((plan) => plan.source)
           : [...this.config.sources];
     this.scanState = {
+      ...emptyScanState(),
       running: true,
       action,
       sourceId: requestedSource?.id || null,
       sourceName: requestedSource?.name || null,
-      startedAt: new Date().toISOString(),
-      finishedAt: null,
-      scannedFiles: 0,
-      reusedFiles: 0,
-      openedArchives: 0,
-      metadataFiles: 0,
-      foundComics: 0,
-      retainedComics: 0,
-      errors: [],
-      warnings: []
+      startedAt: new Date().toISOString()
     };
     const previous = new Map(this.comics.map((comic) => [comic.path, comic]));
     // Which sources this scan has seen before. A comic appearing in a source
@@ -1420,12 +1420,18 @@ class ComicLibrary {
       }
     };
 
+    // Which source the scan was walking when something went wrong. Recorded as
+    // it happens rather than worked out afterwards from the path, because one
+    // source configured inside another makes a prefix match pick the wrong one.
+    let walkingSourceId = null;
+
     const addError = (filePath, error) => {
       this.scanState.errors.push({
         path: filePath,
         code: error.code || "SCAN_ERROR",
         message: error.message,
-        severity: "error"
+        severity: "error",
+        sourceId: walkingSourceId
       });
     };
 
@@ -1436,7 +1442,8 @@ class ComicLibrary {
         message: metadataEntry
           ? `${metadataEntry}: ${error.message}`
           : error.message,
-        severity: "warning"
+        severity: "warning",
+        sourceId: walkingSourceId
       });
     };
 
@@ -1478,6 +1485,15 @@ class ComicLibrary {
         let detectedFormat = mayReuseArchive
           ? identity.format || archiveType(filePath)
           : archiveType(filePath);
+        // Whether this file could be opened, kept on the record rather than
+        // only in the scan report.
+        //
+        // A quick scan does not reopen an archive it has already seen, so an
+        // archive that failed was reported once and then vanished from the
+        // issue list on the very next scan — while still being broken, still
+        // sitting on the shelf with no pages, and no longer offered to Retry
+        // issues. The file has not healed just because nothing looked at it.
+        let readError = mayReuseArchive ? identity.readError || null : null;
 
         if (mayReuseArchive) {
           this.scanState.reusedFiles += 1;
@@ -1514,8 +1530,16 @@ class ComicLibrary {
             }
           } catch (error) {
             pageCount = 0;
+            readError = { code: error.code || "SCAN_ERROR", message: error.message };
             addError(filePath, error);
           }
+        }
+
+        // Reported again on every scan that did not reopen it, so the issue
+        // list describes the library as it is rather than as the last scan that
+        // happened to look. Cleared above the moment the archive opens.
+        if (mayReuseArchive && readError) {
+          addError(filePath, readError);
         }
 
         const relativePath = path.relative(source.path, filePath);
@@ -1583,7 +1607,8 @@ class ComicLibrary {
             (indexedSources.has(source.id)
               ? new Date().toISOString()
               : stat.mtime.toISOString()),
-          pageCount: Number.isFinite(pageCount) ? pageCount : 0
+          pageCount: Number.isFinite(pageCount) ? pageCount : 0,
+          ...(readError ? { readError } : {})
         });
         this.scanState.foundComics = discovered.size;
       } catch (error) {
@@ -1594,6 +1619,34 @@ class ComicLibrary {
     try {
       for (const source of selectedSources) {
         const root = source.path;
+        walkingSourceId = source.id;
+        const sourceStartedAt = Date.now();
+        const filesBefore = this.scanState.scannedFiles;
+        const errorsBefore = this.scanState.errors.length;
+        const warningsBefore = this.scanState.warnings.length;
+        // Pushed before the walk rather than after, so a scan watched while it
+        // runs shows the source in hand rather than only finished ones.
+        const sourceReport = {
+          id: source.id,
+          name: source.name,
+          path: root,
+          available: true,
+          startedAt: new Date(sourceStartedAt).toISOString(),
+          finishedAt: null,
+          durationMs: null,
+          files: 0,
+          errors: 0,
+          warnings: 0
+        };
+        this.scanState.sources.push(sourceReport);
+        const closeSourceReport = (available) => {
+          sourceReport.available = available;
+          sourceReport.finishedAt = new Date().toISOString();
+          sourceReport.durationMs = Date.now() - sourceStartedAt;
+          sourceReport.files = this.scanState.scannedFiles - filesBefore;
+          sourceReport.errors = this.scanState.errors.length - errorsBefore;
+          sourceReport.warnings = this.scanState.warnings.length - warningsBefore;
+        };
         const status = await inspectLibraryPath(root);
         if (!status.available) {
           addError(root, {
@@ -1612,6 +1665,7 @@ class ComicLibrary {
           for (const comic of retained) discovered.set(comic.id, comic);
           this.scanState.retainedComics += retained.length;
           this.scanState.foundComics = discovered.size;
+          closeSourceReport(false);
           continue;
         }
 
@@ -1627,6 +1681,7 @@ class ComicLibrary {
               forceFingerprint: false
             });
           }
+          closeSourceReport(true);
           continue;
         }
 
@@ -1662,7 +1717,9 @@ class ComicLibrary {
           for (const comic of retained) discovered.set(comic.id, comic);
           this.scanState.retainedComics += retained.length;
         }
+        closeSourceReport(true);
       }
+      walkingSourceId = null;
       // Re-checked against the config as it stands now: a source removed while
       // the scan was running must not be written back into the index.
       const beforeScan = this.comics;
@@ -1912,6 +1969,14 @@ class ComicLibrary {
   // the full list, then adopt the sequence reported alongside.
   libraryChangesSince(cursor) {
     return this.changes.since(cursor);
+  }
+
+  // Whether each source is well, gathered from what the server already knows.
+  // `getConfig` is what inspects the folders, and it is the only part of this
+  // that touches the disk.
+  async sourceHealth() {
+    const { sources } = await this.getConfig();
+    return sourceHealth({ sources, comics: this.comics, scanState: this.scanState });
   }
 
   coverCacheStatus() {

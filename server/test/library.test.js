@@ -1594,3 +1594,78 @@ test("two identical comics do not trade identities when one of them moves", asyn
   // The one that did not move keeps what it had; the ambiguous one is new.
   assert.ok(before.includes(stayed.id), "the comic that stayed put kept its id");
 });
+
+test("an archive that will not open stays reported until it opens or leaves", async (t) => {
+  // A quick scan does not reopen an archive it has already seen, so a broken
+  // file was reported once and then vanished from the issue list on the very
+  // next scan — while still being broken, still on the shelf with no pages, and
+  // no longer offered to Retry issues. It had not healed; nothing had looked.
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-broken-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "Comics");
+  await fsp.mkdir(source, { recursive: true });
+  const broken = path.join(source, "Broken.cbz");
+  await fsp.writeFile(path.join(source, "Good.cbz"), zipBuffer([{ name: "p.png", data: ONE_PIXEL_PNG }]));
+  await fsp.writeFile(broken, Buffer.from("not an archive"));
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const library = new ComicLibrary(path.join(directory, "data"));
+  await library.initialize();
+  await library.saveConfig([source]);
+
+  const first = await library.scan();
+  assert.equal(first.errors.length, 1, "found on the scan that opened it");
+  assert.equal(first.openedArchives, 2);
+
+  const second = await library.scan();
+  assert.equal(second.openedArchives, 0, "nothing was reopened");
+  assert.equal(second.errors.length, 1, "and it is still reported");
+  assert.equal(second.errors[0].path, broken);
+
+  // Repaired. The file changed, so it is reopened, and the verdict goes with it.
+  await fsp.writeFile(broken, zipBuffer([{ name: "p.png", data: ONE_PIXEL_PNG }]));
+  const third = await library.scan();
+  assert.equal(third.errors.length, 0, "a file that opens is not still broken");
+  assert.equal(
+    library.listComics().find((comic) => comic.path === broken).readError,
+    undefined
+  );
+});
+
+test("a broken archive keeps its verdict across a restart", async (t) => {
+  // The record is what carries it, so a restart must not launder the library
+  // clean until the next time something opens the file.
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-broken-restart-"));
+  t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const source = path.join(directory, "Comics");
+  await fsp.mkdir(source, { recursive: true });
+  await fsp.writeFile(path.join(source, "Broken.cbz"), Buffer.from("not an archive"));
+
+  const previous = process.env.PANELSHELF_ALLOW_ANY_PATH;
+  process.env.PANELSHELF_ALLOW_ANY_PATH = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.PANELSHELF_ALLOW_ANY_PATH;
+    else process.env.PANELSHELF_ALLOW_ANY_PATH = previous;
+  });
+
+  const dataDirectory = path.join(directory, "data");
+  const library = new ComicLibrary(dataDirectory);
+  await library.initialize();
+  await library.saveConfig([source]);
+  await library.scan();
+
+  const reopened = new ComicLibrary(dataDirectory);
+  await reopened.initialize();
+  const [comic] = reopened.listComics();
+  assert.ok(comic.readError, "the verdict survived the index");
+  assert.equal(comic.pageCount, 0);
+
+  const health = await reopened.sourceHealth();
+  assert.equal(health.sources[0].unreadableFiles, 1, "and the panel still says so");
+});
