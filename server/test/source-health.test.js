@@ -18,11 +18,16 @@ function comic(sourceId, available = true) {
   return { id: `c${Math.random()}`, sourceId, available };
 }
 
+// A scan of src_a that went well and quickly. Present by default because "a
+// source with nothing wrong" means one something has actually looked at; a
+// source no scan has recorded is a different answer, tested for on its own.
+const SCANNED = { id: "src_a", files: 9000, durationMs: 3000, startedAt: "x", finishedAt: "y" };
+
 function report(overrides = {}) {
   return sourceHealth({
     sources: overrides.sources || [SOURCE],
     comics: overrides.comics || [],
-    scanState: overrides.scanState || { errors: [], warnings: [], sources: [] }
+    scanState: overrides.scanState || { errors: [], warnings: [], sources: [SCANNED] }
   });
 }
 
@@ -166,7 +171,7 @@ test("being unreachable outranks being slow, and being gone outranks both", () =
 test("metadata worth reviewing is mentioned without calling the source unwell", () => {
   const health = report({
     scanState: {
-      sources: [],
+      sources: [SCANNED],
       errors: [],
       warnings: [{ path: "/x", code: "COMICINFO_INVALID", sourceId: "src_a" }]
     }
@@ -195,7 +200,50 @@ test("no sources at all is a valid answer, not an error", () => {
 });
 
 test("a source never scanned reports no timing rather than a wrong one", () => {
-  const health = report({ comics: [comic("src_a")] });
+  const health = report({
+    comics: [comic("src_a")],
+    scanState: { errors: [], warnings: [], sources: [] }
+  });
   assert.equal(health.sources[0].lastScan, null);
-  assert.equal(health.sources[0].status, "ok");
+});
+
+test("a source nothing has looked at is not called ready", () => {
+  // Found on hardware. Upgrading from a build that recorded neither per-source
+  // scan cost nor per-source issue attribution leaves a library full of comics,
+  // no scan record, and the previous build's 28 unreadable files sitting in a
+  // scan report that this panel cannot attribute to anybody. Reporting that as
+  // "Ready" is a wrong answer, not a missing one.
+  const health = report({
+    comics: [comic("src_a"), comic("src_a")],
+    scanState: { errors: [], warnings: [], sources: [] }
+  });
+  const [source] = health.sources;
+
+  assert.equal(source.status, "unscanned");
+  assert.match(source.detail, /Scanned by an earlier version/);
+  assert.equal(health.summary.unscanned, 1);
+  assert.equal(health.summary.healthy, 0, "not counted as healthy either");
+});
+
+test("a source with no shelf and no scan has simply not been read yet", () => {
+  const health = report({ scanState: { errors: [], warnings: [], sources: [] } });
+
+  assert.equal(health.sources[0].status, "unscanned");
+  assert.equal(health.sources[0].detail, "Not scanned yet.");
+});
+
+test("evidence of a real problem outranks the absence of evidence", () => {
+  // Being unscanned is the mildest thing that can be true. Anything a scan or
+  // the filesystem actually found says more.
+  const gone = report({
+    sources: [{ ...SOURCE, available: false, code: "ENOENT", message: "gone" }],
+    scanState: { errors: [], warnings: [], sources: [] }
+  });
+  assert.equal(gone.sources[0].status, "disconnected");
+
+  const broken = report({
+    comics: [{ ...comic("src_a"), readError: { code: "DAMAGED_ARCHIVE" } }],
+    scanState: { errors: [], warnings: [], sources: [] }
+  });
+  assert.equal(broken.sources[0].status, "damaged");
 });

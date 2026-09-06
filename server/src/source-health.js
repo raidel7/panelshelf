@@ -24,7 +24,14 @@ const SLOW_FILES_PER_SECOND = 20;
 const SLOW_MINIMUM_FILES = 50;
 
 // The worst thing true of a source, because that is what a summary should say.
-function verdict({ available, code, errors, slow }) {
+//
+// `scanned` is the difference between "nothing is wrong with this source" and
+// "nothing has looked at this source". Every verdict below "ok" is evidence of
+// a problem, and evidence only arrives from a scan that recorded what it cost
+// and attributed what it found. An upgrade from a build that recorded neither
+// arrives here with a library full of comics, no per-source scan record, and no
+// grounds to call anything ready.
+function verdict({ available, code, errors, slow, scanned }) {
   if (!available) {
     return code === "ENOENT" || code === "FOLDER_UNAVAILABLE"
       ? "disconnected"
@@ -32,10 +39,11 @@ function verdict({ available, code, errors, slow }) {
   }
   if (errors > 0) return "damaged";
   if (slow) return "slow";
+  if (!scanned) return "unscanned";
   return "ok";
 }
 
-function describe(status, { message, errors, warnings, filesPerSecond }) {
+function describe(status, { message, errors, warnings, filesPerSecond, comics }) {
   switch (status) {
     case "disconnected":
       return message || "Folder is not mounted or no longer exists.";
@@ -45,6 +53,13 @@ function describe(status, { message, errors, warnings, filesPerSecond }) {
       return `${errors} ${errors === 1 ? "file" : "files"} could not be read on the last scan.`;
     case "slow":
       return `Reading about ${Math.round(filesPerSecond)} files a second, which is slow enough to be worth a look.`;
+    case "unscanned":
+      // Two ways to get here and they want different words. A source with a
+      // shelf was scanned by an older build, so the shelf is real and only the
+      // verdict is missing; a source with nothing has simply never been read.
+      return comics > 0
+        ? "Scanned by an earlier version, so nothing here has been checked yet. Scan to find out."
+        : "Not scanned yet.";
     default:
       return warnings > 0
         ? `Readable. ${warnings} ${warnings === 1 ? "file has" : "files have"} metadata worth reviewing.`
@@ -105,7 +120,8 @@ function sourceHealth({ sources, comics, scanState }) {
       available: source.available !== false,
       code: source.code,
       errors: Math.max(sourceErrors.total, counts.unreadable),
-      slow
+      slow,
+      scanned: lastScan !== null
     });
 
     return {
@@ -118,7 +134,8 @@ function sourceHealth({ sources, comics, scanState }) {
         message: source.message,
         errors: Math.max(sourceErrors.total, counts.unreadable),
         warnings: sourceWarnings.total,
-        filesPerSecond
+        filesPerSecond,
+        comics: counts.comics
       }),
       available: source.available !== false,
       code: source.code || null,
@@ -164,6 +181,7 @@ function sourceHealth({ sources, comics, scanState }) {
       unreadable: reported.filter((source) => source.status === "unreadable").length,
       damaged: reported.filter((source) => source.status === "damaged").length,
       slow: reported.filter((source) => source.status === "slow").length,
+      unscanned: reported.filter((source) => source.status === "unscanned").length,
       comics: comics.length,
       unreachable: reported.reduce((total, source) => total + source.unreachable, 0),
       unreadableFiles: reported.reduce((total, source) => total + source.unreadableFiles, 0),

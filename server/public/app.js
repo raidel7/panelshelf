@@ -1192,6 +1192,7 @@ async function loadLibraryReview() {
 // server decides the verdict; this decides nothing except the words.
 const SOURCE_HEALTH_LABELS = {
   ok: { label: "Ready", tone: "ok" },
+  unscanned: { label: "Not checked", tone: "warn" },
   slow: { label: "Slow", tone: "warn" },
   damaged: { label: "Unreadable files", tone: "warn" },
   disconnected: { label: "Disconnected", tone: "bad" },
@@ -1274,12 +1275,19 @@ function renderSourceHealth(health) {
     summary.disconnected ? `${summary.disconnected} disconnected` : "",
     summary.unreadable ? `${summary.unreadable} unreadable` : "",
     summary.damaged ? `${summary.damaged} with unreadable files` : "",
-    summary.slow ? `${summary.slow} slow` : ""
+    summary.slow ? `${summary.slow} slow` : "",
+    summary.unscanned ? `${summary.unscanned} not checked yet` : ""
   ].filter(Boolean);
-  elements.sourceHealthSummary.textContent = trouble.length
-    ? `${trouble.join(", ")}. ${summary.unreachable} ${
+  // The stranded-comics sentence only belongs here when there are some. A
+  // source that is merely unchecked strands nothing, and "0 comics are on the
+  // shelf but cannot be opened" is a sentence that reads like a fault.
+  const stranded = summary.unreachable
+    ? ` ${summary.unreachable} ${
         summary.unreachable === 1 ? "comic is" : "comics are"
       } on the shelf but cannot be opened until that is fixed.`
+    : "";
+  elements.sourceHealthSummary.textContent = trouble.length
+    ? `${trouble.join(", ")}.${stranded}`
     : `All ${sources.length} ${sources.length === 1 ? "source is" : "sources are"} readable.`;
 
   elements.sourceHealthList.replaceChildren(

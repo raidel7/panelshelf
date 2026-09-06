@@ -4,7 +4,7 @@ Updated: 2026-09-05
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.5.1, build 1043 | Released. The developer's NAS runs 0.4.16. |
+| **Server and web** | 0.5.1, build 1043 | Released and installed. The developer's NAS runs it. |
 | **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
@@ -119,15 +119,14 @@ alongside the app.
 
 ### Known gaps in the foundation
 
-- Section 8 is code-complete and has run on nothing but a laptop. The NAS is
-  still on 0.4.16-1038, so reader profiles, pairing-code throttling, the
-  forwarded-header handling, the support bundle, and the phone layout have all
-  been written and none of them has been installed. The next thing this needs is
-  hardware, not more code.
-- The cover cache's ceiling and generation limit are written and, like
-  everything since 0.4.16, have never run on a NAS. The numbers behind them —
-  4 GB, two at a time, covers before thumbnails — are reasoned rather than
-  measured. Section 10.
+- Everything since 0.4.16 was written against a laptop, and 1043 is the first
+  build to be installed. What that upgrade proved is in section 10; what it did
+  not touch is everything that only happens under load or over time. No scan has
+  yet run under this build on hardware, so the cover cache ceiling, the log
+  rotation, the generation queue and the scheduled scan have all been installed
+  and none of them has been exercised.
+- The numbers behind the cover cache — 4 GB, two at a time, covers before
+  thumbnails — are still reasoned rather than measured. Section 10.
 - No marketplace-ready support workflow.
 
 ## Library organization model
@@ -1049,14 +1048,16 @@ untagged one the first profile used. What remains after the write fix is mostly
 the records themselves: a rebuild holds the previous index and the new one at
 the same time, by design, because that is what lets a comic that moved keep its
 identity. The fix is to stop holding both, which means either a rebuild that
-gives up move detection or an index that can be read a record at a time — and
-both are large enough, and speculative enough on a machine nobody has measured,
-that doing them before there is a NAS to measure on is guesswork.
+gives up move detection or an index that can be read a record at a time. Both
+are large, and the NAS has not yet run a scan under this build, so what the peak
+actually is on the machine that has to survive it is still unmeasured. Measuring
+it is now a scan away rather than a purchase away, and comes first.
 
-What is left besides needs hardware. Large-library profiling on a NAS, and the
-upgrade, downgrade, restart and power-loss testing, are the whole of it — and
-the checkpoint work above is most of what those tests exist to exercise, so it
-is the obvious thing to try first when there is a NAS to try it on.
+The rest is hardware, and some of it is now done. The upgrade has been made and
+survived, and the read path has been profiled against a real library; both are
+below. What has not been tried is a scan under this build, a restart, a
+downgrade, and power loss — and a scan is the first of those, because almost
+everything else in this section only runs while one is going.
 
 Everything in this section that can be built from a laptop is built.
 
@@ -1096,7 +1097,53 @@ A gigabyte and a quarter at 100,000 comics is more than the smallest ARM models
 have. The listing is the part that got better — the browser now asks for 159.4
 MB where it asked for 268.0, and a client that draws no hierarchy can have 16.9.
 
-None of this has been reproduced on hardware.
+### What the hardware said
+
+1043 is the first build installed on the NAS. A DS1825+ with one source, 24,839
+comics on a USB disk, upgraded from 0.4.16-1038.
+
+The upgrade itself did what it was written to do. The index migrated from
+version 1 to version 2, and before it wrote anything it copied `config.json`,
+`library.json`, `progress.json`, `online-metadata.json` and `changes.json` to
+`checkpoints/2026-09-06T03-06-19-625Z-index-v1-to-v2/`. Five files rather than
+eleven, because the other six do not exist on that install — no reader profiles
+had been made, no reading orders, no manual metadata, nothing paired — and the
+checkpoint copies what is there instead of failing on what is not. Every comic
+was on the shelf afterwards, and the conformance suite passes 25 of 25 against
+it.
+
+The listing sizes land close to the synthetic corpus, which is the first
+evidence that the corpus is honest:
+
+| At ~25,000 comics | Synthetic | The real library |
+| --- | --- | --- |
+| Compact listing | 4.2 MB | 4.8 MB |
+| Shelf listing | 39.8 MB | 44.2 MB |
+| Full listing | 67.0 MB | 69.4 MB |
+
+Real records run a few per cent larger than modelled ones, and the shelf saves
+25 MB of the 69 on every load — 3.26 s down to 1.93 s over the LAN. Time to
+first byte is 19 ms for a 69 MB response, which is the block-at-a-time writing
+doing what it was for.
+
+Two things the corpus still has wrong, in opposite directions. It gives two
+thirds of its archives a ComicInfo.xml; the real library has one in 30% of them,
+so the metadata figures above are an overstatement rather than the
+understatement they were before. And it is on an SSD.
+
+That last one is the finding that matters. The library's last scan — under 1038,
+before the rebuild fix — read 24,839 files in 45 minutes. **9.2 files a second,
+against 1,989 on the laptop.** The laptop was never going to find that, and it
+is why every figure in the table above says what it was measured on. The number
+is not comparable to current code, since it predates the change that took a
+rebuild of 4,000 files from 33.79 s to 1.02 s, and a USB disk is the slowest
+thing a source can be. What it establishes is the order of magnitude: scanning
+this library is measured in tens of minutes, not tens of seconds, and any
+release gate about scan behaviour needs to be read with that in mind.
+
+Still not reproduced on hardware: any scan under 1043, the scan's peak memory,
+the cover cache ceiling, log rotation, the generation queue under a cold shelf,
+a scheduled scan firing, power loss, downgrade, and uninstall.
 
 ### Release gates
 
