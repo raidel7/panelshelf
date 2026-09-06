@@ -250,3 +250,52 @@ test("a bundle from a server with no rotation configured still reports the log",
   assert.equal(bundle.log.rotation, null);
   assert.equal(typeof bundle.log.present, "boolean");
 });
+
+test("the bundle says what user the server is running as", async (t) => {
+  // The release gate is "no package process runs as root". Reading the package
+  // source proves it about the package; this proves it about the install in
+  // front of you, which is the one that matters when something has gone wrong.
+  const { library: created } = await library(t);
+  const bundle = await bundleFor(created);
+  const user = bundle.runtime.user;
+
+  assert.ok(user, "runtime should report a user");
+  assert.equal(user.supported, true, "POSIX platforms can always be asked");
+  assert.equal(user.uid, process.getuid());
+  assert.equal(user.gid, process.getgid());
+  assert.equal(user.root, process.getuid() === 0);
+  // The tests do not run as root, so this doubles as the gate asserting itself.
+  assert.equal(user.root, false, "the test suite is not running as root");
+});
+
+test("root is reported as root whatever the platform can be asked", async (t) => {
+  // The branch that matters cannot be reached by running the suite as root, so
+  // the question is put to a stand-in. Both answers are checked, because a
+  // report that says false for everything would pass a test that only looked
+  // at the ordinary case.
+  const { library: created } = await library(t);
+
+  const original = { getuid: process.getuid, getgid: process.getgid };
+  t.after(() => {
+    process.getuid = original.getuid;
+    process.getgid = original.getgid;
+  });
+
+  process.getuid = () => 0;
+  process.getgid = () => 0;
+  const asRoot = await bundleFor(created);
+  assert.equal(asRoot.runtime.user.uid, 0);
+  assert.equal(asRoot.runtime.user.root, true, "uid 0 is root and must say so");
+
+  process.getuid = () => 1027;
+  process.getgid = () => 1027;
+  const asPackage = await bundleFor(created);
+  assert.equal(asPackage.runtime.user.uid, 1027);
+  assert.equal(asPackage.runtime.user.root, false);
+
+  // A platform that cannot be asked says so rather than reporting a plausible
+  // uid nobody has.
+  delete process.getuid;
+  const unasked = await bundleFor(created);
+  assert.deepEqual(unasked.runtime.user, { supported: false });
+});

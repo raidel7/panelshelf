@@ -1456,6 +1456,25 @@ async function startServer() {
         dataDirectory: DATA_DIRECTORY
       })
     );
+    // The DSM package declares run-as: package and the SPK validator refuses to
+    // build one that does not, so on a Synology this line never prints. It is
+    // here for every other way this gets started — a systemd unit written in a
+    // hurry, a docker run, someone testing with sudo because a port would not
+    // bind — where nothing is checking. Said rather than enforced: refusing to
+    // start would turn somebody's working install into a support ticket, and
+    // this server has no business deciding that for a deployment it knows
+    // nothing about.
+    if (typeof process.getuid === "function" && process.getuid() === 0) {
+      console.warn(
+        JSON.stringify({
+          time: new Date().toISOString(),
+          message:
+            "PanelShelf is running as root. It does not need to be, and anything " +
+            "it reads or writes is running with more privilege than it asks for. " +
+            "Run it as a dedicated user; the DSM package already does."
+        })
+      );
+    }
     try {
       advertisement = startAdvertisement({ port: PORT, version: VERSION });
     } catch (error) {

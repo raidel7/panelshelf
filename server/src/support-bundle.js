@@ -157,6 +157,23 @@ function comicStatistics(comics) {
   return { total: comics.length, byExtension, bySource, withMetadata, withPageCount };
 }
 
+// Who the server is running as. `getuid` is absent on Windows, where the
+// question does not arise and inventing an answer would be worse than saying
+// the platform cannot be asked.
+function processUser() {
+  if (typeof process.getuid !== "function") return { supported: false };
+  const uid = process.getuid();
+  const report = { supported: true, uid, gid: process.getgid(), root: uid === 0 };
+  try {
+    // Missing from some minimal environments, and not worth failing a support
+    // bundle over.
+    report.name = os.userInfo().username;
+  } catch {
+    report.name = null;
+  }
+  return report;
+}
+
 async function createSupportBundle(options = {}) {
   const { library, version, apiVersion } = options;
   const dataDirectory = library.dataDirectory;
@@ -221,6 +238,11 @@ async function createSupportBundle(options = {}) {
       // Resident set is the number that answers "is it being killed for
       // memory", which on a small NAS is a real question.
       memoryUsage: process.memoryUsage(),
+      // "No package process runs as root" is a release gate, and a gate that
+      // can only be checked by reading the package source is a gate nobody can
+      // check against the install they actually have. This is that check, on
+      // any install, in the file people already attach to bug reports.
+      user: processUser(),
       environment: Object.fromEntries(
         REPORTED_ENV.filter((name) => environment[name] !== undefined).map((name) => [
           name,
