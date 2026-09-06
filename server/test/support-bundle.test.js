@@ -58,22 +58,55 @@ test("a device token never reaches the bundle, in any of its forms", async (t) =
   assert.equal(bundle.devices.paired[0].boundToReaderProfile, false);
 });
 
+// Says where a secret turned up, not merely that it did. A bare
+// `assert.ok(!serialized.includes(x))` reports "the last four characters" and
+// leaves you to guess which of forty fields carried them.
+function findIn(node, needle, at = "", found = []) {
+  if (node && typeof node === "object") {
+    for (const [key, value] of Object.entries(node)) {
+      findIn(value, needle, at ? `${at}.${key}` : key, found);
+    }
+  } else if (String(node).includes(needle)) {
+    found.push(`${at} = ${JSON.stringify(node)}`);
+  }
+  return found;
+}
+
+function assertAbsent(bundle, needle, what) {
+  const found = findIn(bundle, needle);
+  assert.equal(found.length, 0, `${what} appears in the bundle at: ${found.join(", ")}`);
+}
+
 test("a provider key does not travel, not even the masked hint", async (t) => {
   const { library: created } = await library(t);
+  // The tail is letters deliberately. This test scans the whole document for
+  // the masked hint, which only means something if the hint cannot also be an
+  // unrelated number. It used to end in 1234, and four nightly builds died on
+  // CI machines where some other field — a memory reading, a version string —
+  // happened to contain those digits. The bundle was correct every time.
   await created.saveMetadataSettings({
-    providers: { metron: { enabled: true, token: "metron-secret-key-1234", permissionConfirmed: true } }
+    providers: { metron: { enabled: true, token: "metron-secret-key-WXYZ", permissionConfirmed: true } }
   });
 
   const bundle = await bundleFor(created);
-  const serialized = JSON.stringify(bundle);
-  assert.ok(!serialized.includes("metron-secret-key-1234"), "the key");
-  // The settings page shows ••••1234 because it is already on the owner's
+  assertAbsent(bundle, "metron-secret-key-WXYZ", "the key");
+  // The settings page shows ••••WXYZ because it is already on the owner's
   // screen. A bundle travels, so it says only that a key is set.
-  assert.ok(!serialized.includes("1234"), "the last four characters");
+  assertAbsent(bundle, "WXYZ", "the last four characters");
 
   const metron = bundle.metadata.providers.find((provider) => provider.id === "metron");
   assert.equal(metron.configured, true);
   assert.equal(metron.enabled, true);
+  // Both scans above also pass for a key that was never set at all. This is the
+  // assertion that fails if a field carrying one is ever added back, whatever
+  // that key happens to look like.
+  assert.deepEqual(Object.keys(metron).sort(), [
+    "authentication",
+    "configured",
+    "enabled",
+    "id",
+    "permissionConfirmed"
+  ]);
 });
 
 test("reading positions are counted, never listed", async (t) => {
