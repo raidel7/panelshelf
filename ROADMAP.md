@@ -1062,9 +1062,9 @@ The rest is hardware, and most of it is now done. The upgrade was made and
 survived with a checkpoint, the read path was profiled against a real library,
 and both a full scan and a quick one have run under this build — with what they
 cost, and the two things they disproved, recorded below. What is left is a
-restart, a downgrade, power loss, and the parts of this section that only show
-themselves under sustained pressure: the cover cache reaching its ceiling, the
-log reaching its own, and a scheduled scan firing while nobody is watching.
+restart, a downgrade, power loss, and the two parts of this section that only
+show themselves under sustained pressure: the cover cache reaching its ceiling
+and the log reaching its own.
 
 Everything in this section that can be built from a laptop is built.
 
@@ -1189,9 +1189,25 @@ does 2,679, so it would have had to degrade 134-fold before the panel said
 anything. There are now two floors, 2 and 200, each set well under its measured
 rate.
 
+A scheduled scan has also now fired on its own, which is the other thing in
+this section that only a real machine can prove. Set two minutes out, it ran 37
+seconds after the appointed minute — the poll is once a minute and lands where
+the process started — took its 9.1 seconds, stamped itself, and moved to
+tomorrow. Nobody asked it to.
+
+That test turned up something worth more than the test. **The NAS keeps its
+clock seven hours behind the laptop that configures it**, and the schedule is
+set in the NAS's local time, which is right: it is the clock the library lives
+on. But the control is a browser time input, which reads as this device's
+clock, so an owner setting 03:00 would have got a scan at 06:00 their time and
+no way to tell from the screen. The summary now says so, derived rather than
+asked for — `nextRunAt` is the instant the NAS's clock reaches the time typed
+in, which is enough to work out the gap — and says nothing at all when the two
+clocks agree, which is the usual case.
+
 Still not reproduced on hardware: the cover cache ceiling under real pressure,
-log rotation, the generation queue against a cold shelf, a scheduled scan
-firing, power loss, downgrade, and uninstall.
+log rotation, the generation queue against a cold shelf, power loss, downgrade,
+and uninstall.
 
 ### Release gates
 

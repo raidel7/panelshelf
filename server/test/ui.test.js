@@ -1774,3 +1774,64 @@ test("the shelf listing is drawn without the metadata blocks it no longer carrie
   ].map((match) => match[1]);
   assert.deepEqual(clientSources.sort(), serverSources.sort());
 });
+
+test("the schedule says whose clock it is set on", async () => {
+  // Found on hardware: the NAS runs seven hours behind the laptop that
+  // configures it, and a time input in a browser reads as this device's clock.
+  // Three hours of silent difference between what the owner typed and when the
+  // disk actually starts working.
+  const application = await fsp.readFile(path.join(publicDirectory, "app.js"), "utf8");
+
+  const extract = (name) => {
+    const start = application.search(new RegExp(`^function ${name}\\(`, "m"));
+    assert.notEqual(start, -1, `${name} should exist`);
+    let index = application.indexOf("{", start);
+    for (let depth = 0; index < application.length; index += 1) {
+      if (application[index] === "{") depth += 1;
+      else if (application[index] === "}" && (depth -= 1) === 0) {
+        return application.slice(start, index + 1);
+      }
+    }
+    throw new Error(`${name} is not brace-balanced`);
+  };
+
+  const context = { result: null };
+  vm.createContext(context);
+  new vm.Script(
+    `${extract("clockDrift")}\n${extract("wrapOffset")}\nresult = clockDrift;`
+  ).runInContext(context);
+  const clockDrift = context.result;
+
+  // The browser this test runs in decides `here`, so every case is built from
+  // the offset actually in force rather than from a fixed timezone.
+  const hereOffsetMinutes = -new Date().getTimezoneOffset();
+  const atServerOffset = (offsetMinutes, time) => {
+    const [hours, minutes] = time.split(":").map(Number);
+    const utc = Date.UTC(2026, 8, 7, hours, minutes) - offsetMinutes * 60_000;
+    return new Date(utc).toISOString();
+  };
+
+  assert.equal(
+    clockDrift("03:00", atServerOffset(hereOffsetMinutes, "03:00")),
+    "",
+    "two clocks that agree are not worth a sentence"
+  );
+
+  const behind = clockDrift("03:00", atServerOffset(hereOffsetMinutes - 180, "03:00"));
+  assert.match(behind, /3 hours behind this device/);
+  assert.match(behind, /03:00 is its time, not yours/);
+
+  const ahead = clockDrift("03:00", atServerOffset(hereOffsetMinutes + 60, "03:00"));
+  assert.match(ahead, /1 hour ahead of this device/);
+
+  // Half-hour zones exist and are not "0.5 hours".
+  assert.match(
+    clockDrift("03:00", atServerOffset(hereOffsetMinutes + 30, "03:00")),
+    /30 minutes ahead of this device/
+  );
+
+  // Nothing to say without both halves of the answer.
+  assert.equal(clockDrift("", null), "");
+  assert.equal(clockDrift("03:00", "not a date"), "");
+  assert.equal(clockDrift("nonsense", atServerOffset(0, "03:00")), "");
+});

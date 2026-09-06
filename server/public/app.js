@@ -1218,6 +1218,13 @@ function renderScanSchedule(schedule) {
         minute: "2-digit"
       })
     : "—";
+  // The time above is set on the NAS's clock, and a time input in a browser
+  // reads as this device's. They are usually the same and quietly are not when
+  // the NAS was set up in another timezone or never had one set. Saying so is
+  // only worth the words when it is true, so it is derived rather than asked
+  // for: nextRunAt is the instant the NAS's clock reaches the time typed here,
+  // which is enough to work out the gap between the two.
+  const drift = clockDrift(schedule.time, schedule.nextRunAt);
   // What it did last is the part worth stating: a job nobody watched has no
   // other account of itself.
   const last = schedule.lastResult
@@ -1227,7 +1234,38 @@ function renderScanSchedule(schedule) {
         }.`
       : ` Last run failed: ${schedule.lastResult.error}`
     : "";
-  elements.scanScheduleSummary.textContent = `Next scan ${when}.${last}`;
+  elements.scanScheduleSummary.textContent = `Next scan ${when}.${last}${drift}`;
+}
+
+// Minutes between the NAS's clock and this one, as a sentence, or nothing at
+// all when they agree.
+function clockDrift(time, nextRunAt) {
+  const parts = /^(\d{1,2}):(\d{2})$/.exec(String(time || ""));
+  if (!parts || !nextRunAt) return "";
+  const at = new Date(nextRunAt);
+  if (Number.isNaN(at.getTime())) return "";
+
+  const serverMinutes = Number(parts[1]) * 60 + Number(parts[2]);
+  const utcMinutes = at.getUTCHours() * 60 + at.getUTCMinutes();
+  const serverOffset = wrapOffset(serverMinutes - utcMinutes);
+  const hereOffset = -at.getTimezoneOffset();
+  const gap = wrapOffset(serverOffset - hereOffset);
+  if (gap === 0) return "";
+
+  const hours = Math.abs(gap) / 60;
+  const amount = Number.isInteger(hours)
+    ? `${hours} ${hours === 1 ? "hour" : "hours"}`
+    : `${Math.abs(gap)} minutes`;
+  return ` The NAS clock is ${amount} ${gap > 0 ? "ahead of" : "behind"} this device, and ${time} is its time, not yours.`;
+}
+
+// Offsets live in (-12 h, +14 h]; a difference taken across midnight lands
+// outside that and means the same thing brought back inside it.
+function wrapOffset(minutes) {
+  let value = minutes;
+  while (value <= -720) value += 1440;
+  while (value > 840) value -= 1440;
+  return value;
 }
 
 async function saveScanSchedule() {
