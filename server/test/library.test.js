@@ -1516,10 +1516,14 @@ test("two requests for the same uncached cover decode it once", async (t) => {
 
 test("a shelf of uncached covers does not open every archive at once", async (t) => {
   // The ceiling that matters here is memory: each of these holds a full-size
-  // page while it works, and a shelf is sixty cards.
+  // page while it works, and a shelf is sixty cards. What the ceiling is
+  // depends on the machine now that the decode runs on worker threads, so this
+  // asks the library what its own limit is rather than restating a number that
+  // is no longer fixed.
   const { library } = await libraryOfThree(t, {
     coverCacheBudgetBytes: 0
   });
+  const limit = library.coverQueue.concurrency;
 
   let live = 0;
   let peak = 0;
@@ -1536,7 +1540,7 @@ test("a shelf of uncached covers does not open every archive at once", async (t)
 
   await Promise.all(library.listComics().map((comic) => library.cover(comic.id)));
 
-  assert.ok(peak <= 2, `saw ${peak} archives open at once`);
+  assert.ok(peak <= limit, `saw ${peak} archives open at once, limit ${limit}`);
   assert.equal(library.coverCacheStatus().cache.covers, 3, "and all three were cached");
 });
 

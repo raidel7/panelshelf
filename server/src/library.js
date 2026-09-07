@@ -35,9 +35,9 @@ const { ReadingOrderStore } = require("./reading-orders");
 const {
   THUMBNAIL_EXTENSION,
   UnsupportedImageError,
-  createThumbnail,
   imageSize
 } = require("./thumbnail");
+const { ThumbnailPool } = require("./thumbnail-pool");
 const { CoverCacheStore, CoverWarmup } = require("./cover-cache");
 const { WorkQueue } = require("./work-queue");
 const { sourceHealth } = require("./source-health");
@@ -543,8 +543,15 @@ class ComicLibrary {
       busy: () => this.scanState.running,
       run: (plan) => this.runScheduledWork(plan)
     });
+    // Covers are built on worker threads, so the queue's limit is now about
+    // how many full-size pages are held at once rather than about protecting
+    // the event loop from a decode that no longer runs on it. One more than
+    // the pool lets an archive read overlap the thread that will want it.
+    this.thumbnails = new ThumbnailPool();
     this.coverQueue = new WorkQueue({
-      concurrency: Number(process.env.PANELSHELF_COVER_CONCURRENCY) || undefined
+      concurrency:
+        Number(process.env.PANELSHELF_COVER_CONCURRENCY) ||
+        Math.max(2, this.thumbnails.size + 1)
     });
     this.deviceTokens = new DeviceTokenStore(dataDirectory);
     this.changes = new LibraryChangeLog(dataDirectory);
@@ -2226,7 +2233,7 @@ class ComicLibrary {
     if (known && known.thumbnailUnsupported) return null;
     let thumbnail = null;
     try {
-      thumbnail = createThumbnail(full.buffer);
+      thumbnail = await this.thumbnails.createThumbnail(full.buffer);
     } catch (error) {
       if (!(error instanceof UnsupportedImageError)) {
         console.warn(

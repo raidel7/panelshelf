@@ -632,6 +632,37 @@ nothing and an interrupted one is resumed simply by starting it again. Covers
 whose format cannot be shrunk count as warm: that verdict is recorded, and not
 repeating it is most of the point.
 
+#### Where the work happens
+
+Building a thumbnail decodes a full-size page, scales it and re-encodes it, all
+synchronously and all in JavaScript — there is no native image library to lean
+on. On the DS1825+ that is about a second per cover, and for a long time it was
+a second in which the server could answer nothing at all: measured against a
+24,839-comic library, a request for `/api/health` during a run of cover
+generation came back in 8.7 seconds, against 4 milliseconds idle. Opening a
+chronology position nobody had browsed before asks for about twenty covers at
+once, which is the stall that made it visible.
+
+Raising `PANELSHELF_COVER_CONCURRENCY` never fixed that and could not. The
+decode is synchronous, so more of them at once still ran one at a time, just
+with the event loop held for longer.
+
+Thumbnails are therefore built on worker threads. The pool is sized for the
+machine — one thread per gigabyte of RAM, one fewer than the CPU count, and no
+more than four, because each worker holds a full-size decoded page while it
+works and that is the memory. A DS1825+ gets four; a value ARM box with 512 MB
+gets one. Threads start on the first cover and are given back after thirty
+seconds of quiet, so a NAS nobody is browsing holds none. A machine that will
+not start a worker thread logs it once and builds covers the old way.
+
+The cover queue's limit is now about how many full-size pages are held at once
+rather than about protecting the event loop, so it defaults to one more than the
+pool: enough for an archive read to overlap the thread that will want it.
+
+Measured on the same 21-cover branch, on one machine, with everything else
+equal: 3,282 ms and 26 of 164 available event-loop turns before, 1,125 ms and 53
+of 56 after.
+
 #### What it is allowed to cost
 
 Everything in `covers/` is derived data that can be rebuilt from the archives,
@@ -642,7 +673,8 @@ nobody asked to store.
 | Setting | Default | Effect |
 |---|---|---|
 | `PANELSHELF_COVER_CACHE_MB` | `4096` | Ceiling on `covers/`. `0` removes it |
-| `PANELSHELF_COVER_CONCURRENCY` | `2` | How many covers may be generated at once |
+| `PANELSHELF_THUMBNAIL_WORKERS` | sized for the machine | Worker threads that build thumbnails. `0` builds them on the main thread |
+| `PANELSHELF_COVER_CONCURRENCY` | one more than the pool | How many covers may be generated at once |
 | `PANELSHELF_LOG_MAX_MB` | `8` | Ceiling on the log. `0` removes it |
 
 When the ceiling is reached, full-size covers are given up before thumbnails,

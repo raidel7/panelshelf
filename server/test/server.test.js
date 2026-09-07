@@ -1045,8 +1045,13 @@ test("the cover cache reports what it holds and whether a warm-up is running", a
   );
   assert.equal(body.warmup.status, "idle");
   // The settings panel shows how far behind cover generation is, so the queue
-  // reports itself alongside what it produced.
-  assert.equal(body.queue.concurrency, 2);
+  // reports itself alongside what it produced. The limit is sized for the
+  // machine — a NAS with cores gets to use them — so what is checked is that a
+  // limit is reported at all, and that it is one.
+  assert.ok(
+    Number.isInteger(body.queue.concurrency) && body.queue.concurrency >= 2,
+    `expected a real concurrency, got ${body.queue.concurrency}`
+  );
   assert.equal(body.queue.active, 0);
 });
 

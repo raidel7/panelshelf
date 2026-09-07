@@ -1256,6 +1256,12 @@ decoding. Doubling it would halve the wait and spend the headroom that made the
 shelf usable while it waited. Left alone deliberately, and now written down as a
 choice rather than a default.
 
+That reasoning was right about the symptom and wrong about the cause, which
+the next section is about: the listing was slow because the decode was holding
+the event loop, not because the queue was full. Once the decode moved off the
+loop the trade disappeared, and the spare slot stopped being the thing keeping
+the shelf usable.
+
 And the queue never went more than one deep — peak depth 1, nothing coalesced —
 because a serial producer cannot make it. The coalescing path that stops a
 warm-up and a reader decoding the same archive twice is therefore still
@@ -1263,6 +1269,48 @@ unexercised on hardware; it has unit tests and no field evidence.
 
 Still not reproduced on hardware: log rotation, power loss, downgrade, and
 uninstall.
+
+### Why a fresh branch took ten seconds to draw
+
+Reported from the browser on 2026-09-07: covers take a long time to appear when
+moving in and out of chronology branches, with the reasonable guess that
+something was not being cached. Measured against the real library, the caching
+was fine and the guess was wrong in an instructive way.
+
+The same branch of 30 thumbnails, twice in a row: 6,225 ms cold, 91 ms warm.
+Nothing was failing to cache. What was true instead is that 4,959 of 24,839
+comics had a thumbnail at all — the other 80% had simply never been asked for —
+and building one costs about a second.
+
+The second measurement is the one that mattered. Sampling `/api/health` while
+24 cold covers were generated: 4 ms median idle, 94 ms median during, **8.7
+seconds at the 95th percentile**. The server was not slow at making thumbnails
+so much as unable to do anything else while it made them. `createThumbnail`
+decodes, scales and re-encodes synchronously in pure JavaScript, so every cover
+held the event loop for its whole duration, and a branch asks for about twenty
+at once.
+
+This also explains the earlier finding above. The generation queue's limit of
+two was written as a memory ceiling and defended as leaving headroom for the
+shelf, but it could never have bought throughput: the CPU work was serialized
+by the loop no matter how many were in flight.
+
+Thumbnails now build on worker threads, sized for the machine — one per
+gigabyte of RAM, one fewer than the core count, capped at four, started on
+demand and given back after thirty seconds of quiet. On one machine, same
+21-cover branch, everything else equal:
+
+| | Main thread | Worker pool |
+| --- | --- | --- |
+| 21 cold thumbnails | 3,282 ms | 1,125 ms |
+| Per cover | 156 ms | 54 ms |
+| Event-loop turns during | 26 of 164 | 53 of 56 |
+
+Not yet measured on the NAS itself, which is where the 8.7-second figure came
+from and where the pool will be four threads rather than this laptop's four
+against a faster core. The remaining half of the answer is coverage: a full
+warm-up is the thing that makes a first visit to a branch cost nothing, and it
+is now a background job that does not hold the server while it runs.
 
 ### What a restart actually keeps
 

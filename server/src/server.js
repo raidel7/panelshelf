@@ -1519,6 +1519,9 @@ async function startServer() {
   const shutdown = (signal) => {
     logRotator.stop();
     library.schedule.stop();
+    // Worker threads keep nothing that has to be saved, but a thread still
+    // running is a process that will not exit on its own.
+    library.thumbnails.close().catch(() => {});
     console.log(JSON.stringify({ time: new Date().toISOString(), signal }));
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();
