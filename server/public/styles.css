@@ -688,6 +688,17 @@ h2 {
   text-align: center;
 }
 
+/* The skip sits below a rule and carries the badge's own colour, so the menu
+   shows at a glance that it is a separate mark rather than a fourth status. */
+.comic-status-skip.active {
+  color: #f4d99e;
+  background: rgba(91, 70, 33, .55);
+}
+
+.comic-status-skip.active .comic-status-check {
+  color: #f4d99e;
+}
+
 .comic-status-option > span:last-child {
   display: grid;
   min-width: 0;

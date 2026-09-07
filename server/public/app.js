@@ -2364,12 +2364,70 @@ function progressFor(comicIdValue) {
   return progress && typeof progress === "object" ? progress : null;
 }
 
-function readingStatus(comic) {
-  const progress = progressFor(comic.id);
-  if (!progress) return "unread";
-  if (progress.skipped) return "skipped";
+// Skip shares a record with the reading position, because that is how the
+// server stores it and how every client reads it. Skipping an unread comic
+// therefore has to write a record with nothing in it but the flag — and that
+// record must never be mistaken for "started reading it", or taking the skip
+// off would leave an untouched comic sitting in Continue Reading.
+function skipOnlyRecord(progress) {
+  return Boolean(
+    progress &&
+      progress.skipped &&
+      !progress.completed &&
+      !(Number(progress.pageIndex) > 0)
+  );
+}
+
+// Where the reader actually got to, with the skip set aside. Skipping is a
+// decision about navigation; it says nothing about whether the comic was read,
+// and the menu has to be able to show both at once.
+function statusFromRecord(progress) {
+  if (!progress || skipOnlyRecord(progress)) return "unread";
   if (progress.completed) return "completed";
   return "in-progress";
+}
+
+// The single badge a card can show. Skipped leads, because it is the fact that
+// changes what the app does next.
+function shelfStatusFromRecord(progress) {
+  if (progress && progress.skipped) return "skipped";
+  return statusFromRecord(progress);
+}
+
+// What a change to the skip leaves behind, or null when there is nothing left
+// worth storing. Marking keeps whatever the comic already was; unmarking gives
+// it straight back.
+function recordWithSkip(previous, skipped, pageCount) {
+  const prior = previous || {};
+  const pages = Math.max(0, Number(pageCount || prior.pageCount || 0));
+  if (!skipped) {
+    if (skipOnlyRecord({ ...prior, skipped: true })) return null;
+    return { ...prior, pageCount: pages, skipped: false };
+  }
+  return {
+    pageIndex: Math.min(
+      Math.max(0, Number(prior.pageIndex) || 0),
+      Math.max(0, pages - 1)
+    ),
+    pageCount: pages,
+    completed: Boolean(prior.completed),
+    skipped: true,
+    lastReadAt: prior.lastReadAt || null,
+    orderId: prior.orderId || null
+  };
+}
+
+function readingStatus(comic) {
+  return shelfStatusFromRecord(progressFor(comic.id));
+}
+
+// The three the radio group offers. A skipped comic still has one of them.
+function readProgressStatus(comic) {
+  return statusFromRecord(progressFor(comic.id));
+}
+
+function isComicSkipped(comic) {
+  return Boolean(progressFor(comic.id)?.skipped);
 }
 
 function progressPercent(comic) {
@@ -2697,6 +2755,9 @@ function markComicCompleted(comic, completed = true) {
       : 0,
     pageCount: Number(comic.pageCount || previous.pageCount || 0),
     completed,
+    // Reading a comic says nothing about whether you still want it skipped in
+    // navigation. Only unmarking it does.
+    skipped: Boolean(previous.skipped),
     lastReadAt: new Date().toISOString(),
     orderId: state.reader.orderId || previous.orderId || null
   };
@@ -2704,8 +2765,12 @@ function markComicCompleted(comic, completed = true) {
   renderContinueReading();
 }
 
+// The three reading statuses. Skipping used to be a fourth, which is why there
+// was no way to take it off: every route out of it meant claiming the comic had
+// been read, or not read, or finished. It is its own control now, and this
+// leaves it exactly as it found it.
 function setComicShelfStatus(comic, status) {
-  if (!comic || !["unread", "in-progress", "completed", "skipped"].includes(status)) {
+  if (!comic || !["unread", "in-progress", "completed"].includes(status)) {
     return;
   }
   const previous = progressFor(comic.id) || {};
@@ -2714,25 +2779,20 @@ function setComicShelfStatus(comic, status) {
     Number(comic.pageCount || previous.pageCount || 0)
   );
   const previousPage = Math.max(0, Number(previous.pageIndex) || 0);
+  const skipped = Boolean(previous.skipped);
 
   if (status === "unread") {
-    delete state.progress[comic.id];
+    // Resetting progress is not the same as changing your mind about skipping
+    // it, so a skipped comic keeps the flag and nothing else.
+    if (skipped) state.progress[comic.id] = recordWithSkip(null, true, pageCount);
+    else delete state.progress[comic.id];
   } else if (status === "completed") {
     state.progress[comic.id] = {
       pageIndex: Math.max(0, pageCount - 1),
       pageCount,
       completed: true,
-      skipped: false,
+      skipped,
       lastReadAt: new Date().toISOString(),
-      orderId: previous.orderId || null
-    };
-  } else if (status === "skipped") {
-    state.progress[comic.id] = {
-      pageIndex: Math.min(previousPage, Math.max(0, pageCount - 1)),
-      pageCount,
-      completed: false,
-      skipped: true,
-      lastReadAt: previous.lastReadAt || null,
       orderId: previous.orderId || null
     };
   } else {
@@ -2743,19 +2803,37 @@ function setComicShelfStatus(comic, status) {
         : Math.min(previousPage, lastReadablePage),
       pageCount,
       completed: false,
-      skipped: false,
+      skipped,
       lastReadAt: new Date().toISOString(),
       orderId: previous.orderId || null
     };
   }
 
+  applyProgressChange(comic, `${comic.title} marked ${statusLabel(status).toLocaleLowerCase()}.`);
+}
+
+// Skipping and unmarking, the only two things that touch the flag.
+function setComicSkipped(comic, skipped) {
+  if (!comic) return;
+  const next = recordWithSkip(progressFor(comic.id), skipped, comic.pageCount);
+  if (next) state.progress[comic.id] = next;
+  else delete state.progress[comic.id];
+  applyProgressChange(
+    comic,
+    skipped
+      ? `${comic.title} marked skipped.`
+      : `${comic.title} is no longer skipped.`
+  );
+}
+
+function applyProgressChange(comic, message) {
   persistProgress(comic.id);
   closeComicStatusMenu();
   renderContinueReading();
   if (state.statusFilter === "all") updateVisibleComicStatuses(comic.id);
   else renderComics();
   renderOrders();
-  showToast(`${comic.title} marked ${statusLabel(status).toLocaleLowerCase()}.`);
+  showToast(message);
 }
 
 function statusLabel(status) {
@@ -2763,6 +2841,14 @@ function statusLabel(status) {
   if (status === "completed") return "Completed";
   if (status === "skipped") return "Skipped";
   return "Unread";
+}
+
+// A tick beside "Skipped" does not tell anybody that clicking it again takes
+// the mark off, so the row says so itself.
+function skipRowCopy(skipped) {
+  return skipped
+    ? "Click to stop skipping it"
+    : "Skip it in reading-order navigation";
 }
 
 let openComicStatusMenu = null;
@@ -2988,22 +3074,22 @@ function comicStatusControl(comic, status) {
   menu.setAttribute("aria-label", `Shelf status for ${comic.title}`);
   menu.hidden = true;
 
+  const readStatus = statusFromRecord(progressFor(comic.id));
   const choices = [
     ["unread", "Unread", "Reset saved reading progress"],
     ["in-progress", "In progress", "Keep this in Continue Reading"],
-    ["completed", "Completed", "Mark the comic as finished"],
-    ["skipped", "Skipped", "Skip it in reading-order navigation"]
+    ["completed", "Completed", "Mark the comic as finished"]
   ];
   for (const [value, label, description] of choices) {
     const item = document.createElement("button");
     item.type = "button";
-    item.className = `comic-status-option${status === value ? " active" : ""}`;
+    item.className = `comic-status-option${readStatus === value ? " active" : ""}`;
     item.dataset.statusValue = value;
     item.setAttribute("role", "menuitemradio");
-    item.setAttribute("aria-checked", status === value ? "true" : "false");
+    item.setAttribute("aria-checked", readStatus === value ? "true" : "false");
     const check = document.createElement("span");
     check.className = "comic-status-check";
-    check.textContent = status === value ? "✓" : "";
+    check.textContent = readStatus === value ? "✓" : "";
     const copy = document.createElement("span");
     const name = document.createElement("strong");
     name.textContent = label;
@@ -3017,6 +3103,39 @@ function comicStatusControl(comic, status) {
     });
     menu.append(item);
   }
+
+  // Below its own rule, because it is not one of the three above. Skipping is a
+  // deliberate instruction about navigation, and a checkbox is the control that
+  // can be un-ticked.
+  const skipDivider = document.createElement("span");
+  skipDivider.className = "comic-status-divider";
+  skipDivider.setAttribute("aria-hidden", "true");
+
+  const skipped = isComicSkipped(comic);
+  const skipItem = document.createElement("button");
+  skipItem.type = "button";
+  skipItem.className = `comic-status-option comic-status-skip${skipped ? " active" : ""}`;
+  skipItem.dataset.skipToggle = "true";
+  skipItem.setAttribute("role", "menuitemcheckbox");
+  skipItem.setAttribute("aria-checked", skipped ? "true" : "false");
+  const skipCheck = document.createElement("span");
+  skipCheck.className = "comic-status-check";
+  skipCheck.textContent = skipped ? "✓" : "";
+  const skipCopy = document.createElement("span");
+  const skipName = document.createElement("strong");
+  skipName.textContent = "Skipped";
+  const skipDetail = document.createElement("small");
+  skipDetail.className = "comic-status-skip-detail";
+  skipDetail.textContent = skipRowCopy(skipped);
+  skipCopy.append(skipName, skipDetail);
+  skipItem.append(skipCheck, skipCopy);
+  skipItem.addEventListener("click", (event) => {
+    event.stopPropagation();
+    // Read live: the row is updated in place as the card changes, so a value
+    // captured when the menu was built goes stale.
+    setComicSkipped(comic, !isComicSkipped(comic));
+  });
+  menu.append(skipDivider, skipItem);
 
   const divider = document.createElement("span");
   divider.className = "comic-status-divider";
@@ -3085,8 +3204,12 @@ function comicStatusControl(comic, status) {
   return wrapper;
 }
 
+// The badge alone is not enough any more: a skipped comic can go from unread to
+// finished without its badge moving, and the menu underneath has to follow.
 function comicStatusSignature(comic, status) {
-  return `${status}|${status === "in-progress" ? progressPercent(comic) : 0}`;
+  return `${status}|${readProgressStatus(comic)}|${
+    status === "in-progress" ? progressPercent(comic) : 0
+  }`;
 }
 
 function comicCard(comic, options = {}) {
@@ -3226,13 +3349,24 @@ function updateComicCardStatus(node, comic) {
   } else {
     track?.remove();
   }
+  const readStatus = readProgressStatus(comic);
   node.querySelectorAll("[data-status-value]").forEach((item) => {
-    const active = item.dataset.statusValue === status;
+    const active = item.dataset.statusValue === readStatus;
     item.classList.toggle("active", active);
     item.setAttribute("aria-checked", active ? "true" : "false");
     const check = item.querySelector(".comic-status-check");
     if (check) check.textContent = active ? "✓" : "";
   });
+  const skipItem = node.querySelector("[data-skip-toggle]");
+  if (skipItem) {
+    const skipped = isComicSkipped(comic);
+    skipItem.classList.toggle("active", skipped);
+    skipItem.setAttribute("aria-checked", skipped ? "true" : "false");
+    const skipCheck = skipItem.querySelector(".comic-status-check");
+    if (skipCheck) skipCheck.textContent = skipped ? "✓" : "";
+    const skipDetail = skipItem.querySelector(".comic-status-skip-detail");
+    if (skipDetail) skipDetail.textContent = skipRowCopy(skipped);
+  }
 }
 
 // "Visible" was never true: the shelf keeps every card it has drawn, so this
@@ -3732,13 +3866,17 @@ function setCollectionShelfStatus(comics, status, title) {
     const previous = progressFor(comic.id) || {};
     const pageCount = Math.max(0, Number(comic.pageCount || previous.pageCount || 0));
     if (status === "unread") {
-      delete state.progress[comic.id];
+      if (previous.skipped) {
+        state.progress[comic.id] = recordWithSkip(null, true, pageCount);
+      } else {
+        delete state.progress[comic.id];
+      }
     } else {
       state.progress[comic.id] = {
         pageIndex: Math.max(0, pageCount - 1),
         pageCount,
         completed: true,
-        skipped: false,
+        skipped: Boolean(previous.skipped),
         lastReadAt: new Date().toISOString(),
         orderId: previous.orderId || null
       };

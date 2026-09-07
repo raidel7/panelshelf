@@ -1885,3 +1885,114 @@ test("a folder of broken files says what kind of problem it is", async () => {
   assert.match(styles, /\.issue-folder-count\.whole \{/);
   assert.match(styles, /\.issue-file-list \{/);
 });
+
+test("a skip can be taken off again without erasing what was underneath", async () => {
+  const [application, styles] = await Promise.all([
+    fsp.readFile(path.join(publicDirectory, "app.js"), "utf8"),
+    fsp.readFile(path.join(publicDirectory, "styles.css"), "utf8")
+  ]);
+
+  const extract = (name) => {
+    const start = application.search(new RegExp(`^function ${name}\\(`, "m"));
+    assert.notEqual(start, -1, `${name} should exist`);
+    let index = application.indexOf("{", start);
+    for (let depth = 0; index < application.length; index += 1) {
+      if (application[index] === "{") depth += 1;
+      else if (application[index] === "}" && (depth -= 1) === 0) {
+        return application.slice(start, index + 1);
+      }
+    }
+    throw new Error(`${name} is not brace-balanced`);
+  };
+
+  const context = {};
+  vm.createContext(context);
+  new vm.Script(
+    `${["skipOnlyRecord", "statusFromRecord", "shelfStatusFromRecord", "recordWithSkip", "skipRowCopy"]
+      .map(extract)
+      .join("\n")}
+     this.skipOnlyRecord = skipOnlyRecord;
+     this.statusFromRecord = statusFromRecord;
+     this.shelfStatusFromRecord = shelfStatusFromRecord;
+     this.recordWithSkip = recordWithSkip;
+     this.skipRowCopy = skipRowCopy;`
+  ).runInContext(context);
+  const { statusFromRecord, shelfStatusFromRecord, recordWithSkip, skipRowCopy } = context;
+
+  // Skip is about navigation. It is not a reading status, and it must not
+  // stand in for one: a comic can be finished and skipped at the same time.
+  assert.equal(
+    shelfStatusFromRecord({ pageIndex: 99, pageCount: 100, completed: true, skipped: true }),
+    "skipped",
+    "the badge still leads with the skip"
+  );
+  assert.equal(
+    statusFromRecord({ pageIndex: 99, pageCount: 100, completed: true, skipped: true }),
+    "completed",
+    "and the comic is still finished underneath it"
+  );
+
+  // The whole point: unmarking gives back what was there.
+  assert.deepEqual(
+    // Object.assign lands it in this realm, where deepEqual can compare it:
+    // the extracted functions run inside a vm context of their own.
+    Object.assign(
+      {},
+      recordWithSkip(
+        { pageIndex: 40, pageCount: 100, completed: false, skipped: true, lastReadAt: "x" },
+        false,
+        100
+      )
+    ),
+    { pageIndex: 40, pageCount: 100, completed: false, skipped: false, lastReadAt: "x" },
+    "page 41 of 100 survives being un-skipped"
+  );
+  assert.equal(
+    shelfStatusFromRecord(
+      recordWithSkip({ pageIndex: 99, pageCount: 100, completed: true, skipped: true }, false, 100)
+    ),
+    "completed",
+    "a finished comic goes back to finished"
+  );
+
+  // Skipping an unread comic has to write a record to hold the flag. That
+  // record is not reading progress, and unmarking must take it away again —
+  // otherwise an untouched comic silently becomes "in progress" and turns up
+  // in Continue Reading.
+  const skippedWhileUnread = recordWithSkip(null, true, 22);
+  assert.equal(skippedWhileUnread.skipped, true);
+  assert.equal(skippedWhileUnread.pageIndex, 0);
+  assert.equal(statusFromRecord(skippedWhileUnread), "unread", "nothing was read");
+  assert.equal(shelfStatusFromRecord(skippedWhileUnread), "skipped");
+  assert.equal(
+    recordWithSkip(skippedWhileUnread, false, 22),
+    null,
+    "unmarking it leaves no record at all"
+  );
+
+  // Marking a comic skipped keeps whatever it already was.
+  const skippedWhileReading = recordWithSkip(
+    { pageIndex: 12, pageCount: 30, completed: false, skipped: false, orderId: "o1" },
+    true,
+    30
+  );
+  assert.equal(skippedWhileReading.pageIndex, 12, "where you were is kept");
+  assert.equal(skippedWhileReading.orderId, "o1");
+  assert.equal(
+    recordWithSkip({ pageIndex: 99, pageCount: 100, completed: true }, true, 100).completed,
+    true,
+    "skipping a finished comic does not un-finish it"
+  );
+
+  // A position past the end of a shorter file is clamped rather than kept.
+  assert.equal(recordWithSkip({ pageIndex: 900, pageCount: 900 }, true, 10).pageIndex, 9);
+
+  // A tick beside "Skipped" does not tell you that clicking again takes it
+  // off, so the row has to say so.
+  assert.notEqual(skipRowCopy(true), skipRowCopy(false));
+  assert.match(skipRowCopy(true), /stop skipping/i);
+
+  // A marked skip has to look unlike a ticked reading status, or the menu
+  // reads as four radio buttons again.
+  assert.match(styles, /\.comic-status-skip\.active \{/);
+});
