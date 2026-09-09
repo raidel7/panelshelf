@@ -32,6 +32,57 @@ test("filename metadata infers a parenthetical publication year", () => {
   assert.equal(inferFilenameMetadata("2006 Avengers 001.cbz"), null);
 });
 
+test("a scan resolution in a filename is not a publication year", () => {
+  // Every one of these is a real file from a 24,865-comic library, and every
+  // one of them was dated by the number the scanning group put there to say
+  // how wide the pages are. The library's raw year spread was 1800 to 2048,
+  // which is what put "1800-2048" on the front of a DC chronology.
+  const resolutions = [
+    ["Legends of The Dark Knight 004 (2012) (Digital First-1800px) (Spyder-Empire).cbz", 2012],
+    ["Batman 018 (2013) (4 covers - 2048px) (theFragile-Novus-HD).cbr", 2013],
+    ["Justice League Dark 015 (2013) (Digital) (1920px) (Cypher-Empire).cbr", 2013],
+    ["JLA - Earth 2 (2000) (1920 HR) (Minutemen-DTs' GMDCURP).cbz", 2000],
+    ["Batman - Streets of Gotham 01 (2009) (Both Covers) (1920) (Minutemen).cbr", 2009]
+  ];
+  for (const [filename, year] of resolutions) {
+    assert.deepEqual(
+      inferFilenameMetadata(filename),
+      { source: "filename", year },
+      filename
+    );
+  }
+
+  // The last of those is the one shape cannot settle: a bare (1920) beside a
+  // bare (2009), telling them apart is knowing that comic books did not exist
+  // in 1920. So the range is the era, not the span of four-digit numbers.
+  assert.equal(inferFilenameMetadata("Some Comic (1899).cbz"), null);
+  assert.equal(inferFilenameMetadata("Some Comic (1920).cbz"), null);
+  assert.equal(inferFilenameMetadata("Some Comic (2048).cbz"), null);
+  assert.deepEqual(inferFilenameMetadata("Some Comic (1938).cbz"), {
+    source: "filename",
+    year: 1938
+  });
+
+  // A resolution that does fall inside the era has to be caught by shape.
+  // This library holds none, but 2000px is as common a scan width as 2048px.
+  assert.deepEqual(
+    inferFilenameMetadata("Batman 001 (2013) (2000px) (Group).cbz"),
+    { source: "filename", year: 2013 }
+  );
+  assert.equal(inferFilenameMetadata("Batman 001 (2000px) (Group).cbz"), null);
+  assert.equal(inferFilenameMetadata("Batman 001 (1988x3056) (Group).cbz"), null);
+  assert.equal(inferFilenameMetadata("Batman 001 (2013) (1536x2048).cbz").year, 2013);
+
+  // Next year is a cover date somebody could reasonably have; the year after
+  // that is somebody's pixel count.
+  const nextYear = new Date().getFullYear() + 1;
+  assert.deepEqual(inferFilenameMetadata(`Some Comic (${nextYear}).cbz`), {
+    source: "filename",
+    year: nextYear
+  });
+  assert.equal(inferFilenameMetadata(`Some Comic (${nextYear + 1}).cbz`), null);
+});
+
 test("filename year is indexed as fallback and embedded metadata remains authoritative", async (t) => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), "panelshelf-year-"));
   t.after(() => fsp.rm(directory, { recursive: true, force: true }));

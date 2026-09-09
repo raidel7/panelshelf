@@ -81,9 +81,13 @@ function compareComicsByOrderPath(left, right) {
   for (let index = 0; index < length; index += 1) {
     const leftPart = leftPath[index];
     const rightPart = rightPath[index];
-    // A shallower path is the parent's own comic and comes first.
-    if (!leftPart) return -1;
-    if (!rightPart) return 1;
+    // A shallower path is the parent's own comic. Among siblings that claim no
+    // position it comes first, which is what a series folder with an Annuals
+    // subfolder wants. Against a *ranked* sibling it does not: the folder has a
+    // declared position and a loose file has none. Same rule as
+    // compareChronologyNodes applies to folders, so the two agree.
+    if (!leftPart) return rightPart.rank ? 1 : -1;
+    if (!rightPart) return leftPart.rank ? -1 : 1;
     if (leftPart.rank && rightPart.rank) {
       const rankComparison = compareRankValues(leftPart.rank, rightPart.rank);
       if (rankComparison !== 0) return rankComparison;
@@ -101,21 +105,41 @@ function compareComicsByOrderPath(left, right) {
   return naturalTextCompare(left.title, right.title);
 }
 
-// When a branch is from, as a range. 83% of this library's comics carry a
-// year and the raw spread across all of them is 1800 to 2048 — a filename
-// parsed as "1800" would otherwise date the era it sits in. With enough dated
-// comics to be confident, the outer tenth at each end is ignored; below that
-// there is nothing to trim and the plain span is the honest answer.
+// The era a comic book can have been published in. Anything outside it is not
+// an unusual year, it is a different quantity wearing four digits — a scan
+// width, a page count, a resolution. Kept in step with EARLIEST_COMIC_YEAR in
+// library.js, which is where filenames are read, and with the browser's own
+// copy in public/app.js.
+const EARLIEST_COMIC_YEAR = 1930;
+
+function plausibleYear(year) {
+  return (
+    Number.isFinite(year) &&
+    year >= EARLIEST_COMIC_YEAR &&
+    year <= new Date().getFullYear() + 1
+  );
+}
+
+// When a branch is from, as a range.
+//
+// This used to ignore the outer tenth at each end, to stop one filename parsed
+// as "1800" dating the era it sat in. That defended against a bug in the
+// filename parser, and it cost far more than it bought: on the library it was
+// written for it reported a DC collection running 1938 to 2026 as "1988-2015",
+// throwing away the Golden, Silver and Bronze Ages to hide two bad files.
+//
+// The parser no longer produces those values, and what remains is a question of
+// validity rather than of statistics: a year outside the era is discarded, and
+// every real one counts. A branch is then allowed to be as wide as it is.
 function yearRange(comics) {
   const years = [];
   for (const comic of comics) {
     const year = comic.metadata?.year;
-    if (Number.isFinite(year)) years.push(year);
+    if (plausibleYear(year)) years.push(year);
   }
   if (years.length === 0) return null;
   years.sort((left, right) => left - right);
-  const trim = years.length >= 10 ? Math.floor(years.length / 10) : 0;
-  return { from: years[trim], to: years[years.length - 1 - trim] };
+  return { from: years[0], to: years.at(-1) };
 }
 
 function makeNode(options) {
@@ -201,9 +225,22 @@ function buildChronology(comics) {
     node.children = [...node.childMap.values()].sort(compareChronologyNodes);
     node.directComics.sort(compareComicsByOrderPath);
     for (const child of node.children) finalize(child);
+    // A node's own comics sit where an unranked sibling sits: after everything
+    // that claims a position in the timeline, before everything that does not.
+    //
+    // They used to come first unconditionally, which reads as "the parent's own
+    // comics, then what is filed below" and is right for a series folder with
+    // an Annuals subfolder — where nothing is ranked and this changes nothing.
+    // Under numbered eras it invented a position instead. One Marvel book
+    // downloaded into the root of a DC library whose folders are numbered 01 to
+    // 06 took position one in a 24,649-comic chronology, and with it the branch
+    // cover, ahead of Action Comics #2.
+    const positioned = node.children.filter((child) => child.rank);
+    const unpositioned = node.children.filter((child) => !child.rank);
     node.comics = [
+      ...positioned.flatMap((child) => child.comics),
       ...node.directComics,
-      ...node.children.flatMap((child) => child.comics)
+      ...unpositioned.flatMap((child) => child.comics)
     ];
     // Computed here, once per build, rather than per request: a level's
     // children can hold thousands of comics between them and the tree is

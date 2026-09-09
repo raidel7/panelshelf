@@ -76,21 +76,49 @@ const CONFIG_SCHEMA_VERSION = 2;
 const STAGING_POLICIES = new Set(["show-unfiled", "exclude"]);
 const SCAN_ACTIONS = new Set(["quick", "source", "retry", "full"]);
 
+// The era comic books were published in. Both ends earn their place against a
+// real library: the raw spread of four-digit numbers across 24,865 files was
+// 1800 to 2048, and every value outside this range was a scan resolution — the
+// width in pixels that the scanning group put in the filename. Ten files were
+// dated 1800 or 1920 and four were dated 2048, all of which also carried their
+// real year a couple of parentheses earlier.
+//
+// The floor is set before the format existed rather than at DC's first title,
+// so a reprint of something older is not refused; nothing in that library lost
+// its only candidate to it. The ceiling is next year, because a cover date can
+// run ahead of the calendar and a pixel count cannot.
+const EARLIEST_COMIC_YEAR = 1930;
+
+// A number that is measuring something. `2000px` is as common a scan width as
+// `2048px` and, unlike 2048, it sits inside the era — so the range cannot be
+// the only guard.
+const MEASUREMENT_AFTER = /^\s*(?:px|p\b|dpi|ppi|HR|HD|\s*[x\u00d7]\s*\d)/i;
+const MEASUREMENT_BEFORE = /\d\s*[x\u00d7]\s*$/i;
+
 function inferFilenameMetadata(filePath) {
   const filename = path.basename(
     String(filePath || ""),
     path.extname(String(filePath || ""))
   );
+  const latestYear = new Date().getFullYear() + 1;
   const parentheticalGroups = [...filename.matchAll(/\(([^)]*)\)/g)];
   const plausibleYears = parentheticalGroups
     .map((match) => {
-      const years = [...match[1].matchAll(/(?:^|\D)((?:18|19|20|21)\d{2})(?!\d)/g)];
-      return years.length === 1 ? years[0][1] : null;
+      const group = match[1];
+      const years = [...group.matchAll(/(?:^|\D)((?:19|20)\d{2})(?!\d)/g)];
+      if (years.length !== 1) return null;
+      const found = years[0];
+      const end = found.index + found[0].length;
+      if (MEASUREMENT_AFTER.test(group.slice(end))) return null;
+      if (MEASUREMENT_BEFORE.test(group.slice(0, end - 4))) return null;
+      return found[1];
     })
     .filter(Boolean)
     .map(Number)
-    .filter((year) => year >= 1800 && year <= 2199);
+    .filter((year) => year >= EARLIEST_COMIC_YEAR && year <= latestYear);
   if (plausibleYears.length === 0) return null;
+  // The last one, because a filename that carries two is usually giving the
+  // volume's first year and then the issue's.
   return {
     source: "filename",
     year: plausibleYears.at(-1)

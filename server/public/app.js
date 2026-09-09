@@ -4713,9 +4713,19 @@ function renderUnfiledView(filtered, tree) {
   return true;
 }
 
+// The era a comic book can have been published in, kept in step with
+// chronology.js and library.js on the server. A four-digit number outside it is
+// not an unusual year, it is a scan width: this library had files dated 1800,
+// 1920 and 2048, all of them the pixel width the scanning group recorded, and
+// all of them enough to put "1800-2048" on the front of a chronology.
+//
+// Filtering here as well as at the point filenames are parsed is what lets an
+// index written by an older build stop showing them without waiting for a scan.
 function comicPublicationYear(comic) {
   const year = Number(comic?.metadata?.year);
-  return Number.isInteger(year) && year >= 1800 && year <= 2199
+  return Number.isInteger(year) &&
+    year >= 1930 &&
+    year <= new Date().getFullYear() + 1
     ? year
     : null;
 }

@@ -182,6 +182,42 @@ test("a collection carries the cover of the comic a reader reaches first", () =>
   assert.equal(source.coverComicId, "c1", "the first comic in reading order");
 });
 
+test("a loose file at the top does not take position one from a numbered era", () => {
+  // What this is about, from a real library: a Marvel book downloaded into the
+  // root of a DC folder whose eras are numbered 01 to 06. It has no declared
+  // position, and it was given the first one — which made it the cover of a
+  // 24,649-comic chronology.
+  const stray = comic({ id: "stray", title: "Indestructible Hulk v04", segments: [] });
+  const source = view([...library(), stray], null).children[0];
+
+  assert.equal(
+    source.coverComicId,
+    "c1",
+    "the first numbered era still leads"
+  );
+  const order = view([...library(), stray], source.id).comics.map((c) => c.id);
+  assert.deepEqual(order, ["stray"], "and the loose file is filed at this level");
+
+  // The rule is about rank, not about depth. Where nothing claims a position,
+  // a folder's own comics still come before the folders inside it — which is
+  // what a series with an Annuals subfolder wants.
+  const group = comic({
+    id: "own",
+    title: "Anita Blake 0",
+    segments: [{ name: "Anita Blake Universe", role: "group" }]
+  });
+  const deeper = comic({
+    id: "deeper",
+    title: "Anita Blake extra",
+    segments: [
+      { name: "Anita Blake Universe", role: "group" },
+      { name: "Extras", role: "group" }
+    ]
+  });
+  const unranked = view([group, deeper], null).children[0];
+  assert.equal(unranked.coverComicId, "own", "the folder's own comic leads");
+});
+
 test("rank comparison survives zero padding and dotted insertions", () => {
   assert.ok(compareRankValues("2", "10") < 0, "2 before 10");
   assert.ok(compareRankValues("0002", "10") < 0, "padding does not change that");
@@ -299,29 +335,46 @@ test("skips that name branches this library does not have are ignored", () => {
   assert.equal(source.inheritedSkip, false);
 });
 
-test("a year range ignores the outliers a bad filename produces", () => {
+test("a year range keeps every real year and discards the impossible ones", () => {
   const dated = (year) => ({ metadata: Number.isFinite(year) ? { year } : null });
 
-  // Fewer than ten dated comics: there is nothing to trim and the plain span is
-  // the honest answer.
   assert.deepEqual(yearRange([dated(1990), dated(1995)]), { from: 1990, to: 1995 });
   assert.equal(yearRange([dated(null), dated(undefined)]), null, "no years at all");
   assert.equal(yearRange([]), null);
 
   // Twenty comics from one decade, plus one filename parsed as 1800 and one as
-  // 2048. Untrimmed this era would read as 1800-2048.
+  // 2048. Those two are scan widths, not years, and they do not date the era.
   const era = [
     dated(1800),
     ...Array.from({ length: 20 }, (unused, index) => dated(1985 + (index % 10))),
     dated(2048)
   ];
   assert.deepEqual(yearRange(era), { from: 1985, to: 1994 });
+  assert.equal(yearRange([dated(1800), dated(2048)]), null, "neither is a year");
+
+  // And the part the old rule got wrong. This ignored the outer tenth of the
+  // comics at each end, which on a real DC library reported a collection
+  // running 1938 to 2026 as "1988-2015" — the whole Golden, Silver and Bronze
+  // Age discarded to hide two bad files. A branch is as wide as it is.
+  const wholeOfDC = [
+    ...Array.from({ length: 40 }, (unused, index) => dated(1938 + index)),
+    ...Array.from({ length: 400 }, () => dated(2015))
+  ];
+  assert.deepEqual(wholeOfDC.length > 10 && yearRange(wholeOfDC), {
+    from: 1938,
+    to: 2015
+  });
 
   // A range is still a range when every comic shares a year.
   assert.deepEqual(
     yearRange(Array.from({ length: 12 }, () => dated(2001))),
     { from: 2001, to: 2001 }
   );
+
+  // Next year is a cover date. The year after is not.
+  const nextYear = new Date().getFullYear() + 1;
+  assert.deepEqual(yearRange([dated(nextYear)]), { from: nextYear, to: nextYear });
+  assert.equal(yearRange([dated(nextYear + 1)]), null);
 });
 
 test("a branch carries the years of everything under it", () => {

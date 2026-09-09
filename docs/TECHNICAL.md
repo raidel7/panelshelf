@@ -448,6 +448,30 @@ Only the exact values `compact` and `shelf` opt in. `?view=full` and any other
 value, including a misspelling, return the full records, so an existing client
 cannot be shortened by accident.
 
+#### What counts as a publication year
+
+A year read from a filename is taken from a parenthesised group — the last one
+that offers exactly one candidate, since a filename carrying two is usually
+giving the volume's first year and then the issue's. Two things are then
+refused, and both earn their place against a 24,865-file library whose raw year
+spread was 1800 to 2048:
+
+- Anything outside 1930 to next year. Comic books did not exist before the
+  1930s, and a cover date can run a year ahead of the calendar but not twenty.
+  Every value outside that range in that library was a scan resolution — the
+  page width in pixels that the scanning group put in the filename. Ten files
+  were dated 1800 or 1920 and four were dated 2048, and every one of them also
+  carried its real year a couple of parentheses earlier.
+- A number measuring something: followed by `px`, `dpi`, `HR`, `HD`, or paired
+  as `1536x2048`. The range cannot catch these on its own, because `2000px` is
+  as common a scan width as `2048px` and 2000 is a perfectly good year.
+
+The same range decides which years a chronology branch is dated by. It replaced
+a rule that ignored the outer tenth of a branch's comics at each end, which
+defended against exactly the parse above and cost far more than it bought: on
+that library it reported a DC collection running 1938 to 2026 as `1988-2015`.
+Validity is the right question; statistics were not.
+
 ### Checking a server against this document
 
 ```bash

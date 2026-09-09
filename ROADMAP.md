@@ -1312,6 +1312,55 @@ against a faster core. The remaining half of the answer is coverage: a full
 warm-up is the thing that makes a first visit to a branch cost nothing, and it
 is now a background job that does not hold the server while it runs.
 
+### A chronology dated 1800 to 2048, with a Marvel cover
+
+Two reports from the browser on 2026-09-08, and they turned out to be three
+findings.
+
+**The years.** A DC collection was headed `1800-2048`. Fourteen files in 24,865
+carried a year outside the era, and every one of them was a scan resolution:
+`(Digital First - 1800px)`, `(4 covers - 2048px)`, `(1920 HR)`, and one bare
+`(1920)` sitting beside a bare `(2009)`. All fourteen also carried their real
+year a couple of parentheses earlier, so the filename parser had the right
+answer available and took the wrong one — it accepted anything from 1800 to
+2199, which is a range with no argument behind it.
+
+Narrowing it to 1930 through next year fixes all fourteen. Measured across the
+whole library: 13 filenames change, every change is a correction to the year
+already in the filename, nothing else moves, and accuracy against the 7,309
+comics with a `ComicInfo.xml` year is unchanged at 93.74%. No comic in the
+library loses its only candidate to the new floor. The raw spread went from
+`1800-2048` to `1938-2026`.
+
+**The trim that hid it.** `yearRange` already ignored the outer tenth of a
+branch's comics at each end, added to stop exactly this. It worked, and it cost
+too much: on this library it reported the DC collection as `1988-2015` — the
+Golden, Silver and Bronze Ages discarded to hide two bad files. Replaced with
+the same validity filter. A branch is now as wide as it is.
+
+The browser had a third copy of the rule, accepting 1800 to 2199, and it is the
+one the screenshot came from: the web client builds its own chronology tree and
+never used the server's trimmed answer at all. Tightened to match, which also
+means an index written by an older build stops showing those years without
+waiting for a rescan.
+
+**The Marvel cover.** A DC chronology whose folders are numbered 01 to 06 was
+using an *Indestructible Hulk* cover. The file is real and misfiled — a Marvel
+book downloaded into the root of the DC folder — but it should not have been
+able to do that. A node's own loose comics were concatenated ahead of its
+children unconditionally, so a file claiming no position took position one in a
+24,649-comic timeline, and with it the branch cover.
+
+That rule is right where nothing is ranked: a series folder's own issues should
+come before its Annuals subfolder. It is wrong against ranked children, and it
+disagreed with `compareChronologyNodes`, which has always put unranked folders
+behind ranked ones. Now they agree. Rebuilt against the real listing, the cover
+is Action Comics #2 (1938) and the stray file sits at 14,122 of 24,839.
+
+Also found, and not a bug: a second source is configured at
+`/volumeUSB2/usbshare2-2/Marvel/01 Before Recorded History`, 26 comics, which is
+what put a Galactus cover on the other root position.
+
 ### What a restart actually keeps
 
 Unplanned, and worth more for being unplanned. On 2026-09-06 the package was
