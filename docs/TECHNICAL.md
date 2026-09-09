@@ -85,6 +85,76 @@ the guarantee is a sentence rather than an arithmetic argument.
 If pairing is on and every client has lost its token, recovery means setting
 `enabled` to `false` in `devices.json` in the data directory, over SSH.
 
+### The window on the DSM desktop
+
+Installed as a package, PanelShelf puts an icon in the DSM main menu. Clicking
+it opens the library in a window on the DSM desktop rather than throwing the
+browser into a tab of its own.
+
+That is two pieces. `synology/ui/config` declares the app as Synology's
+`legacy` type, which is their word for an app drawn in a DSM window; `url`
+type, the other one, is the pop-up this used to be. And Package Center links
+the package's UI folder to `/usr/syno/synoman/webman/3rdparty/PanelShelf`, so
+the page in that window is served by DSM itself, from DSM's own origin. It
+always loads. What it puts inside itself is the part that can fail.
+
+The library is on port 8251, which is not DSM's origin, and two things can stop
+a browser drawing it there:
+
+- **DSM opened over HTTPS.** A page served over `https` cannot frame one served
+  over `http`, and no setting on either side changes that. PanelShelf
+  terminates no TLS by design, so this is decidable from the address bar before
+  anything is attempted, and the window decides it rather than showing an empty
+  rectangle for eight seconds first.
+- **The server refusing to be framed**, which it does unless told otherwise.
+
+Either way the window falls back to a button that opens the library in its own
+tab — which is exactly what the icon did before it opened a window at all, so
+the worst case costs one click.
+
+A refused frame is opaque from outside: nothing is readable across the origin,
+and `onload` fires for the browser's error page too. So the library announces
+itself with a `postMessage` when it loads, the window listens for that and for
+nothing else, and silence for eight seconds is taken as a no.
+
+#### Who is allowed to frame it
+
+| Variable | Default | Effect |
+|---|---|---|
+| `PANELSHELF_FRAME_ANCESTORS` | none outside the package | Origins allowed to draw PanelShelf in a frame, space separated |
+
+Run by hand, the default is that nothing may frame it: `X-Frame-Options:
+SAMEORIGIN`, as every release has sent. This matters more here than on a server
+with accounts. PanelShelf has none — whatever reaches the port can read the
+library — so a page that can frame it can lay itself over the top and take a
+click from somebody who already has it open.
+
+The package opts in, to DSM and nothing else, in `start-stop-status`:
+
+```sh
+PANELSHELF_FRAME_ANCESTORS="http://*:5000 https://*:5001"
+```
+
+Set before `panelshelf.env` is read, so a line in that file wins. A DSM moved
+off the standard ports has to name its own:
+
+```sh
+PANELSHELF_FRAME_ANCESTORS=http://*:7000
+```
+
+and an empty value puts the refusal back, at the cost of the window.
+
+Values are checked before they reach a header — `'self'`, `'none'`, or a host
+with an optional scheme and port. Anything else is refused whole, with a line
+in the log saying which token could not be read, rather than half-applied. A
+header takes what it is given, and a newline in this setting would otherwise be
+a way to write headers of somebody else's choosing onto every response.
+
+When a value is accepted, `X-Frame-Options` is dropped rather than sent beside
+it. The two cannot be made to agree: `SAMEORIGIN` has no way to name a second
+origin, so anything honouring the older header would block precisely the frame
+the newer one was added to allow.
+
 ### Behind a reverse proxy
 
 PanelShelf terminates no TLS of its own and never will: a comics server on a NAS

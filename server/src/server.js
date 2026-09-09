@@ -16,6 +16,7 @@ const {
   isSecureRequest
 } = require("./forwarded");
 const { AttemptLimiter, clientKey } = require("./rate-limit");
+const { securityHeaders } = require("./security-headers");
 const { createSupportBundle } = require("./support-bundle");
 const { LogRotator, defaultLogPath } = require("./log-rotation");
 const { DEFAULT_READER_ID } = require("./reader-profiles");
@@ -48,14 +49,20 @@ const ALLOWED_HOSTS = (process.env.PANELSHELF_ALLOWED_HOSTS || "")
 // machine the owner has named. `loopback` covers a proxy on the NAS itself.
 const TRUSTED_PROXIES = new TrustedProxies(process.env.PANELSHELF_TRUSTED_PROXY);
 
+// Who may draw this page inside a frame. Empty by default, which means nobody
+// but this origin. The DSM package sets it to DSM's own ports so that the
+// PanelShelf window on the DSM desktop has something to show; see
+// security-headers.js for why that is opt-in rather than the default.
+//
+// Resolved once at startup rather than per request: the value cannot change
+// without a restart, and the warning for a malformed one is worth printing
+// once instead of on every response.
+const SECURITY_HEADERS = securityHeaders(process.env.PANELSHELF_FRAME_ANCESTORS);
+
 function setSecurityHeaders(response) {
-  response.setHeader("X-Content-Type-Options", "nosniff");
-  response.setHeader("X-Frame-Options", "SAMEORIGIN");
-  response.setHeader("Referrer-Policy", "no-referrer");
-  response.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self';"
-  );
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    response.setHeader(name, value);
+  }
 }
 
 /// True for a host that a rebinding attack has no way to forge its way into.

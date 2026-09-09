@@ -7992,3 +7992,25 @@ refresh().catch((error) => {
   elements.librarySummary.textContent = "PanelShelf could not load the library.";
   showToast(error.message);
 });
+
+// Say so when this page is being shown inside somebody else's frame, which in
+// practice means the PanelShelf window on the DSM desktop.
+//
+// That window is served from DSM's own origin and cannot see in here: a frame
+// that was refused looks, from the outside, exactly like one that is still
+// loading, and `onload` fires either way because the browser's own error page
+// is a load too. Announcing arrival is the only signal that distinguishes
+// them, so the window can fall back to opening a tab instead of showing a
+// rectangle that will never fill in.
+//
+// Nothing but the fact of loading is sent, which is why the target origin can
+// safely be left open: the recipient learns only what it could already tell
+// from the frame being there at all.
+if (window.parent !== window) {
+  try {
+    window.parent.postMessage({ panelshelf: "ready" }, "*");
+  } catch (error) {
+    // A parent that will not take the message is the window's problem to
+    // notice, and it does — by timing out and offering the tab.
+  }
+}

@@ -1,13 +1,11 @@
 {
   ".url": {
     "com.panelshelf.App": {
-      "type": "url",
+      "type": "legacy",
       "icon": "images/panelshelf_{0}.png",
       "title": "PanelShelf",
       "desc": "Open your comic library",
-      "protocol": "http",
-      "port": "8251",
-      "url": "/",
+      "url": "/webman/3rdparty/PanelShelf/index.html",
       "allUsers": true
     }
   }

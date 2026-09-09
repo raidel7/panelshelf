@@ -2,12 +2,65 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Opening PanelShelf…</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PanelShelf</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #16151a;
+        color: #e8e4dc;
+        font: 14px -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      #frame {
+        display: block;
+        border: 0;
+        width: 100%;
+        height: 100%;
+      }
+      #fallback {
+        box-sizing: border-box;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 32px;
+        max-width: 46em;
+      }
+      #reason {
+        margin: 0;
+        line-height: 1.5;
+        color: #b9b2a6;
+      }
+      #open {
+        display: inline-block;
+        padding: 9px 18px;
+        border-radius: 6px;
+        background: #5b4621;
+        color: #f4d99e;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      #open:hover {
+        background: #6d5528;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
   </head>
   <body>
-    <p>Opening PanelShelf…</p>
-    <script>
-      window.location.replace("http://" + window.location.hostname + ":8251/");
-    </script>
+    <!-- Empty until the plan says otherwise: pointing it at the library before
+         knowing whether the library can be framed is what produces the blank
+         rectangle this page exists to avoid. window.js sets the src. -->
+    <iframe id="frame" title="PanelShelf" hidden></iframe>
+    <div id="fallback" hidden>
+      <p id="reason"></p>
+      <a id="open" href="#" target="_blank" rel="noopener">Open PanelShelf</a>
+    </div>
+    <script src="window.js"></script>
   </body>
 </html>

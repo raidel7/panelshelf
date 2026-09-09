@@ -71,6 +71,16 @@ case "$1" in
         umask 077
         mkdir -p "${VAR_DIR}" "${VAR_DIR}/covers" "${VAR_DIR}/tmp"
         cd "${PACKAGE_DIR}/app" || exit 1
+        # DSM draws a package's app window in an iframe served from its own
+        # origin -- 5000 plain, 5001 over TLS -- which is not this server's, so
+        # without naming it the frame is refused and the PanelShelf window on
+        # the DSM desktop comes up blank.
+        #
+        # Exported before the file is read, so a line in panelshelf.env wins:
+        # a DSM moved to a custom port has to name that port, and somebody who
+        # would rather not be framed at all has to be able to say so by setting
+        # this to nothing.
+        export PANELSHELF_FRAME_ANCESTORS="http://*:5000 https://*:5001"
         load_env_file
         # Host, port and data directory stay the package's to decide: the DSM
         # shortcut and the firewall rule are written against them, so letting
