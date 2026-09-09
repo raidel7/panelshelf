@@ -78,10 +78,10 @@ instead:
 
 ```sh
 # The checksum published beside it
-sha256sum -c PanelShelf-x86_64-0.5.1-1043.spk.sha256
+sha256sum -c PanelShelf-x86_64-0.5.2-1044.spk.sha256
 
 # Where it came from: this repository, this workflow, this commit
-gh attestation verify PanelShelf-x86_64-0.5.1-1043.spk --repo raidel7/panelshelf
+gh attestation verify PanelShelf-x86_64-0.5.2-1044.spk --repo raidel7/panelshelf
 ```
 
 The second one is the useful one. It checks a signed build provenance record in

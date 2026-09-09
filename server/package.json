@@ -1,6 +1,6 @@
 {
   "name": "panelshelf-server",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "PanelShelf comic server",
   "main": "src/server.js",

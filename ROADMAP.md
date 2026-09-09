@@ -4,7 +4,7 @@ Updated: 2026-09-09
 
 | Component | Version | State |
 | --- | --- | --- |
-| **Server and web** | 0.5.1, build 1043 | Released and installed. The developer's NAS runs it. |
+| **Server and web** | 0.5.2, build 1044 | Released and installed. The developer's NAS runs it. |
 | **iPad app** | unreleased | Developed separately. At parity with the web viewer for browsing and reading. |
 
 PanelShelf is a native Synology DSM comics server for CBZ and CBR libraries. It
@@ -102,6 +102,7 @@ The current build provides:
 | 0.4.18 / 1041 | OPDS page streaming, so third-party readers page instead of downloading |
 | 0.5.0 / 1042 | Reader profiles, pairing-code limits, trusted proxies, support bundle, phone layout |
 | 0.5.1 / 1043 | A cover cache with a ceiling, a bounded log, source health, upgrade checkpoints, scheduled scans, and a lighter shelf listing |
+| 0.5.2 / 1044 | Skip separated from reading status, thumbnails off the event loop, filename years that are not scan resolutions, and a window on the DSM desktop |
 
 1043 is most of section 10: everything in it that can be built without a NAS.
 What is left there needs hardware. The 0.4.14 heading covers 1035 and 1036 as

@@ -114,7 +114,7 @@ Center, its own firewall port, and logs where DSM keeps logs.
 ## Install
 
 1. **DSM → Package Center → Manual Install**
-2. Pick the package for your NAS — `PanelShelf-x86_64-0.5.1-1043.spk` for
+2. Pick the package for your NAS — `PanelShelf-x86_64-0.5.2-1044.spk` for
    Intel/AMD, `armv8` or `armv7` for ARM. **Control Panel → Info Center** names
    your CPU. ([Which models are tested](SUPPORTED_MODELS.md))
 3. Accept the third-party package warning

@@ -7,7 +7,7 @@ STAGE_DIR="${BUILD_DIR}/stage"
 PAYLOAD_DIR="${STAGE_DIR}/payload"
 OUTER_DIR="${STAGE_DIR}/outer"
 DIST_DIR="${PROJECT_DIR}/dist"
-VERSION="${PANELSHELF_VERSION:-0.5.1-1043}"
+VERSION="${PANELSHELF_VERSION:-0.5.2-1044}"
 ARCH="${PANELSHELF_ARCH:-x86_64}"
 # Node 22 rather than 24, and not by inertia: 24 ships no linux-armv7l build,
 # so moving to it would quietly leave the ARMv7 package without a runtime. 22 is

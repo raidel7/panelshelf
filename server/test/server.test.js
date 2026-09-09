@@ -2214,7 +2214,7 @@ test("the support bundle downloads, and needs a token when pairing is on", async
   );
   const bundle = await open.json();
   assert.equal(bundle.format, "panelshelf-support-bundle");
-  assert.equal(bundle.panelshelf.version, "0.5.1");
+  assert.equal(bundle.panelshelf.version, "0.5.2");
   assert.ok(bundle.contains.notice, state.logs);
 
   // Once pairing is on this is a guarded route like any other: it reports
