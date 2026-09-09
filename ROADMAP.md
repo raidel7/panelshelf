@@ -1,6 +1,6 @@
 # PanelShelf Roadmap
 
-Updated: 2026-09-09
+Updated: 2026-09-05
 
 | Component | Version | State |
 | --- | --- | --- |
@@ -102,7 +102,7 @@ The current build provides:
 | 0.4.18 / 1041 | OPDS page streaming, so third-party readers page instead of downloading |
 | 0.5.0 / 1042 | Reader profiles, pairing-code limits, trusted proxies, support bundle, phone layout |
 | 0.5.1 / 1043 | A cover cache with a ceiling, a bounded log, source health, upgrade checkpoints, scheduled scans, and a lighter shelf listing |
-| 0.5.2 / 1044 | Skip separated from reading status, thumbnails off the event loop, filename years that are not scan resolutions, and a window on the DSM desktop |
+| 0.5.2 / 1044 | Skip separated from reading status, thumbnails off the event loop, filename years that are not scan resolutions, and a chronology ordering fix |
 
 1043 is most of section 10: everything in it that can be built without a NAS.
 What is left there needs hardware. The 0.4.14 heading covers 1035 and 1036 as
@@ -1330,59 +1330,6 @@ from and where the pool will be four threads rather than this laptop's four
 against a faster core. The remaining half of the answer is coverage: a full
 warm-up is the thing that makes a first visit to a branch cost nothing, and it
 is now a background job that does not hold the server while it runs.
-
-### Opening the library inside DSM
-
-Asked on 2026-09-09: is there a Synology app that reads CBZ and CBR on the box,
-and can we open the library inside DSM rather than in a tab of its own.
-
-There is no first-party one and there is not going to be — Synology has been
-retiring media packages, not adding them, and DSM offers no way to register a
-handler for a new file type, so File Station will never learn what a `.cbz` is.
-Universal Viewer opens one, but as an archive: a file list, not pages.
-
-The second half was already most of the way there. The package has always put
-an icon in the DSM main menu; it was declared `type: "url"`, which is Synology's
-name for the behaviour that throws the browser into a new tab. Their other value
-is `legacy`, which draws the app in a window on the DSM desktop, and the guide
-is explicit that it does so in an iframe.
-
-That is the whole difficulty. The page in that window is served by DSM from
-`/webman/3rdparty/PanelShelf`, so it always loads; the library it needs to show
-is on port 8251, which is a different origin, and two separate things can stop
-a browser drawing it there.
-
-**A DSM opened over HTTPS cannot frame plain HTTP.** No setting on either side
-changes it, and PanelShelf terminates no TLS by design. So the window reads the
-scheme first and, on `https`, does not attempt what cannot work — it offers the
-tab straight away instead of eight seconds of empty rectangle.
-
-**The server refuses to be framed.** `X-Frame-Options: SAMEORIGIN` since the
-first release, and the right default for something with no accounts: whatever
-reaches the port can read the library, so a page that can frame it can lie over
-the top and take a click from somebody who already has it open. The exception is
-now nameable — `PANELSHELF_FRAME_ANCESTORS` — and the package names DSM's own
-ports and nothing else, before `panelshelf.env` is read so that a DSM on a
-custom port, or an owner who would rather not be framed, still has the last word.
-
-Values are parsed before they reach a header, all or nothing. A header takes
-what it is given; `http://nas:5000\r\nX-Frame-Options: ALLOWALL` in that
-setting would otherwise write a header of somebody else's choosing onto every
-response. A rejected value falls back to refusing frames and says which token it
-could not read. And when a value is accepted `X-Frame-Options` is dropped rather
-than sent alongside, because the two cannot be made to agree: `SAMEORIGIN`
-cannot name a second origin, so a browser honouring it would block exactly the
-frame the newer header was added to allow.
-
-A refused frame is invisible from outside — nothing is readable across the
-origin, and `onload` fires for the browser's error page too — so the library
-announces itself with a `postMessage` on load, the window listens for that from
-that origin alone, and silence is a no. Every path that is not the frame ends at
-the same button the icon used to be, which puts a ceiling on what this change
-can cost: one click.
-
-Fifteen tests, each checked against the regression it describes. What none of
-them cover is DSM itself drawing the window, which needs an install to see.
 
 ### A chronology dated 1800 to 2048, with a Marvel cover
 
