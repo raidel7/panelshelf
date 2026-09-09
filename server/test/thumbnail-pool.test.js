@@ -1,7 +1,10 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { execFile } = require("node:child_process");
+const path = require("node:path");
 const test = require("node:test");
+const { promisify } = require("node:util");
 
 const {
   ThumbnailPool,
@@ -167,6 +170,28 @@ test("closing a pool with work outstanding does not lose the answers", async (t)
   assert.ok(thumbnails.every((thumbnail) => thumbnail.buffer.length > 0));
   assert.equal(pool.stats().workers, 0);
   t.after(() => pool.close());
+});
+
+test("a thumbnail still arrives when nothing else is holding the loop open", async () => {
+  // Has to run in a process of its own: the test runner's own handles keep the
+  // loop alive, which is exactly what hides this.
+  //
+  // Worker threads are unref'd so an idle server does not hold the process
+  // open. Left that way while one is working, an awaited thumbnail is simply
+  // dropped — the loop drains, the process exits 0, and the promise never
+  // settles. Under `node --test` that reads as tests "cancelled" rather than
+  // failed, with nothing to say which assertion was to blame.
+  const source = `
+    const { ThumbnailPool } = require(${JSON.stringify(path.resolve(__dirname, "../src/thumbnail-pool.js"))});
+    const { pngBuffer } = require(${JSON.stringify(path.resolve(__dirname, "helpers.js"))});
+    const pool = new ThumbnailPool({ size: 2 });
+    pool.createThumbnail(pngBuffer(1600, 2400)).then((thumbnail) => {
+      console.log("ANSWERED " + thumbnail.buffer.length);
+      return pool.close();
+    });
+  `;
+  const { stdout } = await promisify(execFile)(process.execPath, ["-e", source]);
+  assert.match(stdout, /ANSWERED \d+/, "the process exited before the answer came back");
 });
 
 test("the pool is sized for the machine it is on", () => {

@@ -115,6 +115,15 @@ class ThumbnailPool {
 
     const id = this.nextId++;
     worker.jobs += 1;
+    // A worker carrying something holds the process open, because the answer is
+    // owed to somebody awaiting it. Idle, it does not: a NAS between page loads
+    // should be as exitable as it was before the pool existed.
+    //
+    // Left unref'd while working, an awaited thumbnail is dropped outright —
+    // the loop drains, the process exits 0, and the promise never settles. The
+    // server itself never noticed, because an HTTP listener holds the loop open
+    // on its own; the test run did, as tests "cancelled" rather than failed.
+    worker.thread.ref();
     this.stopIdleTimer();
     try {
       return await new Promise((resolve, reject) => {
@@ -123,6 +132,7 @@ class ThumbnailPool {
       });
     } finally {
       worker.jobs -= 1;
+      if (worker.jobs <= 0) worker.thread.unref();
       this.scheduleIdleShutdown();
     }
   }
