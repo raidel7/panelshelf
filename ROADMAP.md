@@ -1306,6 +1306,24 @@ demand and given back after thirty seconds of quiet. On one machine, same
 | Per cover | 156 ms | 54 ms |
 | Event-loop turns during | 26 of 164 | 53 of 56 |
 
+The pool cost one nightly build before it settled, and the failure is worth
+recording because of how it presented: 507 passing, 0 failing, 32 cancelled.
+Nothing had asserted anything wrong. A test process had exited while tests were
+still pending.
+
+Worker threads are unref'd so an idle server does not hold the process open.
+Left unref'd while one is *working*, an awaited thumbnail is dropped outright —
+the loop drains, the process exits 0, and the promise never settles. The
+running server never noticed, because an HTTP listener holds the loop open by
+itself; under `node --test` each file is its own process with no listener, so
+whichever file was awaiting a cover when its loop went idle took the rest of
+its tests down with it.
+
+It did not reproduce locally in any configuration, which is the useful part: the
+mechanism reproduces in four lines outside the test runner, and the regression
+test therefore runs in a child process, because the runner's own handles are
+exactly what hides it. A worker is now ref'd while it carries work.
+
 Not yet measured on the NAS itself, which is where the 8.7-second figure came
 from and where the pool will be four threads rather than this laptop's four
 against a faster core. The remaining half of the answer is coverage: a full

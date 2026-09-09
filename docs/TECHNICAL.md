@@ -676,8 +676,9 @@ machine — one thread per gigabyte of RAM, one fewer than the CPU count, and no
 more than four, because each worker holds a full-size decoded page while it
 works and that is the memory. A DS1825+ gets four; a value ARM box with 512 MB
 gets one. Threads start on the first cover and are given back after thirty
-seconds of quiet, so a NAS nobody is browsing holds none. A machine that will
-not start a worker thread logs it once and builds covers the old way.
+seconds of quiet, so a NAS nobody is browsing holds none. A thread carrying a
+cover keeps the process alive; an idle one does not. A machine that will not
+start a worker thread logs it once and builds covers the old way.
 
 The cover queue's limit is now about how many full-size pages are held at once
 rather than about protecting the event loop, so it defaults to one more than the
