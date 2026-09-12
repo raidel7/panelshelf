@@ -1510,7 +1510,7 @@ h2 {
   line-height: 1.5;
 }
 
-.issues-panel .dialog-footer > div {
+.issues-panel .panel-footer > div {
   display: flex;
   gap: 8px;
 }
@@ -3153,7 +3153,6 @@ h2 {
   background: var(--primary-hover);
 }
 
-.orders-panel,
 .comic-picker-dialog {
   width: min(720px, calc(100vw - 28px));
 }
@@ -5291,7 +5290,10 @@ h2 {
 
   .dialog-header,
   .dialog-content,
-  .dialog-footer {
+  .dialog-footer,
+  .panel-header,
+  .panel-content,
+  .panel-footer {
     padding-right: 17px;
     padding-left: 17px;
   }
@@ -5726,7 +5728,10 @@ h2 {
 
   .dialog-header,
   .dialog-content,
-  .dialog-footer {
+  .dialog-footer,
+  .panel-header,
+  .panel-content,
+  .panel-footer {
     padding-right: 14px;
     padding-left: 14px;
   }
@@ -5785,7 +5790,8 @@ h2 {
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  .dialog-footer {
+  .dialog-footer,
+  .panel-footer {
     padding-bottom: max(17px, env(safe-area-inset-bottom));
   }
 }
