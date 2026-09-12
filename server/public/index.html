@@ -28,13 +28,6 @@
             </svg>
             <input id="searchInput" type="search" placeholder="Search your shelf">
           </label>
-          <button id="ordersButton" class="button button-secondary orders-button" type="button">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M5 4h13a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z"/>
-              <path d="M8 8h8M8 12h8M8 16h5"/>
-            </svg>
-            <span>Reading orders</span>
-          </button>
           <button id="issuesButton" class="button issues-button" type="button" hidden>
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <path d="M12 3 2.8 20h18.4L12 3Z"/>
@@ -57,7 +50,7 @@
               aria-label="Choose scan action"
               aria-haspopup="menu"
               aria-expanded="false"
-            >
+             data-tip="Choose scan action">
               <svg aria-hidden="true" viewBox="0 0 24 24">
                 <path d="m7 9 5 5 5-5"/>
               </svg>
@@ -117,20 +110,39 @@
               </div>
             </div>
           </div>
-          <button id="settingsButton" class="icon-button" type="button" aria-label="Library settings">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/>
-              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.96 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 10 3.04V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.96 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/>
-            </svg>
-          </button>
         </div>
       </header>
 
+      <nav class="app-nav" aria-label="Sections">
+        <a class="nav-link" href="#/library" data-route-link="library">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z"/></svg>
+          Library
+        </a>
+        <a class="nav-link" href="#/orders" data-route-link="orders">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></svg>
+          Reading orders
+        </a>
+        <a class="nav-link" href="#/sources" data-route-link="sources">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 7.5h7l2 2h9V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
+          Sources
+        </a>
+        <a class="nav-link" href="#/metadata" data-route-link="metadata">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg>
+          Metadata
+        </a>
+        <a class="nav-link" href="#/settings" data-route-link="settings">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.96 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 10 3.04V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.96 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+          Settings
+        </a>
+      </nav>
+
+
       <main>
+        <section class="app-panel" id="libraryPanel" data-panel="library" hidden>
         <section class="library-heading">
           <div>
             <p class="eyebrow">Library</p>
-            <h1>Your comics</h1>
+            <h1 data-panel-heading tabindex="-1">Your comics</h1>
             <p id="librarySummary" class="muted">Loading your shelf…</p>
           </div>
           <div id="scanStatus" class="status-pill" hidden></div>
@@ -265,57 +277,18 @@
         </section>
 
         <section id="comicGrid" class="comic-grid" aria-live="polite"></section>
-      </main>
-    </div>
+        </section>
 
-    <aside
-      id="collectionPreview"
-      class="collection-hover-preview"
-      aria-hidden="true"
-      hidden
-    >
-      <div class="collection-preview-artwork">
-        <span
-          id="collectionPreviewFallback"
-          class="collection-preview-fallback"
-        ></span>
-        <img id="collectionPreviewImage" alt="" hidden>
-      </div>
-      <div class="collection-preview-copy">
-        <div class="collection-preview-labels">
-          <span
-            id="collectionPreviewEyebrow"
-            class="collection-preview-eyebrow"
-          ></span>
-          <span
-            id="collectionPreviewOrder"
-            class="collection-preview-order"
-            hidden
-          ></span>
-          <span
-            id="collectionPreviewState"
-            class="collection-preview-state"
-            hidden
-          ></span>
-        </div>
-        <strong id="collectionPreviewTitle"></strong>
-        <p id="collectionPreviewDescription"></p>
-        <small id="collectionPreviewDetail"></small>
-      </div>
-    </aside>
-
-    <dialog id="settingsDialog" class="dialog settings-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
-          <div>
-            <p class="eyebrow">Sources</p>
-            <h2>Library folders</h2>
-          </div>
-          <button class="icon-button close-dialog" value="cancel" aria-label="Close settings">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
-        <div class="dialog-content">
+        <section class="app-panel sources-panel" id="sourcesPanel" data-panel="sources" data-panel-closes="library" hidden>
+          <div class="panel-card">
+            <header class="panel-header">
+              <div>
+                <p class="eyebrow">Sources</p>
+                <h2 data-panel-heading tabindex="-1">Library folders</h2>
+                <p class="panel-lede">Where your comics come from, how each folder is read, and what the last scan could not open.</p>
+              </div>
+            </header>
+            <div class="panel-content">
           <p class="muted">
             Add folders from internal volumes or USB shares, then confirm how each
             source is organized. PanelShelf never renames or moves your files.
@@ -342,63 +315,6 @@
               then try again. Write access is never required.
             </p>
           </aside>
-          <section class="online-metadata-callout">
-            <div>
-              <span class="result-label">Optional enrichment</span>
-              <strong>Online metadata</strong>
-              <p>
-                Search multiple metadata sources one comic at a time, review the
-                result, and confirm before PanelShelf attaches anything.
-              </p>
-            </div>
-            <div class="online-metadata-callout-actions">
-              <span id="metadataSettingsStatus" class="provider-state">Off</span>
-              <button
-                id="openMetadataSettingsButton"
-                class="button button-secondary"
-                type="button"
-              >
-                Configure
-              </button>
-            </div>
-          </section>
-          <section class="data-backup-callout">
-            <div>
-              <span class="result-label">Data safety</span>
-              <strong>Backup and restore</strong>
-              <p>
-                Save sources, reading orders, metadata matches, manual edits,
-                progress, shelf status, and chronology preferences in one portable JSON file.
-                Comic archives and provider credentials are never included.
-              </p>
-            </div>
-            <div class="data-backup-actions">
-              <button id="exportBackupButton" class="button button-secondary" type="button">
-                Export backup
-              </button>
-              <button id="importBackupButton" class="button button-secondary" type="button">
-                Restore backup
-              </button>
-              <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
-            </div>
-          </section>
-          <section class="data-backup-callout">
-            <div>
-              <span class="result-label">Getting help</span>
-              <strong>Support bundle</strong>
-              <p>
-                Versions, source folders, counts, and the end of the server log,
-                in one file to attach to a bug report. No device tokens, no
-                provider keys, and nothing about what anyone has read. Source
-                folder paths are included, so read it before posting it.
-              </p>
-            </div>
-            <div class="data-backup-actions">
-              <button id="supportBundleButton" class="button button-secondary" type="button">
-                Download support bundle
-              </button>
-            </div>
-          </section>
           <section class="scan-schedule-callout">
             <div>
               <span class="result-label">Unattended</span>
@@ -432,7 +348,7 @@
           </section>
           <section class="source-health-callout">
             <div>
-              <span class="result-label">Sources</span>
+              <span class="result-label">Drives</span>
               <strong>Source health</strong>
               <p id="sourceHealthSummary">
                 Whether each folder is reachable, what the last scan of it cost,
@@ -446,6 +362,167 @@
               </button>
             </div>
           </section>
+          <p id="settingsError" class="form-error" hidden></p>
+            </div>
+        <footer class="dialog-footer">
+          <button class="button button-ghost close-dialog" value="cancel">Cancel</button>
+          <button id="saveSettingsButton" class="button button-primary" type="button">Save and scan</button>
+        </footer>
+          </div>
+        </section>
+
+    <section class="app-panel structure-panel" id="structurePanel" data-panel="sources/structure" data-panel-closes="sources" hidden>
+      <div class="panel-card">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Source setup</p>
+            <h2 data-panel-heading tabindex="-1">Interpret this folder</h2>
+          </div>
+          <button class="icon-button close-structure" value="cancel" aria-label="Close structure preview" data-tip="Close structure preview">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="panel-content">
+          <code id="structurePath" class="structure-path"></code>
+          <div class="structure-controls">
+            <label for="structureProfile">
+              Organization profile
+              <select id="structureProfile">
+                <option value="detect">Detect a supported layout</option>
+                <option value="loose-comics">Loose comics</option>
+                <option value="folders-as-series">Folders as series</option>
+                <option value="hierarchical-timeline">Hierarchical timeline</option>
+                <option value="exact-reading-order">Exact reading order</option>
+                <option value="unordered">Unordered library</option>
+              </select>
+            </label>
+            <button id="analyzeStructureButton" class="button button-secondary" type="button">
+              Analyze
+            </button>
+          </div>
+          <p id="profileHelp" class="profile-help"></p>
+
+          <section id="structureResult" hidden>
+            <div class="detection-card">
+              <div>
+                <span class="result-label">Interpretation</span>
+                <strong id="detectedProfile"></strong>
+                <p id="detectionReason"></p>
+              </div>
+              <span id="detectionConfidence" class="confidence-badge"></span>
+            </div>
+
+            <div id="publisherResult" class="publisher-result" hidden>
+              <span>Publisher</span>
+              <strong id="detectedPublisher"></strong>
+            </div>
+
+            <dl class="structure-summary">
+              <div><dt>Comics</dt><dd id="previewComicCount">0</dd></div>
+              <div><dt>Folders</dt><dd id="previewFolderCount">0</dd></div>
+              <div><dt>Ordered</dt><dd id="previewOrderedCount">0</dd></div>
+              <div><dt>Unfiled</dt><dd id="previewStagingCount">0</dd></div>
+            </dl>
+
+            <div id="structureIssueSection" class="structure-issue-section" hidden>
+              <h3>Validation</h3>
+              <div id="structureIssues" class="structure-issues"></div>
+            </div>
+
+            <section class="tree-section">
+              <div class="section-heading">
+                <div>
+                  <h3>Structure preview</h3>
+                  <p>Roles and order are virtual. Source folders stay untouched.</p>
+                </div>
+                <span id="treeLimitNote" class="tree-limit-note" hidden></span>
+              </div>
+              <div id="structureTree" class="structure-tree"></div>
+            </section>
+
+            <div class="source-options">
+              <label for="stagingPolicy">
+                Folders beginning with “_”
+                <select id="stagingPolicy">
+                  <option value="show-unfiled">Show on an Unfiled shelf</option>
+                  <option value="exclude">Exclude from scans</option>
+                </select>
+              </label>
+              <label class="check-option">
+                <input id="hideOrderPrefixes" type="checkbox" checked>
+                <span>
+                  <strong>Hide numeric prefixes in PanelShelf</strong>
+                  <small>The original folder and filenames are never changed.</small>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <div id="structureLoading" class="structure-loading" hidden>
+            Reading folders without changing them…
+          </div>
+          <p id="structureError" class="form-error" hidden></p>
+        </div>
+        <footer class="panel-footer">
+          <button class="button button-ghost close-structure" value="cancel">Cancel</button>
+          <button id="useStructureButton" class="button button-primary" type="button" disabled>
+            Use this structure
+          </button>
+        </footer>
+      </div>
+    </section>
+
+    <section class="app-panel issues-panel" id="issuesPanel" data-panel="sources/issues" data-panel-closes="sources" hidden>
+      <div class="panel-card">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Latest scan</p>
+            <h2 data-panel-heading tabindex="-1">Scan issues</h2>
+          </div>
+          <button class="icon-button close-issues" value="cancel" aria-label="Close scan issues" data-tip="Close scan issues">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="panel-content">
+          <p id="issuesSummary" class="muted"></p>
+          <div id="issueList" class="issue-list"></div>
+        </div>
+        <footer class="panel-footer">
+          <button id="issuesSettingsButton" class="button button-secondary" type="button">
+            Library settings
+          </button>
+          <div>
+            <button id="clearIssuesButton" class="button button-secondary" type="button">
+              Clear issues
+            </button>
+            <button class="button button-primary close-issues" value="cancel">Close</button>
+          </div>
+        </footer>
+      </div>
+    </section>
+
+    <section class="app-panel metadata-settings-panel" id="metadataPanel" data-panel="metadata" data-panel-closes="library" hidden>
+      <div class="panel-card">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Optional enrichment</p>
+            <h2 data-panel-heading tabindex="-1">Metadata providers</h2>
+            <p class="panel-lede">
+              PanelShelf sends only the search fields you choose. Your comic files
+              never leave the NAS, and local reading continues when the internet is
+              unavailable.
+            </p>
+          </div>
+          <span id="metadataSettingsStatus" class="provider-state">Off</span>
+          <button
+            class="icon-button close-metadata-settings"
+            value="cancel"
+            aria-label="Close metadata settings"
+           data-tip="Close metadata settings">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="panel-content">
           <section class="library-review-callout">
             <div>
               <span class="result-label">Housekeeping</span>
@@ -461,100 +538,6 @@
               </button>
             </div>
           </section>
-          <section class="cover-cache-callout">
-            <div>
-              <span class="result-label">Covers</span>
-              <strong>Cover cache</strong>
-              <p id="coverCacheSummary">
-                Covers are built the first time a shelf draws them. Caching them
-                in one pass does that work now instead of a card at a time.
-              </p>
-            </div>
-            <div class="cover-cache-actions">
-              <button id="warmCoverCacheButton" class="button button-secondary" type="button">
-                Cache all covers
-              </button>
-              <button id="cancelCoverCacheButton" class="button button-secondary" type="button" hidden>
-                Stop
-              </button>
-            </div>
-          </section>
-          <section class="device-pairing-callout">
-            <div>
-              <span class="result-label">Readers</span>
-              <strong>Reader profiles</strong>
-              <p id="readerProfileSummary">
-                One library, one household — and a shelf each. A reader profile
-                keeps two people's reading positions and hidden chronology
-                branches apart. It is not an account: it has no password and
-                grants no access.
-              </p>
-              <label class="reader-profile-picker" for="readerProfileSelect">
-                <span>This browser reads as</span>
-                <select id="readerProfileSelect" class="input"></select>
-              </label>
-              <ul id="readerProfileList" class="device-pairing-list"></ul>
-            </div>
-            <div class="device-pairing-actions">
-              <button id="addReaderProfileButton" class="button button-secondary" type="button">
-                Add a reader
-              </button>
-            </div>
-          </section>
-          <section class="device-pairing-callout">
-            <div>
-              <span class="result-label">Access</span>
-              <strong>Device pairing</strong>
-              <p id="devicePairingSummary">
-                Anything that can reach this server can read your library and
-                change its settings. Pairing asks every client to be approved
-                once.
-              </p>
-              <p id="devicePairingCode" class="device-pairing-code" hidden></p>
-              <ul id="devicePairingList" class="device-pairing-list" hidden></ul>
-            </div>
-            <div class="device-pairing-actions">
-              <button id="enablePairingButton" class="button button-secondary" type="button">
-                Turn on pairing
-              </button>
-              <button id="pairDeviceButton" class="button button-secondary" type="button" hidden>
-                Pair a device
-              </button>
-              <button id="disablePairingButton" class="button button-secondary" type="button" hidden>
-                Turn off
-              </button>
-            </div>
-          </section>
-          <p id="settingsError" class="form-error" hidden></p>
-        </div>
-        <footer class="dialog-footer">
-          <button class="button button-ghost close-dialog" value="cancel">Cancel</button>
-          <button id="saveSettingsButton" class="button button-primary" type="button">Save and scan</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="metadataSettingsDialog" class="dialog metadata-settings-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
-          <div>
-            <p class="eyebrow">Optional enrichment</p>
-            <h2>Metadata providers</h2>
-          </div>
-          <button
-            class="icon-button close-metadata-settings"
-            value="cancel"
-            aria-label="Close metadata settings"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
-        <div class="dialog-content">
-          <p class="muted">
-            PanelShelf sends only the search fields you choose. Your comic files
-            never leave the NAS, and local reading continues when the internet is
-            unavailable.
-          </p>
 
           <div class="provider-list">
           <div class="provider-card">
@@ -661,7 +644,7 @@
           <div id="metadataRateLimit" class="metadata-rate-limit" hidden></div>
           <p id="metadataSettingsError" class="form-error" hidden></p>
         </div>
-        <footer class="dialog-footer">
+        <footer class="panel-footer">
           <button class="button button-ghost close-metadata-settings" value="cancel">
             Cancel
           </button>
@@ -669,17 +652,17 @@
             Save
           </button>
         </footer>
-      </form>
-    </dialog>
+      </div>
+    </section>
 
-    <dialog id="bulkMetadataDialog" class="dialog bulk-metadata-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
+    <section class="app-panel bulk-metadata-panel" id="enrichPanel" data-panel="metadata/enrich" data-panel-closes="metadata" hidden>
+      <div class="panel-card">
+        <header class="panel-header">
           <div>
             <p class="eyebrow">Online metadata</p>
-            <h2>Enrich your library</h2>
+            <h2 data-panel-heading tabindex="-1">Enrich your library</h2>
           </div>
-          <button class="icon-button close-dialog" value="cancel" aria-label="Close bulk metadata">
+          <button class="icon-button close-dialog" value="cancel" aria-label="Close bulk metadata" data-tip="Close bulk metadata">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
@@ -737,8 +720,342 @@
             </button>
           </div>
         </footer>
-      </form>
-    </dialog>
+      </div>
+    </section>
+
+    <section class="app-panel library-review-panel" id="reviewPanel" data-panel="metadata/review" data-panel-closes="metadata" hidden>
+      <div class="panel-card">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Housekeeping</p>
+            <h2 data-panel-heading tabindex="-1">Library review</h2>
+          </div>
+          <button class="icon-button close-library-review" value="cancel" aria-label="Close library review" data-tip="Close library review">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="panel-content">
+          <section class="review-section">
+            <div class="order-section-heading">
+              <div>
+                <h3>Possible duplicates</h3>
+                <p id="duplicateSummary">Nothing to look at.</p>
+              </div>
+            </div>
+            <div id="duplicateList" class="review-list"></div>
+          </section>
+          <section class="review-section">
+            <div class="order-section-heading">
+              <div>
+                <h3>Matches to review</h3>
+                <p id="reviewQueueSummary">Nothing waiting.</p>
+              </div>
+            </div>
+            <div id="reviewQueueList" class="review-list"></div>
+          </section>
+        </div>
+        <footer class="panel-footer">
+          <button class="button button-primary close-library-review" value="cancel">Close</button>
+        </footer>
+      </div>
+    </section>
+
+    <section class="app-panel orders-panel" id="ordersPanel" data-panel="orders" data-panel-closes="library" hidden>
+      <div class="panel-card">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Reading</p>
+            <h2 data-panel-heading tabindex="-1">Reading orders</h2>
+          </div>
+          <button class="icon-button close-orders" value="cancel" aria-label="Close reading orders" data-tip="Close reading orders">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="panel-content">
+          <div class="order-section-heading">
+            <div>
+              <h3>Your chronologies</h3>
+              <p>Create an exact sequence that can cross folders and series.</p>
+            </div>
+            <div class="order-heading-actions">
+              <button id="importOrderButton" class="button button-secondary" type="button">
+                Import
+              </button>
+              <button id="createOrderButton" class="button button-primary" type="button">
+                New order
+              </button>
+              <input id="importOrderInput" type="file" accept="application/json,.json" hidden>
+            </div>
+          </div>
+          <div id="manualOrderList" class="order-grid"></div>
+
+          <div class="order-section-heading automatic-heading">
+            <div>
+              <h3>From your folders</h3>
+              <p>Safe automatic contexts generated from each source convention.</p>
+            </div>
+          </div>
+          <div id="automaticOrderList" class="order-grid"></div>
+        </div>
+        <footer class="panel-footer">
+          <button class="button button-primary close-orders" value="cancel">Close</button>
+        </footer>
+      </div>
+    </section>
+
+    <section class="app-panel order-detail-panel" id="orderDetailPanel" data-panel="orders/detail" data-panel-closes="orders" hidden>
+      <div class="panel-card">
+        <header class="panel-header">
+          <div>
+            <p id="orderDetailKind" class="eyebrow">Reading order</p>
+            <h2 id="orderDetailName" data-panel-heading tabindex="-1"></h2>
+          </div>
+          <button class="icon-button close-order-detail" value="cancel" aria-label="Close reading order" data-tip="Close reading order">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="panel-content">
+          <div class="order-detail-hero">
+            <div class="order-cover">
+              <img id="orderDetailCover" alt="">
+              <span id="orderCoverFallback">No cover</span>
+            </div>
+            <div>
+              <p id="orderDetailDescription" class="muted"></p>
+              <dl class="order-stats">
+                <div><dt>Comics</dt><dd id="orderDetailCount">0</dd></div>
+                <div><dt>Finished</dt><dd id="orderDetailFinished">0</dd></div>
+                <div><dt>Unplaced</dt><dd id="orderDetailUnplaced">0</dd></div>
+              </dl>
+              <div id="orderDetailActions" class="order-detail-actions" hidden>
+                <button id="editOrderButton" class="button button-secondary" type="button">Edit</button>
+                <button id="setOrderCoverButton" class="button button-secondary" type="button">Set cover</button>
+                <button id="exportOrderButton" class="button button-secondary" type="button">Export</button>
+                <button id="repairOrderButton" class="button button-secondary" type="button" hidden>Repair</button>
+                <button id="duplicateOrderButton" class="button button-secondary" type="button">Duplicate</button>
+                <button id="deleteOrderButton" class="button danger-button" type="button">Delete</button>
+                <input id="orderCoverInput" type="file" accept="image/png,image/jpeg" hidden>
+              </div>
+            </div>
+          </div>
+          <div id="orderDetailNotice" class="order-detail-notice" hidden></div>
+          <div id="orderDetailItems" class="order-item-list"></div>
+        </div>
+        <footer class="panel-footer">
+          <button class="button button-ghost close-order-detail" value="cancel">Close</button>
+          <button id="startOrderButton" class="button button-primary" type="button">
+            Start reading
+          </button>
+        </footer>
+      </div>
+    </section>
+
+    <section class="app-panel order-editor-panel" id="orderEditorPanel" data-panel="orders/edit" data-panel-closes="orders" hidden>
+      <div class="panel-card">
+        <header class="panel-header">
+          <div>
+            <p class="eyebrow">Manual chronology</p>
+            <h2 id="orderEditorTitle" data-panel-heading tabindex="-1">New reading order</h2>
+          </div>
+          <button class="icon-button close-order-editor" value="cancel" aria-label="Close chronology editor" data-tip="Close chronology editor">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+          </button>
+        </header>
+        <div class="panel-content">
+          <div class="order-fields">
+            <label for="orderName">
+              Name
+              <input id="orderName" type="text" maxlength="120" placeholder="My reading order">
+            </label>
+            <label for="orderDescription">
+              Description
+              <textarea id="orderDescription" maxlength="2000" rows="3" placeholder="Optional notes about this chronology"></textarea>
+            </label>
+          </div>
+          <div class="editor-toolbar">
+            <button id="addOrderComicsButton" class="button button-secondary" type="button">Add comics</button>
+            <button id="moveSelectedUpButton" class="button button-ghost" type="button">Move up</button>
+            <button id="moveSelectedDownButton" class="button button-ghost" type="button">Move down</button>
+            <button id="removeSelectedButton" class="button button-ghost danger-text" type="button">Remove</button>
+          </div>
+          <p class="editor-help">Drag rows or select several comics and move them together.</p>
+          <div id="orderEditorItems" class="order-editor-items"></div>
+
+          <section id="unplacedSection" class="unplaced-section" hidden>
+            <div class="order-section-heading">
+              <div>
+                <h3>Unplaced</h3>
+                <p>New comics found after a rescan wait here without changing your order.</p>
+              </div>
+              <button id="placeAllButton" class="button button-secondary" type="button">Place all at end</button>
+            </div>
+            <div id="unplacedItems" class="order-editor-items compact"></div>
+          </section>
+          <p id="orderEditorError" class="form-error" hidden></p>
+        </div>
+        <footer class="panel-footer">
+          <button class="button button-ghost close-order-editor" value="cancel">Cancel</button>
+          <button id="saveOrderButton" class="button button-primary" type="button">Save order</button>
+        </footer>
+      </div>
+    </section>
+
+        <section class="app-panel settings-panel" id="settingsPanel" data-panel="settings" data-panel-closes="library" hidden>
+          <div class="panel-card">
+            <header class="panel-header">
+              <div>
+                <p class="eyebrow">This server</p>
+                <h2 data-panel-heading tabindex="-1">Settings</h2>
+                <p class="panel-lede">Housekeeping: backups, diagnostics, the cover cache, and which devices read from this library.</p>
+              </div>
+              <button class="icon-button close-settings" type="button" aria-label="Back to library" data-tip="Back to library">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+              </button>
+            </header>
+            <div class="panel-content">
+          <section class="data-backup-callout">
+            <div>
+              <span class="result-label">Data safety</span>
+              <strong>Backup and restore</strong>
+              <p>
+                Save sources, reading orders, metadata matches, manual edits,
+                progress, shelf status, and chronology preferences in one portable JSON file.
+                Comic archives and provider credentials are never included.
+              </p>
+            </div>
+            <div class="data-backup-actions">
+              <button id="exportBackupButton" class="button button-secondary" type="button">
+                Export backup
+              </button>
+              <button id="importBackupButton" class="button button-secondary" type="button">
+                Restore backup
+              </button>
+              <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
+            </div>
+          </section>
+          <section class="data-backup-callout">
+            <div>
+              <span class="result-label">Getting help</span>
+              <strong>Support bundle</strong>
+              <p>
+                Versions, source folders, counts, and the end of the server log,
+                in one file to attach to a bug report. No device tokens, no
+                provider keys, and nothing about what anyone has read. Source
+                folder paths are included, so read it before posting it.
+              </p>
+            </div>
+            <div class="data-backup-actions">
+              <button id="supportBundleButton" class="button button-secondary" type="button">
+                Download support bundle
+              </button>
+            </div>
+          </section>
+          <section class="cover-cache-callout">
+            <div>
+              <span class="result-label">Covers</span>
+              <strong>Cover cache</strong>
+              <p id="coverCacheSummary">
+                Covers are built the first time a shelf draws them. Caching them
+                in one pass does that work now instead of a card at a time.
+              </p>
+            </div>
+            <div class="cover-cache-actions">
+              <button id="warmCoverCacheButton" class="button button-secondary" type="button">
+                Cache all covers
+              </button>
+              <button id="cancelCoverCacheButton" class="button button-secondary" type="button" hidden>
+                Stop
+              </button>
+            </div>
+          </section>
+          <section class="device-pairing-callout">
+            <div>
+              <span class="result-label">Readers</span>
+              <strong>Reader profiles</strong>
+              <p id="readerProfileSummary">
+                One library, one household — and a shelf each. A reader profile
+                keeps two people's reading positions and hidden chronology
+                branches apart. It is not an account: it has no password and
+                grants no access.
+              </p>
+              <label class="reader-profile-picker" for="readerProfileSelect">
+                <span>This browser reads as</span>
+                <select id="readerProfileSelect" class="input"></select>
+              </label>
+              <ul id="readerProfileList" class="device-pairing-list"></ul>
+            </div>
+            <div class="device-pairing-actions">
+              <button id="addReaderProfileButton" class="button button-secondary" type="button">
+                Add a reader
+              </button>
+            </div>
+          </section>
+          <section class="device-pairing-callout">
+            <div>
+              <span class="result-label">Access</span>
+              <strong>Device pairing</strong>
+              <p id="devicePairingSummary">
+                Anything that can reach this server can read your library and
+                change its settings. Pairing asks every client to be approved
+                once.
+              </p>
+              <p id="devicePairingCode" class="device-pairing-code" hidden></p>
+              <ul id="devicePairingList" class="device-pairing-list" hidden></ul>
+            </div>
+            <div class="device-pairing-actions">
+              <button id="enablePairingButton" class="button button-secondary" type="button">
+                Turn on pairing
+              </button>
+              <button id="pairDeviceButton" class="button button-secondary" type="button" hidden>
+                Pair a device
+              </button>
+              <button id="disablePairingButton" class="button button-secondary" type="button" hidden>
+                Turn off
+              </button>
+            </div>
+          </section>
+              <p id="settingsPanelError" class="form-error" hidden></p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <aside
+      id="collectionPreview"
+      class="collection-hover-preview"
+      aria-hidden="true"
+      hidden
+    >
+      <div class="collection-preview-artwork">
+        <span
+          id="collectionPreviewFallback"
+          class="collection-preview-fallback"
+        ></span>
+        <img id="collectionPreviewImage" alt="" hidden>
+      </div>
+      <div class="collection-preview-copy">
+        <div class="collection-preview-labels">
+          <span
+            id="collectionPreviewEyebrow"
+            class="collection-preview-eyebrow"
+          ></span>
+          <span
+            id="collectionPreviewOrder"
+            class="collection-preview-order"
+            hidden
+          ></span>
+          <span
+            id="collectionPreviewState"
+            class="collection-preview-state"
+            hidden
+          ></span>
+        </div>
+        <strong id="collectionPreviewTitle"></strong>
+        <p id="collectionPreviewDescription"></p>
+        <small id="collectionPreviewDetail"></small>
+      </div>
+    </aside>
 
     <dialog id="metadataDialog" class="dialog metadata-dialog">
       <form method="dialog" class="dialog-card">
@@ -751,7 +1068,7 @@
             class="icon-button close-metadata"
             value="cancel"
             aria-label="Close metadata matching"
-          >
+           data-tip="Close metadata matching">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
@@ -876,7 +1193,7 @@
             <p class="eyebrow">PanelShelf metadata</p>
             <h2 id="metadataEditorComicTitle">Edit comic</h2>
           </div>
-          <button class="icon-button close-metadata-editor" value="cancel" aria-label="Close metadata editor">
+          <button class="icon-button close-metadata-editor" value="cancel" aria-label="Close metadata editor" data-tip="Close metadata editor">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
@@ -944,12 +1261,12 @@
             <p class="eyebrow">Folder browser</p>
             <h2>Select a comics folder</h2>
           </div>
-          <button class="icon-button close-folder" value="cancel" aria-label="Close folder browser">
+          <button class="icon-button close-folder" value="cancel" aria-label="Close folder browser" data-tip="Close folder browser">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
         <div class="folder-toolbar">
-          <button id="folderUpButton" class="icon-button" type="button" aria-label="Go to parent folder">
+          <button id="folderUpButton" class="icon-button" type="button" aria-label="Go to parent folder" data-tip="Go to parent folder">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 15 7-7 7 7"/></svg>
           </button>
           <code id="folderPath">/</code>
@@ -963,136 +1280,6 @@
       </form>
     </dialog>
 
-    <dialog id="structureDialog" class="dialog structure-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
-          <div>
-            <p class="eyebrow">Source setup</p>
-            <h2>Interpret this folder</h2>
-          </div>
-          <button class="icon-button close-structure" value="cancel" aria-label="Close structure preview">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
-        <div class="dialog-content">
-          <code id="structurePath" class="structure-path"></code>
-          <div class="structure-controls">
-            <label for="structureProfile">
-              Organization profile
-              <select id="structureProfile">
-                <option value="detect">Detect a supported layout</option>
-                <option value="loose-comics">Loose comics</option>
-                <option value="folders-as-series">Folders as series</option>
-                <option value="hierarchical-timeline">Hierarchical timeline</option>
-                <option value="exact-reading-order">Exact reading order</option>
-                <option value="unordered">Unordered library</option>
-              </select>
-            </label>
-            <button id="analyzeStructureButton" class="button button-secondary" type="button">
-              Analyze
-            </button>
-          </div>
-          <p id="profileHelp" class="profile-help"></p>
-
-          <section id="structureResult" hidden>
-            <div class="detection-card">
-              <div>
-                <span class="result-label">Interpretation</span>
-                <strong id="detectedProfile"></strong>
-                <p id="detectionReason"></p>
-              </div>
-              <span id="detectionConfidence" class="confidence-badge"></span>
-            </div>
-
-            <div id="publisherResult" class="publisher-result" hidden>
-              <span>Publisher</span>
-              <strong id="detectedPublisher"></strong>
-            </div>
-
-            <dl class="structure-summary">
-              <div><dt>Comics</dt><dd id="previewComicCount">0</dd></div>
-              <div><dt>Folders</dt><dd id="previewFolderCount">0</dd></div>
-              <div><dt>Ordered</dt><dd id="previewOrderedCount">0</dd></div>
-              <div><dt>Unfiled</dt><dd id="previewStagingCount">0</dd></div>
-            </dl>
-
-            <div id="structureIssueSection" class="structure-issue-section" hidden>
-              <h3>Validation</h3>
-              <div id="structureIssues" class="structure-issues"></div>
-            </div>
-
-            <section class="tree-section">
-              <div class="section-heading">
-                <div>
-                  <h3>Structure preview</h3>
-                  <p>Roles and order are virtual. Source folders stay untouched.</p>
-                </div>
-                <span id="treeLimitNote" class="tree-limit-note" hidden></span>
-              </div>
-              <div id="structureTree" class="structure-tree"></div>
-            </section>
-
-            <div class="source-options">
-              <label for="stagingPolicy">
-                Folders beginning with “_”
-                <select id="stagingPolicy">
-                  <option value="show-unfiled">Show on an Unfiled shelf</option>
-                  <option value="exclude">Exclude from scans</option>
-                </select>
-              </label>
-              <label class="check-option">
-                <input id="hideOrderPrefixes" type="checkbox" checked>
-                <span>
-                  <strong>Hide numeric prefixes in PanelShelf</strong>
-                  <small>The original folder and filenames are never changed.</small>
-                </span>
-              </label>
-            </div>
-          </section>
-
-          <div id="structureLoading" class="structure-loading" hidden>
-            Reading folders without changing them…
-          </div>
-          <p id="structureError" class="form-error" hidden></p>
-        </div>
-        <footer class="dialog-footer">
-          <button class="button button-ghost close-structure" value="cancel">Cancel</button>
-          <button id="useStructureButton" class="button button-primary" type="button" disabled>
-            Use this structure
-          </button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="issuesDialog" class="dialog issues-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
-          <div>
-            <p class="eyebrow">Latest scan</p>
-            <h2>Scan issues</h2>
-          </div>
-          <button class="icon-button close-issues" value="cancel" aria-label="Close scan issues">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
-        <div class="dialog-content">
-          <p id="issuesSummary" class="muted"></p>
-          <div id="issueList" class="issue-list"></div>
-        </div>
-        <footer class="dialog-footer">
-          <button id="issuesSettingsButton" class="button button-secondary" type="button">
-            Library settings
-          </button>
-          <div>
-            <button id="clearIssuesButton" class="button button-secondary" type="button">
-              Clear issues
-            </button>
-            <button class="button button-primary close-issues" value="cancel">Close</button>
-          </div>
-        </footer>
-      </form>
-    </dialog>
-
     <dialog id="permissionDialog" class="dialog permission-dialog">
       <form method="dialog" class="dialog-card">
         <header class="dialog-header">
@@ -1100,7 +1287,7 @@
             <p class="eyebrow">Permission repair</p>
             <h2>Allow PanelShelf to read this folder</h2>
           </div>
-          <button class="icon-button close-permission" value="cancel" aria-label="Close permission help">
+          <button class="icon-button close-permission" value="cancel" aria-label="Close permission help" data-tip="Close permission help">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
@@ -1165,7 +1352,7 @@
             <p class="eyebrow">Bulk edit</p>
             <h2 id="bulkEditTitle">Edit metadata</h2>
           </div>
-          <button class="icon-button close-bulk-edit" value="cancel" aria-label="Close bulk edit">
+          <button class="icon-button close-bulk-edit" value="cancel" aria-label="Close bulk edit" data-tip="Close bulk edit">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
@@ -1198,7 +1385,7 @@
             <p class="eyebrow">Bulk edit</p>
             <h2 id="bulkAssignTitle">Add to reading order</h2>
           </div>
-          <button class="icon-button close-bulk-assign" value="cancel" aria-label="Close">
+          <button class="icon-button close-bulk-assign" value="cancel" aria-label="Close" data-tip="Close">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
@@ -1219,183 +1406,6 @@
       </form>
     </dialog>
 
-    <dialog id="libraryReviewDialog" class="dialog library-review-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
-          <div>
-            <p class="eyebrow">Housekeeping</p>
-            <h2>Library review</h2>
-          </div>
-          <button class="icon-button close-library-review" value="cancel" aria-label="Close library review">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
-        <div class="dialog-content">
-          <section class="review-section">
-            <div class="order-section-heading">
-              <div>
-                <h3>Possible duplicates</h3>
-                <p id="duplicateSummary">Nothing to look at.</p>
-              </div>
-            </div>
-            <div id="duplicateList" class="review-list"></div>
-          </section>
-          <section class="review-section">
-            <div class="order-section-heading">
-              <div>
-                <h3>Matches to review</h3>
-                <p id="reviewQueueSummary">Nothing waiting.</p>
-              </div>
-            </div>
-            <div id="reviewQueueList" class="review-list"></div>
-          </section>
-        </div>
-        <footer class="dialog-footer">
-          <button class="button button-primary close-library-review" value="cancel">Close</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="ordersDialog" class="dialog orders-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
-          <div>
-            <p class="eyebrow">Reading</p>
-            <h2>Reading orders</h2>
-          </div>
-          <button class="icon-button close-orders" value="cancel" aria-label="Close reading orders">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
-        <div class="dialog-content">
-          <div class="order-section-heading">
-            <div>
-              <h3>Your chronologies</h3>
-              <p>Create an exact sequence that can cross folders and series.</p>
-            </div>
-            <div class="order-heading-actions">
-              <button id="importOrderButton" class="button button-secondary" type="button">
-                Import
-              </button>
-              <button id="createOrderButton" class="button button-primary" type="button">
-                New order
-              </button>
-              <input id="importOrderInput" type="file" accept="application/json,.json" hidden>
-            </div>
-          </div>
-          <div id="manualOrderList" class="order-grid"></div>
-
-          <div class="order-section-heading automatic-heading">
-            <div>
-              <h3>From your folders</h3>
-              <p>Safe automatic contexts generated from each source convention.</p>
-            </div>
-          </div>
-          <div id="automaticOrderList" class="order-grid"></div>
-        </div>
-        <footer class="dialog-footer">
-          <button class="button button-primary close-orders" value="cancel">Close</button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="orderDetailDialog" class="dialog order-detail-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
-          <div>
-            <p id="orderDetailKind" class="eyebrow">Reading order</p>
-            <h2 id="orderDetailName"></h2>
-          </div>
-          <button class="icon-button close-order-detail" value="cancel" aria-label="Close reading order">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
-        <div class="dialog-content">
-          <div class="order-detail-hero">
-            <div class="order-cover">
-              <img id="orderDetailCover" alt="">
-              <span id="orderCoverFallback">No cover</span>
-            </div>
-            <div>
-              <p id="orderDetailDescription" class="muted"></p>
-              <dl class="order-stats">
-                <div><dt>Comics</dt><dd id="orderDetailCount">0</dd></div>
-                <div><dt>Finished</dt><dd id="orderDetailFinished">0</dd></div>
-                <div><dt>Unplaced</dt><dd id="orderDetailUnplaced">0</dd></div>
-              </dl>
-              <div id="orderDetailActions" class="order-detail-actions" hidden>
-                <button id="editOrderButton" class="button button-secondary" type="button">Edit</button>
-                <button id="setOrderCoverButton" class="button button-secondary" type="button">Set cover</button>
-                <button id="exportOrderButton" class="button button-secondary" type="button">Export</button>
-                <button id="repairOrderButton" class="button button-secondary" type="button" hidden>Repair</button>
-                <button id="duplicateOrderButton" class="button button-secondary" type="button">Duplicate</button>
-                <button id="deleteOrderButton" class="button danger-button" type="button">Delete</button>
-                <input id="orderCoverInput" type="file" accept="image/png,image/jpeg" hidden>
-              </div>
-            </div>
-          </div>
-          <div id="orderDetailNotice" class="order-detail-notice" hidden></div>
-          <div id="orderDetailItems" class="order-item-list"></div>
-        </div>
-        <footer class="dialog-footer">
-          <button class="button button-ghost close-order-detail" value="cancel">Close</button>
-          <button id="startOrderButton" class="button button-primary" type="button">
-            Start reading
-          </button>
-        </footer>
-      </form>
-    </dialog>
-
-    <dialog id="orderEditorDialog" class="dialog order-editor-dialog">
-      <form method="dialog" class="dialog-card">
-        <header class="dialog-header">
-          <div>
-            <p class="eyebrow">Manual chronology</p>
-            <h2 id="orderEditorTitle">New reading order</h2>
-          </div>
-          <button class="icon-button close-order-editor" value="cancel" aria-label="Close chronology editor">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
-          </button>
-        </header>
-        <div class="dialog-content">
-          <div class="order-fields">
-            <label for="orderName">
-              Name
-              <input id="orderName" type="text" maxlength="120" placeholder="My reading order">
-            </label>
-            <label for="orderDescription">
-              Description
-              <textarea id="orderDescription" maxlength="2000" rows="3" placeholder="Optional notes about this chronology"></textarea>
-            </label>
-          </div>
-          <div class="editor-toolbar">
-            <button id="addOrderComicsButton" class="button button-secondary" type="button">Add comics</button>
-            <button id="moveSelectedUpButton" class="button button-ghost" type="button">Move up</button>
-            <button id="moveSelectedDownButton" class="button button-ghost" type="button">Move down</button>
-            <button id="removeSelectedButton" class="button button-ghost danger-text" type="button">Remove</button>
-          </div>
-          <p class="editor-help">Drag rows or select several comics and move them together.</p>
-          <div id="orderEditorItems" class="order-editor-items"></div>
-
-          <section id="unplacedSection" class="unplaced-section" hidden>
-            <div class="order-section-heading">
-              <div>
-                <h3>Unplaced</h3>
-                <p>New comics found after a rescan wait here without changing your order.</p>
-              </div>
-              <button id="placeAllButton" class="button button-secondary" type="button">Place all at end</button>
-            </div>
-            <div id="unplacedItems" class="order-editor-items compact"></div>
-          </section>
-          <p id="orderEditorError" class="form-error" hidden></p>
-        </div>
-        <footer class="dialog-footer">
-          <button class="button button-ghost close-order-editor" value="cancel">Cancel</button>
-          <button id="saveOrderButton" class="button button-primary" type="button">Save order</button>
-        </footer>
-      </form>
-    </dialog>
-
     <dialog id="comicPickerDialog" class="dialog comic-picker-dialog">
       <form method="dialog" class="dialog-card">
         <header class="dialog-header">
@@ -1403,7 +1413,7 @@
             <p class="eyebrow">Manual chronology</p>
             <h2>Add comics</h2>
           </div>
-          <button class="icon-button close-comic-picker" value="cancel" aria-label="Close comic picker">
+          <button class="icon-button close-comic-picker" value="cancel" aria-label="Close comic picker" data-tip="Close comic picker">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
           </button>
         </header>
@@ -1427,7 +1437,7 @@
     <dialog id="readerDialog" class="reader-dialog">
       <div class="reader-shell">
         <header class="reader-toolbar">
-          <button id="readerClose" class="reader-button reader-back-button" type="button" aria-label="Back to library">
+          <button id="readerClose" class="reader-button reader-back-button" type="button" aria-label="Back to library" data-tip="Back to library">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></svg>
             <span>Back</span>
           </button>
@@ -1475,6 +1485,8 @@
       <span id="toastMessage"></span>
       <button id="toastAction" class="toast-action" type="button" hidden></button>
     </div>
-    <script src="/app.js?v=0.4.3-1024" defer></script>
+    <script src="/router.js?v=0.5.2-1044" defer></script>
+    <script src="/tooltip.js?v=0.5.2-1044" defer></script>
+    <script src="/app.js?v=0.5.2-1044" defer></script>
   </body>
 </html>

@@ -177,7 +177,6 @@ const elements = {
   continueSection: document.querySelector("#continueSection"),
   continueRow: document.querySelector("#continueRow"),
   searchInput: document.querySelector("#searchInput"),
-  ordersButton: document.querySelector("#ordersButton"),
   scanControl: document.querySelector("#scanControl"),
   scanButton: document.querySelector("#scanButton"),
   scanMenuButton: document.querySelector("#scanMenuButton"),
@@ -190,9 +189,13 @@ const elements = {
   bulkMetadataMenuState: document.querySelector("#bulkMetadataMenuState"),
   issuesButton: document.querySelector("#issuesButton"),
   issueCount: document.querySelector("#issueCount"),
-  settingsButton: document.querySelector("#settingsButton"),
   emptyAddButton: document.querySelector("#emptyAddButton"),
-  settingsDialog: document.querySelector("#settingsDialog"),
+  // Keyed as dialogs because that is what these were. panelShelf.panel()
+  // hands back the panel wearing enough of <dialog>'s interface — open,
+  // showModal(), close() — that the code driving them did not have to move.
+  settingsDialog: panelShelf.panel("sources"),
+  settingsPanel: panelShelf.panel("settings"),
+  settingsPanelError: document.querySelector("#settingsPanelError"),
   sourceList: document.querySelector("#sourceList"),
   browseButton: document.querySelector("#browseButton"),
   manualPath: document.querySelector("#manualPath"),
@@ -225,7 +228,7 @@ const elements = {
   bulkAssignOrder: document.querySelector("#bulkAssignOrder"),
   bulkAssignError: document.querySelector("#bulkAssignError"),
   applyBulkAssignButton: document.querySelector("#applyBulkAssignButton"),
-  libraryReviewDialog: document.querySelector("#libraryReviewDialog"),
+  libraryReviewDialog: panelShelf.panel("metadata/review"),
   libraryReviewSummary: document.querySelector("#libraryReviewSummary"),
   duplicateSummary: document.querySelector("#duplicateSummary"),
   duplicateList: document.querySelector("#duplicateList"),
@@ -248,10 +251,7 @@ const elements = {
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
   settingsError: document.querySelector("#settingsError"),
   metadataSettingsStatus: document.querySelector("#metadataSettingsStatus"),
-  openMetadataSettingsButton: document.querySelector(
-    "#openMetadataSettingsButton"
-  ),
-  metadataSettingsDialog: document.querySelector("#metadataSettingsDialog"),
+  metadataSettingsDialog: panelShelf.panel("metadata"),
   metadataGcdState: document.querySelector("#metadataGcdState"),
   metadataGcdEnabled: document.querySelector("#metadataGcdEnabled"),
   metadataProviderState: document.querySelector("#metadataProviderState"),
@@ -275,7 +275,7 @@ const elements = {
   saveMetadataSettingsButton: document.querySelector(
     "#saveMetadataSettingsButton"
   ),
-  bulkMetadataDialog: document.querySelector("#bulkMetadataDialog"),
+  bulkMetadataDialog: panelShelf.panel("metadata/enrich"),
   bulkMetadataProgress: document.querySelector("#bulkMetadataProgress"),
   bulkMetadataStatus: document.querySelector("#bulkMetadataStatus"),
   bulkMetadataCurrent: document.querySelector("#bulkMetadataCurrent"),
@@ -369,7 +369,7 @@ const elements = {
   folderUpButton: document.querySelector("#folderUpButton"),
   selectFolderButton: document.querySelector("#selectFolderButton"),
   folderError: document.querySelector("#folderError"),
-  structureDialog: document.querySelector("#structureDialog"),
+  structureDialog: panelShelf.panel("sources/structure"),
   structurePath: document.querySelector("#structurePath"),
   structureProfile: document.querySelector("#structureProfile"),
   analyzeStructureButton: document.querySelector("#analyzeStructureButton"),
@@ -393,7 +393,7 @@ const elements = {
   stagingPolicy: document.querySelector("#stagingPolicy"),
   hideOrderPrefixes: document.querySelector("#hideOrderPrefixes"),
   useStructureButton: document.querySelector("#useStructureButton"),
-  issuesDialog: document.querySelector("#issuesDialog"),
+  issuesDialog: panelShelf.panel("sources/issues"),
   issuesSummary: document.querySelector("#issuesSummary"),
   issueList: document.querySelector("#issueList"),
   issuesSettingsButton: document.querySelector("#issuesSettingsButton"),
@@ -406,11 +406,11 @@ const elements = {
   openDsmPermissionsButton: document.querySelector("#openDsmPermissionsButton"),
   copyAccountButton: document.querySelector("#copyAccountButton"),
   permissionRescanButton: document.querySelector("#permissionRescanButton"),
-  ordersDialog: document.querySelector("#ordersDialog"),
+  ordersDialog: panelShelf.panel("orders"),
   manualOrderList: document.querySelector("#manualOrderList"),
   automaticOrderList: document.querySelector("#automaticOrderList"),
   createOrderButton: document.querySelector("#createOrderButton"),
-  orderDetailDialog: document.querySelector("#orderDetailDialog"),
+  orderDetailDialog: panelShelf.panel("orders/detail"),
   orderDetailKind: document.querySelector("#orderDetailKind"),
   orderDetailName: document.querySelector("#orderDetailName"),
   orderDetailDescription: document.querySelector("#orderDetailDescription"),
@@ -432,7 +432,7 @@ const elements = {
   duplicateOrderButton: document.querySelector("#duplicateOrderButton"),
   deleteOrderButton: document.querySelector("#deleteOrderButton"),
   startOrderButton: document.querySelector("#startOrderButton"),
-  orderEditorDialog: document.querySelector("#orderEditorDialog"),
+  orderEditorDialog: panelShelf.panel("orders/edit"),
   orderEditorTitle: document.querySelector("#orderEditorTitle"),
   orderName: document.querySelector("#orderName"),
   orderDescription: document.querySelector("#orderDescription"),
@@ -967,7 +967,7 @@ function renderReaderProfiles(status) {
 }
 
 async function loadReaderProfiles() {
-  if (!elements.settingsDialog.open) return;
+  if (!elements.settingsPanel.open) return;
   try {
     renderReaderProfiles(await api("/api/readers"));
   } catch (error) {
@@ -1043,7 +1043,7 @@ async function deleteReaderProfile(profile) {
 }
 
 async function loadDevicePairing() {
-  if (!elements.settingsDialog.open) return;
+  if (!elements.settingsPanel.open) return;
   try {
     renderDevicePairing(await api("/api/devices"));
   } catch (error) {
@@ -1413,7 +1413,7 @@ function renderCoverCache(status) {
 async function pollCoverCache() {
   clearTimeout(state.coverCachePollTimer);
   state.coverCachePollTimer = null;
-  if (!elements.settingsDialog.open) return;
+  if (!elements.settingsPanel.open) return;
   try {
     const status = await api("/api/covers/cache");
     renderCoverCache(status);
@@ -1421,7 +1421,7 @@ async function pollCoverCache() {
       state.coverCachePollTimer = setTimeout(pollCoverCache, 1000);
     }
   } catch (error) {
-    if (elements.settingsDialog.open) showFormError(elements.settingsError, error);
+    if (elements.settingsPanel.open) showFormError(elements.settingsPanelError, error);
   }
 }
 
@@ -6199,25 +6199,38 @@ async function openSettingsSources() {
 
 function openSettings() {
   clearFormError(elements.settingsError);
-  elements.devicePairingCode.hidden = true;
   openSettingsSources().then(() => {
-    // After `showModal`, not before. Both of these bail when the dialog is shut,
-    // which is what stops them polling a panel nobody is looking at — and which
-    // silently made them no-ops when they ran a line too early.
+    // After `showModal`, not before. These bail when the panel is not showing,
+    // which is what stops them polling something nobody is looking at — and
+    // which silently made them no-ops when they ran a line too early.
     if (!elements.settingsDialog.open) return;
-    pollCoverCache();
-    // Before the pairing list, which draws a profile picker on every device row
-    // and would otherwise draw an empty one on first open.
-    loadReaderProfiles().then(() => loadDevicePairing());
-    // Fills the callout's counts, so what needs looking at is visible without
-    // opening anything.
-    loadLibraryReview();
-    // Same reason. A drive that fell out is the first thing worth knowing on
-    // opening this panel, and it is the reason most people open it.
+    // A drive that fell out is the first thing worth knowing here, and it is
+    // the reason most people open Sources at all.
     refreshSourceHealth();
     loadScanSchedule();
   });
 }
+
+// Each destination loads its own data on arrival. This used to be one function
+// behind one gear, which is why opening the folder list also went and polled
+// the cover cache.
+function loadPanelData(path) {
+  if (path === "orders") renderOrders();
+  // Sources loads the folder list, the drive health and the scan schedule.
+  if (path === "sources") openSettings();
+  if (path === "settings") {
+    elements.devicePairingCode.hidden = true;
+    clearFormError(elements.settingsPanelError);
+    pollCoverCache();
+    // Before the pairing list, which draws a profile picker on every device row
+    // and would otherwise draw an empty one on first open.
+    loadReaderProfiles().then(() => loadDevicePairing());
+  }
+  // Fills the review callout's counts, so what needs looking at is visible
+  // without opening anything.
+  if (path === "metadata") loadLibraryReview();
+}
+
 
 function browserBackupState() {
   return {
@@ -6364,7 +6377,7 @@ async function restoreBackupFile(file) {
     });
     applyRestoredBrowserState(result.browser);
     state.editingLibraries = [];
-    elements.settingsDialog.close();
+    elements.settingsPanel.close();
     await refresh();
     showToast("Backup restored. Scanning restored sources…");
     await runScan({ action: "quick" });
@@ -7297,7 +7310,6 @@ document.querySelectorAll(".filter-chip").forEach((button) => {
     renderComics();
   });
 });
-elements.ordersButton.addEventListener("click", openOrders);
 elements.scanButton.addEventListener("click", () =>
   runScan({ action: "quick" })
 );
@@ -7324,11 +7336,7 @@ document
     )
   );
 elements.issuesButton.addEventListener("click", openIssues);
-elements.settingsButton.addEventListener("click", openSettings);
-elements.emptyAddButton.addEventListener("click", openSettings);
-elements.openMetadataSettingsButton.addEventListener("click", () =>
-  openMetadataSettings()
-);
+elements.emptyAddButton.addEventListener("click", () => panelShelf.navigate("sources"));
 elements.saveMetadataSettingsButton.addEventListener("click", () =>
   saveMetadataSettings()
 );
@@ -7625,7 +7633,7 @@ elements.importOrderInput.addEventListener("change", async () => {
   }
 });
 
-elements.settingsDialog.addEventListener("close", stopCoverCachePolling);
+elements.settingsPanel.addEventListener("close", stopCoverCachePolling);
 
 elements.addReaderProfileButton.addEventListener("click", () => addReaderProfile());
 
@@ -7740,6 +7748,14 @@ elements.selectFolderButton.addEventListener("click", async () => {
 document.querySelectorAll(".close-dialog").forEach((button) => {
   button.addEventListener("click", () => elements.settingsDialog.close());
 });
+document.querySelectorAll(".close-settings").forEach((button) => {
+  button.addEventListener("click", () => elements.settingsPanel.close());
+});
+
+document.addEventListener("panelshelf:route", (event) => loadPanelData(event.detail.path));
+// The router settles the first route before app.js runs, so that arrival never
+// reached the listener above.
+loadPanelData(panelShelf.path);
 document.querySelectorAll(".close-metadata-settings").forEach((button) => {
   button.addEventListener("click", () => {
     state.metadata.pendingComic = null;
@@ -7834,8 +7850,9 @@ elements.confirmComicPickerButton.addEventListener("click", () => {
   renderOrderEditorItems();
 });
 elements.issuesSettingsButton.addEventListener("click", () => {
+  // Closing the issues panel lands on Sources, and arriving there is what
+  // loads it. Calling openSettings() as well would load it twice.
   elements.issuesDialog.close();
-  openSettings();
 });
 // The server owns the report, so clearing goes there rather than emptying the
 // list locally: every browser and the iPad see the same scan, and a page reload

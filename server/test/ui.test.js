@@ -16,11 +16,11 @@ test("browser application parses and ships reading orders and reader modes", asy
   ]);
 
   assert.doesNotThrow(() => new vm.Script(application, { filename: "app.js" }));
-  assert.match(document, /id="structureDialog"/);
+  assert.match(document, /id="structurePanel"/);
   assert.match(document, /value="hierarchical-timeline"/);
   assert.match(document, /value="exact-reading-order"/);
-  assert.match(document, /id="ordersDialog"/);
-  assert.match(document, /id="orderEditorDialog"/);
+  assert.match(document, /id="ordersPanel"/);
+  assert.match(document, /id="orderEditorPanel"/);
   assert.match(document, /id="continueSection"/);
   assert.match(document, /id="libraryViews"/);
   assert.match(document, /data-view="publisher"/);
@@ -72,7 +72,7 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(styles, /\.metadata-editor-cover\b/);
   for (const id of [
     "openLibraryReviewButton",
-    "libraryReviewDialog",
+    "reviewPanel",
     "duplicateList",
     "reviewQueueList"
   ]) {
@@ -100,10 +100,10 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(document, /id="disablePairingButton"/);
   assert.match(styles, /\.device-pairing-code \{/);
   assert.match(styles, /\.device-pairing-list \{/);
-  assert.match(document, /id="metadataSettingsDialog"/);
+  assert.match(document, /id="metadataPanel"/);
   assert.match(document, /id="metadataDialog"/);
   assert.match(document, /id="metadataEditorDialog"/);
-  assert.match(document, /id="bulkMetadataDialog"/);
+  assert.match(document, /id="enrichPanel"/);
   assert.match(document, /id="bulkMetadataAction"/);
   assert.match(document, /class="bulk-progress-track"/);
   assert.doesNotMatch(document, /<progress\b/);
@@ -124,7 +124,19 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(document, /value="openlibrary"/);
   assert.doesNotMatch(document, /comicvine/i);
   assert.match(document, /styles\.css\?v=0\.4\.3-1024/);
-  assert.match(document, /app\.js\?v=0\.4\.3-1024/);
+  // All three scripts carry one cache-bust between them, or a release ships a
+  // new app.js against a cached router and the panels stop resolving.
+  const scripts = [...document.matchAll(/src="\/(router|tooltip|app)\.js\?v=([^"]+)"/g)];
+  assert.equal(scripts.length, 3, "router, tooltip and app are all cache-busted");
+  assert.equal(
+    new Set(scripts.map((match) => match[2])).size,
+    1,
+    "and all three at the same version"
+  );
+  assert.ok(
+    document.indexOf('src="/router.js') < document.indexOf('src="/app.js'),
+    "router.js loads first: it defines panelShelf, which app.js reads as it loads"
+  );
   assert.match(application, /nextComicInReaderOrder/);
   assert.match(application, /PROGRESS_STORAGE_KEY/);
   assert.match(application, /LIBRARY_VIEW_STORAGE_KEY/);
@@ -187,10 +199,68 @@ test("browser application parses and ships reading orders and reader modes", asy
   assert.match(styles, /\.provider-card/);
   assert.match(styles, /\.scan-menu/);
   assert.match(styles, /\.scan-action/);
-  assert.match(styles, /\.bulk-metadata-dialog/);
-  assert.match(styles, /\.bulk-metadata-dialog::backdrop[\s\S]*backdrop-filter: none/);
+  assert.match(styles, /\.bulk-metadata-panel/);
+  // No backdrop assertion any more: enrichment is a panel, so there is
+  // nothing behind it to blur. The compositing hints stayed.
+  assert.match(styles, /\.bulk-metadata-panel[\s\S]*transform: translateZ\(0\)/);
   assert.match(styles, /\.reader-back-button/);
   assert.match(styles, /\.collection-status-control/);
+  // --- Legibility -----------------------------------------------------------
+  // 190 of 216 size rules used to be 13px or smaller, and 63 of them 9px or
+  // smaller. This is the floor that replaced them.
+  const tooSmall = [...styles.matchAll(/font-size:\s*(\d+)px/g)]
+    .map((match) => Number(match[1]))
+    .filter((size) => size < 12);
+  assert.deepEqual(tooSmall, [], "no font-size in the stylesheet drops below 12px");
+  assert.match(styles, /--text-base: 15px;/);
+  assert.match(styles, /--leading-normal: 1\.55;/);
+
+  // --- Navigation -----------------------------------------------------------
+  for (const path of [
+    "library",
+    "orders", "orders/detail", "orders/edit",
+    "sources", "sources/structure", "sources/issues",
+    "metadata", "metadata/enrich", "metadata/review",
+    "settings"
+  ]) {
+    assert.match(document, new RegExp(`data-panel="${path}"`), `${path} is a panel`);
+  }
+  for (const section of ["library", "orders", "sources", "metadata", "settings"]) {
+    assert.match(document, new RegExp(`data-route-link="${section}"`), `${section} is in the nav`);
+  }
+  // Eight dialogs stayed modal, because each interrupts a flow rather than
+  // being somewhere you navigate to.
+  assert.equal(
+    (document.match(/<dialog/g) || []).length,
+    8,
+    "only the interrupting dialogs are still modal"
+  );
+  assert.equal(
+    (document.match(/data-panel="/g) || []).length,
+    (document.match(/data-panel-heading/g) || []).length,
+    "every panel has a heading for the router to move focus to"
+  );
+
+  // --- Affordance -----------------------------------------------------------
+  // A tip is decoration. The control still has to name itself to a screen
+  // reader, which is what the tip duplicates.
+  const tipped = [...document.matchAll(/<button[^>]*data-tip="[^"]*"[^>]*>/g)];
+  assert.ok(tipped.length >= 15, `the icon-only controls carry tips (found ${tipped.length})`);
+  for (const [tag] of tipped) {
+    assert.match(tag, /aria-label="/, `a tipped control names itself: ${tag.slice(0, 70)}`);
+  }
+
+  // --- The load-bearing constraint -----------------------------------------
+  // app.js reaches for its elements by id. Re-parenting the dialogs into panels
+  // is precisely the change that drops one silently, so sweep them all.
+  const queried = [...application.matchAll(/querySelector\("#([A-Za-z0-9_-]+)"\)/g)]
+    .map((match) => match[1]);
+  assert.ok(queried.length > 250, `the id sweep found what it expects (${queried.length})`);
+  assert.deepEqual(
+    queried.filter((id) => !document.includes(`id="${id}"`)),
+    [],
+    "every id app.js queries exists in index.html"
+  );
 });
 
 // The shelf reconciler is sliced out the same way the progress block is. The
