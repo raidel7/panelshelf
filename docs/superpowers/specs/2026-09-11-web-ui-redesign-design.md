@@ -190,3 +190,31 @@ a real regression, not a test to update.
   files are additional `<script>` tags.
 - Light theme. The app remains `color-scheme: dark`.
 - Any change to server endpoints or the scanning, metadata or reader logic.
+
+## As built (2026-09-12)
+
+Built in `3fc878b` and `c240c4f`. Three deliberate departures from the design
+above, all discovered in the code rather than decided in advance:
+
+- **Panels wear a dialog's interface rather than replacing its call sites.**
+  app.js opens, closes and tests these ten views in 46 places. `panelShelf.panel()`
+  returns the panel with `open`, `showModal()` and `close()` defined on it, so
+  those 46 sites stayed correct and the routing semantics live in `router.js`
+  once. The `elements` keys keep their historical `…Dialog` names; only what
+  they point at changed. Nine registry lines, not 46 call sites.
+- **Ids were renamed after all.** The design said preserve all 305 verbatim. The
+  nine dialog ids turned out to be referenced *only* in those registry lines, so
+  keeping `id="ordersDialog"` on a `<section>` would have been misleading for no
+  benefit. They are `…Panel` now; the other 296 are untouched, and the third
+  regression guard sweeps every id app.js queries.
+- **Settings splitting cost more than the estimated ~20 app.js lines.** All four
+  `settingsDialog.open` guards turned out to belong to the housekeeping half
+  (cover cache, reader profiles, device pairing), not the folders half. Those,
+  the backup-restore close, and the cover-cache `close` listener re-point to the
+  new Settings panel, and `openSettings()` lost its tail: each destination loads
+  its own data on arrival via a `panelshelf:route` listener, rather than opening
+  the folder list also polling the cover cache.
+
+Two header controls were also removed as redundant with the nav — the Reading
+orders button and the gear — along with the Online metadata callout inside the
+Metadata panel. 540 tests pass.
