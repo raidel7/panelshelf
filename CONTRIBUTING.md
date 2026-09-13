@@ -19,7 +19,7 @@ server or the tests.
 
 ```bash
 npm run install:server
-npm test                                        # 197 tests, no network, no NAS
+npm test                                        # 540 tests, no network, no NAS
 PANELSHELF_DATA=/tmp/panelshelf-data npm start  # http://localhost:8251/
 ```
 
@@ -35,6 +35,17 @@ npm run conformance -- http://localhost:8251
 Points at a running server and checks it against the contract in `README.md`.
 Useful after changing anything a client depends on, and safe against a real
 library — it writes nothing unless you pass `--write`.
+
+```bash
+npm run smoke:ui
+```
+
+Drives the browser client in headless Chrome: nav clicks, the Back button, a
+sub-panel closing back to its section, a modal still opening modally, tooltips
+on hover. `npm test` reads the markup and runs slices of `app.js` in a vm, so a
+route that never fires or a close button wired to the wrong panel parses
+perfectly and fails only here. Needs Chrome or Chromium (`CHROME=/path` to pick
+one) and a running server, and is read-only against a real library too.
 
 ## Building a package
 
