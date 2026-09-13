@@ -1,6 +1,6 @@
 {
   "name": "panelshelf",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "description": "A lightweight, native Synology comic library and browser reader.",
   "scripts": {
