@@ -93,6 +93,6 @@ published on the same page as the download.
 
 That is genuinely useful, and the thing that turns a row of this table from
 Untested to Supported. What helps: whether it installed, whether a scan
-finished, and **Library settings → Download support bundle**, which carries the
+finished, and **Settings → Download support bundle**, which carries the
 architecture, the DSM version, and what the scan cost. Read it before posting
 it — it contains your folder paths.

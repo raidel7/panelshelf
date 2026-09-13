@@ -119,7 +119,7 @@ Center, its own firewall port, and logs where DSM keeps logs.
    your CPU. ([Which models are tested](SUPPORTED_MODELS.md))
 3. Accept the third-party package warning
 4. Start it, click **Open** — or visit `http://YOUR-NAS-IP:8251/`
-5. **Library settings** → browse to a comics folder → review what it detected →
+5. **Sources** → browse to a comics folder → review what it detected →
    **Save and scan**
 
 That's it. Browse **All comics**, **Publishers**, or **Chronological**.

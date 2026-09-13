@@ -70,7 +70,7 @@ documented setups all put a reverse proxy in front of it.
 
 ## The support bundle
 
-**Library settings → Download support bundle** builds a diagnostic file and
+**Settings → Download support bundle** builds a diagnostic file and
 downloads it to your device. PanelShelf does not send it anywhere; where it
 goes next is entirely your decision.
 

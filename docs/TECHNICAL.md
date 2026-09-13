@@ -46,7 +46,7 @@ PanelShelf can require every client to be paired. It is off by default, because
 turning it on locks out every client that has not paired yet — including OPDS
 readers — and that is the owner's decision rather than an upgrade's.
 
-Enable it in **Library settings**. The browser that turns it on is paired in the
+Enable it in **Settings**. The browser that turns it on is paired in the
 same step, so you cannot lock yourself out of the page you are looking at. To
 pair anything else, generate an eight-character code and type it into the other
 client within five minutes; the token it receives is shown once and stored only
@@ -952,7 +952,7 @@ owning UDP 5353 or a firewall, not at our packet encoding.
 
 ## Backup and restore
 
-Open **Library settings** and select **Export backup** to download a portable
+Open **Settings** and select **Export backup** to download a portable
 PanelShelf JSON file. A backup contains:
 
 - source paths and organization profiles
@@ -973,7 +973,7 @@ quick scan begins after restoration.
 
 ## Scheduled scanning
 
-`GET /api/schedule`, `PUT /api/schedule`, and **Library settings → Scheduled
+`GET /api/schedule`, `PUT /api/schedule`, and **Sources → Scheduled
 scan**. Off until you turn it on.
 
 | Field | Means |
@@ -1032,7 +1032,7 @@ knowing what the migration meant.
 
 ## Source health
 
-`GET /api/sources/health`, and **Library settings → Source health**.
+`GET /api/sources/health`, and **Sources → Source health**.
 
 One answer to whether the library is well, gathered from what the server already
 knows — nothing here walks the disk beyond the folder check the config route
@@ -1104,7 +1104,7 @@ scan report, so it survives a restart and a quick scan that reopened nothing.
 
 ## Support bundle
 
-**Library settings → Download support bundle**, or `GET /api/support-bundle`.
+**Settings → Download support bundle**, or `GET /api/support-bundle`.
 One JSON file to attach to a bug report, holding the things a screenshot cannot
 carry: versions, how this server is configured, the arrangement of every source
 and whether it is reachable, counts of comics and reading positions, the names
@@ -1169,7 +1169,7 @@ the next load, which keeps whichever copy has the newer timestamp.
 
 Progress belongs to a [reader profile](#reader-profiles), and out of the box
 there is one of them, so it is shared by everyone using the server. Open
-**Library settings** to add a reader and to choose which one this browser reads
+**Settings** to add a reader and to choose which one this browser reads
 as; the page reloads, because every shelf on it then means something different.
 Each profile keeps its own local copy too, so switching readers never hands one
 person's cached positions to another.
