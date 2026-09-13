@@ -1,3 +1,72 @@
+# PanelShelf 0.5.3-1045
+
+The web client had grown seventeen dialogs and a gear icon with ten unrelated
+things behind it. This is the pass that gives everything a name and a place, and
+makes the type large enough to read from a chair.
+
+## Five places instead of seventeen dialogs
+
+- **Library**, **Reading orders**, **Sources**, **Metadata** and **Settings** are
+  destinations in the top bar. Reading orders and Sources were the two things
+  most worth reaching for and the two most buried; they are one click away now.
+- **Library settings** is gone as a single scroll. It held library folders,
+  online metadata, backups, the support bundle, the scan schedule, source health,
+  library review, the cover cache, reader profiles and device pairing — ten
+  concerns and no relationship between them. Folders, the schedule and source
+  health are under **Sources**; providers and library review under **Metadata**;
+  the five genuinely housekeeping ones under **Settings**.
+- Eight dialogs stayed modal, because each interrupts something rather than being
+  somewhere you go: the reader, the folder picker, the permission notice, the
+  comic picker, and the per-comic and bulk metadata editors.
+- Every destination has an address — `#/orders`, `#/sources/issues` — so the
+  browser's Back button works and a section can be bookmarked. Neither was
+  possible before; the app had no routing at all.
+- Each one loads its own data when you arrive. Opening the folder list used to
+  also go and poll the cover cache, because one function opened everything.
+
+## Type sized for a screen at arm's length
+
+- The stylesheet had no scale. 190 of its 216 size rules were 13px or smaller and
+  63 were 9px or smaller, and those were carrying real content — comic titles,
+  status labels, the copy inside every card — not fine print. Three quarters of
+  them set no line spacing either, so it was small text at the browser's default
+  leading.
+- Nine steps replace them, and the shape of the change matters more than the
+  sizes: the smallest text grew by half, the largest by under a fifth. The page
+  did not simply get bigger — the distance between the smallest thing and the
+  largest closed from 6.5:1 to 4.3:1, which is what makes it read as a page
+  rather than a poster with footnotes.
+
+## The controls say what they do
+
+- Twenty-three buttons were an icon and nothing else. They carried an
+  `aria-label`, so a screen reader could name them and a sighted reader could
+  not. They have tooltips now, on hover and on keyboard focus, sharing one
+  bubble that stays out of the accessibility tree because the label is already
+  there.
+- Anything with room for a word still gets the word. A tooltip on everything
+  would only mean hovering everything to learn the interface.
+
+## What keeps it from sliding back
+
+- Three assertions in the test suite: no font size below 12px anywhere in the
+  stylesheet, every tooltipped control still names itself, and every element id
+  `app.js` reaches for exists in the markup — the last one guards the way this
+  redesign was built, which was to re-parent the existing markup rather than
+  rewrite it.
+- `npm run smoke:ui` drives the client in headless Chrome and checks the
+  twenty-one things a click reaches and a test harness cannot: routes firing,
+  Back and Forward, a sub-panel closing to its section rather than the library,
+  a modal still being modal, tooltips appearing. Read-only, and safe to point at
+  a real library.
+
+## Still untested on hardware
+
+The redesign has run on a laptop in Chrome at 1440px and 700px and nowhere else.
+DSM's own browser, Safari, and a phone held sideways are all unverified. Nothing
+in it touches scanning, metadata, or the reader, so the blast radius is the
+navigation itself.
+
 # PanelShelf 0.5.1-1043
 
 Most of section 10, which is the milestone about what the server does when
