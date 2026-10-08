@@ -1,3 +1,24 @@
+# PanelShelf 0.5.4-1046
+
+One fix, for libraries that slot a late arrival into the order with a letter
+instead of a decimal.
+
+## 008a is a position now
+
+- A folder or comic named `008a Thor - The Trial of Thor (2017)-` was treated as
+  unnumbered: it lost its position chip and trailed every numbered sibling. The
+  parser only accepted a space or a dash after the digits.
+- A single lowercase letter after the number now counts. Within a number,
+  letters come last: `8`, `8.1`, `8.2`, `8a`, `8b`, then `9`.
+- Lowercase only. `3D Man` and `2000AD` are titles, not positions, and stay as
+  they were. `008A`, `008ab` and `008.1a` are still unnumbered.
+- Rescan after upgrading; nothing needs renaming.
+
+## For other clients
+
+The rank the API returns for such a folder is `8a`. A client that sorts on the
+rank itself, rather than taking the server's order, needs the same rule.
+
 # PanelShelf 0.5.3-1045
 
 The web client had grown seventeen dialogs and a gear icon with ten unrelated
