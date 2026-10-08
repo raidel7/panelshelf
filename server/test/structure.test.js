@@ -32,6 +32,7 @@ test("numeric prefixes support mixed widths and dotted insertion ranks", () => {
     normalized: "10",
     whole: "10",
     fraction: "",
+    suffix: "",
     label: "Marvel NOW!"
   });
   assert.equal(parseOrderPrefix("0.224 Wolverine - Origin").normalized, "0.224");
@@ -50,6 +51,34 @@ test("numeric prefixes support mixed widths and dotted insertion ranks", () => {
       parseOrderPrefix("36.01 item")
     ) < 0
   );
+});
+
+test("a lowercase letter after the number is a position, and sorts last within it", () => {
+  assert.deepEqual(parseOrderPrefix("008a Thor - The Trial of Thor (2017)-"), {
+    raw: "008a",
+    normalized: "8a",
+    whole: "8",
+    fraction: "",
+    suffix: "a",
+    label: "Thor - The Trial of Thor (2017)-"
+  });
+  assert.equal(parseOrderPrefix("008a - Thor").label, "Thor");
+  assert.equal(parseOrderPrefix("12b").normalized, "12b");
+  const sorted = ["009 x", "008b x", "008.2 x", "008a x", "008 x", "008.1 x"]
+    .map(parseOrderPrefix)
+    .sort(compareRanks)
+    .map((rank) => rank.normalized);
+  assert.deepEqual(sorted, ["8", "8.1", "8.2", "8a", "8b", "9"]);
+  // A rank survives the round trip sortTree puts it through.
+  assert.equal(parseOrderPrefix("8a x").normalized, "8a");
+});
+
+test("titles that merely start with a number and a letter are not positions", () => {
+  assert.equal(parseOrderPrefix("3D Man"), null);
+  assert.equal(parseOrderPrefix("2000AD Progs"), null);
+  assert.equal(parseOrderPrefix("1st Issue Special"), null);
+  assert.equal(parseOrderPrefix("008.1a Thor"), null);
+  assert.equal(parseOrderPrefix("008ab Thor"), null);
 });
 
 test("publisher aliases distinguish publisher and imprint", () => {

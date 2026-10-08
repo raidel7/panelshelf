@@ -223,6 +223,11 @@ test("rank comparison survives zero padding and dotted insertions", () => {
   assert.ok(compareRankValues("0002", "10") < 0, "padding does not change that");
   assert.ok(compareRankValues("0029.1", "0030") < 0);
   assert.ok(compareRankValues("0029.1", "0029") > 0, "an insertion follows its whole");
+  assert.ok(compareRankValues("8a", "8") > 0, "a letter follows its whole");
+  assert.ok(compareRankValues("8a", "8.2") > 0, "and follows every insertion");
+  assert.ok(compareRankValues("8a", "8b") < 0);
+  assert.ok(compareRankValues("8b", "9") < 0);
+  assert.ok(compareRankValues("8a", "10") < 0);
   assert.ok(compareRankValues("0.9", "0.10") > 0, "fractions compare digit by digit");
   assert.equal(compareRankValues("007", "7"), 0);
 });

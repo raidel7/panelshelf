@@ -79,35 +79,35 @@ function normalizeRank(raw) {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-function parseOrderPrefix(value) {
-  const source = String(value || "").trim();
-  const pureNumber = source.match(/^(\d+(?:\.\d+)?)$/);
-  if (pureNumber) {
-    const raw = pureNumber[1];
-    const [wholeRaw, fractionRaw = ""] = raw.split(".");
-    return {
-      raw,
-      normalized: normalizeRank(raw),
-      whole: wholeRaw.replace(/^0+(?=\d)/, "") || "0",
-      fraction: fractionRaw.replace(/0+$/, ""),
-      label: source
-    };
-  }
-  const match = source.match(
-    /^(\d+(?:\.\d+)?)(?:\s*[-–—]\s*|\s+)(.+)$/
-  );
-  if (!match) return null;
-  const raw = match[1];
-  const label = match[2].trim();
-  if (!label) return null;
-  const [wholeRaw, fractionRaw = ""] = raw.split(".");
+// A position is a number, optionally with a dotted insertion (029.1) or a
+// single lowercase letter (008a). Lowercase only: "3D Man" and "2000AD" are
+// titles, and a capital after the digits is far more often one of those than a
+// position. A letter and a dotted insertion are not combined.
+function rankFromMatch(digits, tail = "", label) {
+  const suffix = tail.startsWith(".") ? "" : tail;
+  const number = suffix ? digits : `${digits}${tail}`;
+  const [wholeRaw, fractionRaw = ""] = number.split(".");
   return {
-    raw,
-    normalized: normalizeRank(raw),
+    raw: `${number}${suffix}`,
+    normalized: `${normalizeRank(number)}${suffix}`,
     whole: wholeRaw.replace(/^0+(?=\d)/, "") || "0",
     fraction: fractionRaw.replace(/0+$/, ""),
+    suffix,
     label
   };
+}
+
+function parseOrderPrefix(value) {
+  const source = String(value || "").trim();
+  const pureNumber = source.match(/^(\d+)(\.\d+|[a-z])?$/);
+  if (pureNumber) return rankFromMatch(pureNumber[1], pureNumber[2], source);
+  const match = source.match(
+    /^(\d+)(\.\d+|[a-z])?(?:\s*[-–—]\s*|\s+)(.+)$/
+  );
+  if (!match) return null;
+  const label = match[3].trim();
+  if (!label) return null;
+  return rankFromMatch(match[1], match[2], label);
 }
 
 function compareUnsignedInteger(left, right) {
@@ -122,6 +122,9 @@ function compareUnsignedInteger(left, right) {
 function compareRanks(left, right) {
   const wholeComparison = compareUnsignedInteger(left.whole, right.whole);
   if (wholeComparison !== 0) return wholeComparison;
+  // Letters always last within a number: 8, 8.1, 8.2, then 8a, 8b.
+  const suffixComparison = (left.suffix || "").localeCompare(right.suffix || "");
+  if (suffixComparison !== 0) return suffixComparison;
   const width = Math.max(left.fraction.length, right.fraction.length);
   const leftFraction = left.fraction.padEnd(width, "0");
   const rightFraction = right.fraction.padEnd(width, "0");

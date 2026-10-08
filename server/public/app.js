@@ -4273,9 +4273,17 @@ function renderPublisherView(filtered) {
   );
 }
 
+// "8a" is the number 8 and the letter a; "29.1" has no letter.
+function splitRankSuffix(rank) {
+  const match = String(rank).match(/^(.*?)([a-z]?)$/);
+  return [match[1], match[2]];
+}
+
 function compareRankValues(left, right) {
-  const [leftWhole = "0", leftFraction = ""] = String(left).split(".");
-  const [rightWhole = "0", rightFraction = ""] = String(right).split(".");
+  const [leftNumber, leftSuffix] = splitRankSuffix(left);
+  const [rightNumber, rightSuffix] = splitRankSuffix(right);
+  const [leftWhole = "0", leftFraction = ""] = leftNumber.split(".");
+  const [rightWhole = "0", rightFraction = ""] = rightNumber.split(".");
   const normalizedLeft = leftWhole.replace(/^0+(?=\d)/, "") || "0";
   const normalizedRight = rightWhole.replace(/^0+(?=\d)/, "") || "0";
   if (normalizedLeft.length !== normalizedRight.length) {
@@ -4283,6 +4291,8 @@ function compareRankValues(left, right) {
   }
   const wholeComparison = normalizedLeft.localeCompare(normalizedRight);
   if (wholeComparison !== 0) return wholeComparison;
+  // Letters always last within a number: 8, 8.1, 8.2, then 8a, 8b.
+  if (leftSuffix !== rightSuffix) return leftSuffix.localeCompare(rightSuffix);
   const width = Math.max(leftFraction.length, rightFraction.length);
   return leftFraction
     .padEnd(width, "0")
